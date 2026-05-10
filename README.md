@@ -1,5 +1,7 @@
 # 📄 `README.md` (English Version)
 
+https://t.me/IVAI_Llm_bot
+
 ```markdown
 # 🤖 IVAI Bot v25.0
 
