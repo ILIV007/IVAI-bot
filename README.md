@@ -1,91 +1,116 @@
 
 
 https://t.me/IVAI_Llm_bot
-# 🤖 IVAI Bot v29.0 — Triple Provider Edition
+(https://t.me/ILIVIR3)
+# 🤖 IVAI Bot v30.1 — Clean Edition
 
-> **The most resilient multi-provider AI Telegram bot.**  
-> 29 verified models across **OpenRouter 🔵**, **Groq 🔴**, and **Google AI Studio 🟢** — with intelligent fallback, color-coded UI, and smart re-engagement.
+> **Minimal UI. Maximum power.**  
+> A bilingual (EN/FA), triple-provider AI Telegram bot with auto-updating models, intelligent fallback, and polished UX.
 
 [![Cloudflare Workers](https://img.shields.io/badge/Cloudflare-Workers-F38020?style=flat&logo=cloudflare)](https://workers.cloudflare.com)
 [![Multi-Provider](https://img.shields.io/badge/Providers-3%20%7C%20OpenRouter%20%2B%20Groq%20%2B%20Google-blueviolet?style=flat)](https://openrouter.ai)
 [![Telegram Bot](https://img.shields.io/badge/Telegram-Bot-2CA5E0?style=flat&logo=telegram)](https://core.telegram.org/bots)
+[![Languages](https://img.shields.io/badge/Languages-EN%20%7C%20FA-yellow?style=flat)](README.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ---
 
-## ✨ What's New in v29.0
+## ✨ What's New in v30.1
 
-### 🌐 Triple Provider Architecture
-> Never go offline again. If one provider fails, IVAI automatically fails over to the next.
+### 🧹 Clean, Focused UI
+> Less clutter. More clarity.
 
-```
-User Request
-     │
-     ▼
-[Primary: OpenRouter 🔵] → 22 models
-     │
-     ▼ (if failed/timeout)
-[Fallback 1: Groq 🔴] → 4 ultra-fast LPU models
-     │
-     ▼ (if failed/timeout)  
-[Fallback 2: Google AI Studio 🟢] → 3 Gemini models
-     │
-     ▼
-[Emergency: Llama 3.2 3B] → Guaranteed response
-```
+- **No version numbers** in start screen — just essential info
+- **Real blockquote footer**: Telegram-native `<blockquote>` for response metadata
+  ```
+  Your answer here...
 
-| Provider | Models | Key Strength | Best For |
-|----------|--------|-------------|----------|
-| 🔵 **OpenRouter** | 22 | Largest variety, free tier | General use, experimentation |
-| 🔴 **Groq** | 4 | Sub-100ms inference (LPU) | Real-time chat, quick tasks |
-| 🟢 **Google AI Studio** | 3 | Massive context (524K tokens) | Long documents, complex reasoning |
+  🤖 Qwen3 Coder | ⏱ 2.3s | 🔄 2 models
+  ```
+- **Simplified start screen**: 3 sections only — Superpowers, Providers, CTA
+- **Consistent HTML formatting**: No more Markdown/HTML conflicts
 
-### 🎨 Color-Coded Premium UI
-- **🔵 Blue** = OpenRouter models
-- **🔴 Red** = Groq models  
-- **🟢 Green** = Google AI Studio models
-- Inline keyboards display provider colors for instant recognition
-- Model selection shows provider badge: `✅ Selected: 🏆 Qwen3 Coder (🔵 OpenRouter)`
-
-### 🔔 10-Day Smart Reminder
-> Re-engage inactive users automatically — without spam.
+### 🌍 Bilingual by Design (EN / FA)
+> Built for global users, starting with English and Persian.
 
 ```javascript
-// Cron trigger (configured in wrangler.toml)
-{
-  "triggers": {
-    "crons": ["0 0 * * *"]  // Daily at midnight UTC
-  }
+// Automatic language detection + manual override
+const lang = await getLang(userId, env); // "en" or "fa"
+
+// All UI strings centralized
+STRINGS.fa.start_title = "🤖 IVAI"
+STRINGS.en.start_title = "🤖 IVAI"
+
+// Commands work in both languages
+/lang → Language picker inline keyboard
+```
+
+**Supported languages:**
+| Code | Name | Flag |
+|------|------|------|
+| `en` | English | 🇬🇧 |
+| `fa` | فارسی | 🇮🇷 |
+
+### 🔧 Groq API — Finally Fixed
+> No more `400 Bad Request` or context overflow errors.
+
+**Key fixes:**
+```javascript
+// 1. Context truncation for Groq's 12K char limit
+function truncateMessagesForGroq(messages) {
+  // Keeps most recent messages + system prompt
+  // Drops oldest if over CONFIG.GROQ_MAX_CONTEXT_CHARS
 }
 
-// Logic:
-// 1. Scan users with last_active > 10 days ago
-// 2. Send personalized re-engagement message
-// 3. Highlight new features since their last visit
-// 4. Include direct link to start chatting
+// 2. Conditional max_tokens (some Groq models don't support it)
+if (model.supportsMaxTokens !== false) {
+  payload.max_tokens = Math.min(model.tokens, CONFIG.GROQ_MAX_TOKENS);
+}
+
+// 3. Better error handling for 400/413/429
+if (res.status === 400) throw new Error(`400: ${text.substring(0, 200)}`);
+if (res.status === 413) throw new Error("413: Request too large");
 ```
 
-**Reminder Message Preview:**
+**Result**: Groq models now work reliably as ultra-fast fallback.
+
+### 🔄 Auto-Update Model List
+> Stay current without redeploying.
+
 ```
-👋 Hey! Long time no see!
-
-It's been 10 days since we last chatted. IVAI has new features waiting for you:
-
-• 🟢 Google AI Studio models added
-• 🔴 Groq ultra-fast backup  
-• 🎯 Prompt Master mode
-• 🎛 Inline model picker
-
-Just send me anything or tap /start to explore!
-
-🌀 @ILIVIR3
+Every 15 days (cron trigger):
+1. Fetch https://openrouter.ai/api/v1/models?limit=1000
+2. Filter :free models only
+3. Auto-categorize by params/context/keywords:
+   • "coder"/"laguna" → Code
+   • "reason"/"hermes"/params≥30B → Deep  
+   • else → Fast
+4. Save to KV with 15-day TTL
+5. Hot-reload into FAST_MODELS/DEEP_MODELS/CODE_MODELS
 ```
 
-### ⚡ Enhanced Reliability Features
-- **Provider Health Monitoring**: Circuit breaker tracks failures per model AND per provider
-- **Smart Fallback Priority**: Groq before Google for speed; Google before emergency for quality
-- **Unified API Router**: `callAPI()` automatically routes to correct provider endpoint
-- **Format Conversion**: Google's `contents[]` format auto-converted from standard `messages[]`
+**Manual refresh**: `/refreshmodels` command for admins.
+
+### 🎯 Proper Footer with Blockquote
+> Clean metadata that doesn't interfere with content.
+
+**Before** (Markdown, could break formatting):
+```
+Your answer...
+
+🏆 Qwen3 Coder ⏱ 2.3s (2 models)
+```
+
+**Now** (HTML blockquote, Telegram-native):
+```html
+Your answer...
+
+<blockquote>🤖 <b>Qwen3 Coder</b> | ⏱ 2.3s | 🔄 2 models</blockquote>
+```
+
+✅ Renders as a subtle, non-intrusive footer in Telegram  
+✅ Never breaks code blocks or lists  
+✅ Works with both Markdown input and HTML output
 
 ---
 
@@ -93,13 +118,13 @@ Just send me anything or tap /start to explore!
 
 | Category | Feature | Benefit |
 |----------|---------|---------|
-| **🌐 Providers** | OpenRouter + Groq + Google AI Studio | 99.9% uptime via intelligent fallback |
+| **🌐 Providers** | OpenRouter 🔵 + Groq 🔴 + Google 🟢 | 99.9% uptime via intelligent fallback |
+| **🌍 Languages** | English + Persian (FA/EN) | Native UX for two major user bases |
 | **🎛 Modes** | `/fast` • `/deep` • `/code` • `/prompt` • `/auto` | Context-aware response optimization |
-| **🤖 Models** | 29 verified models with provider tags | Best quality + reliability, zero dead endpoints |
-| **🎨 UI** | Color-coded inline keyboards • HTML formatting | Intuitive, visually scannable experience |
-| **🔔 Engagement** | 10-day cron reminders • Last-active tracking | Reduce churn, re-engage dormant users |
-| **⚡ Performance** | Parallel execution • Multi-provider fallback • Caching | Fast responses even during regional outages |
-| **🔧 Tools** | `/debug` with provider status • `/logs` • Stats | Full observability across all providers |
+| **🤖 Models** | 29 verified + auto-updating | Always fresh, zero dead endpoints |
+| **🎨 UI** | Clean start screen • Blockquote footer • Color-coded keyboards | Intuitive, scannable, professional |
+| **⚡ Reliability** | Groq context fix • Circuit breaker • Retry logic | Works even when APIs hiccup |
+| **🔧 Tools** | `/debug` • `/lang` • `/refreshmodels` • Stats | Full control and observability |
 
 ---
 
@@ -107,8 +132,8 @@ Just send me anything or tap /start to explore!
 
 - ✅ **Cloudflare Account** (Free tier: 100K requests/day)
 - ✅ **OpenRouter API Key** ([Get Key](https://openrouter.ai/keys))
-- ✅ **Groq API Key** ([Get Key](https://console.groq.com/keys))
-- ✅ **Google AI Studio API Key** ([Get Key](https://aistudio.google.com/app/apikey))
+- ✅ **Groq API Key** ([Get Key](https://console.groq.com/keys)) — *optional but recommended*
+- ✅ **Google AI Studio API Key** ([Get Key](https://aistudio.google.com/app/apikey)) — *optional*
 - ✅ **Telegram Bot Token** ([Create via @BotFather](https://t.me/BotFather))
 - ✅ **Node.js 18+** & **npm** (for local development)
 
@@ -118,18 +143,14 @@ Just send me anything or tap /start to explore!
 
 ### Step 1: Clone & Install
 ```bash
-git clone https://github.com/yourusername/ivai-bot-v29.git
-cd ivai-bot-v29
+git clone https://github.com/yourusername/ivai-bot-v30.git
+cd ivai-bot-v30
 npm install -g wrangler
 ```
 
-### Step 2: Create KV Namespace
-```bash
-npx wrangler kv namespace create "IVAI_KV"
-```
-> Copy the returned `id` and update `wrangler.toml`:
+### Step 2: Configure `wrangler.toml`
 ```toml
-name = "ivai-bot-v29"
+name = "ivai-bot-v30"
 main = "index.js"
 compatibility_date = "2024-05-01"
 
@@ -138,132 +159,131 @@ binding = "IVAI_KV"
 id = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 
 [triggers]
-crons = ["0 0 * * *"]  # Daily cron for reminders
+crons = ["0 0 */15 * *"]  # Every 15 days for auto-update + reminders
 ```
 
-### Step 3: Configure Environment Variables
-In **Cloudflare Dashboard** → Workers & Pages → `ivai-bot-v29` → Settings → Environment Variables:
+### Step 3: Set Environment Variables
+In **Cloudflare Dashboard** → Workers & Pages → `ivai-bot-v30` → Settings → Environment Variables:
 
-| Variable | Description | Required |
-|----------|-------------|----------|
-| `TELEGRAM_BOT_TOKEN` | Your Telegram bot token | ✅ Yes |
-| `OPENROUTER_API_KEY` | OpenRouter API key (primary) | ✅ Yes |
-| `GROQ_API_KEY` | Groq API key (fallback) | ⚠️ Recommended |
-| `GOOGLE_API_KEY` | Google AI Studio key (fallback) | ⚠️ Recommended |
-| `LOG_LEVEL` | Logging verbosity (`info`/`debug`) | ❌ Optional |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `TELEGRAM_BOT_TOKEN` | ✅ Yes | Your Telegram bot token |
+| `OPENROUTER_API_KEY` | ✅ Yes | Primary provider API key |
+| `GROQ_API_KEY` | ⚠️ Recommended | Ultra-fast fallback provider |
+| `GOOGLE_API_KEY` | ⚠️ Recommended | Long-context fallback provider |
+| `LOG_LEVEL` | ❌ Optional | `info` or `debug` for logging |
 
-> 💡 **Pro Tip**: You can deploy with only OpenRouter first, then add Groq/Google keys later — fallback logic auto-detects available providers.
+> 💡 **Tip**: Deploy with only OpenRouter first. Add Groq/Google keys later — fallback logic auto-detects availability.
 
 ### Step 4: Deploy
 ```bash
-npx wrangler login    # One-time authentication
-npx wrangler deploy   # Deploy to Cloudflare
+npx wrangler login    # One-time auth
+npx wrangler deploy   # Push to Cloudflare
 ```
-> Note your Worker URL: `https://ivai-bot-v29.your-subdomain.workers.dev`
+> Note your Worker URL: `https://ivai-bot-v30.your-subdomain.workers.dev`
 
 ### Step 5: Set Telegram Webhook
 ```bash
-curl -X POST "https://api.telegram.org/bot<YOUR_TELEGRAM_BOT_TOKEN>/setWebhook" \
+curl -X POST "https://api.telegram.org/bot<YOUR_TOKEN>/setWebhook" \
   -H "Content-Type: application/json" \
-  -d '{"url": "https://ivai-bot-v29.your-subdomain.workers.dev"}'
+  -d '{"url": "https://ivai-bot-v30.your-subdomain.workers.dev"}'
 ```
 
-✅ **Done!** Open your bot on Telegram and tap `/start` to see the Triple Provider UI.
+✅ **Done!** Open your bot on Telegram and tap `/start`.
 
 ---
 
 ## 🎮 How to Use
 
+### 🌍 Language Selection
+```
+/lang → Shows inline keyboard:
+🇬🇧 English
+🇮🇷 فارسی
+
+Tap to switch. Language persists per user.
+```
+
 ### 🎚 Mode Selection (Color-Coded)
 ```
-🟢 Fast    → Quick answers (Groq/Google preferred for speed)
+🟢 Fast    → Quick answers (Groq preferred for speed)
 🔴 Deep    → Analysis & reasoning (OpenRouter deep models)  
 🔵 Code    → Programming tasks (OpenRouter code-specialized)
 🎯 Prompt  → Transform ideas into pro prompts (Lyra engine)
-🔀 Auto    → IVAI detects best mode + provider automatically
+🔀 Auto    → IVAI detects best mode automatically
 ```
 
-### 🎛 Model Control with Provider Tags
+### 🎛 Model Control
 1. Tap **🎛 Pick Model** or type `/model`
-2. Browse models — each shows provider color:
+2. Browse models with provider colors:
    ```
-   🔵 🚀 Llama 3.2 3B (OpenRouter)
-   🔴 ⚡ Groq Llama 70B (Groq)
-   🟢 🟢 Gemini 2.5 Pro (Google)
+   🔵 🚀 Llama 3.2 3B
+   🔴 ⚡ Groq Llama 70B  
+   🟢 🟢 Gemini 2.5 Pro
    ```
-3. Tap any model to lock to it
-4. Footer shows active provider: `⚡ Parallel: 🔵 OpenRouter active | 🔴 Groq ready | 🟢 Google ready`
+3. Tap to lock, or use `/model off` to return to auto
 
-### 🌐 Provider Fallback in Action
-When you send a message:
-1. IVAI tries primary provider (based on mode/model)
-2. If timeout/error → auto-tries next available provider
-3. Response includes provider badge:
-   ```
-   Your answer here...
-   
-   🏆 Qwen3 Coder ⏱ 2.3s (🔴 Served via Groq backup)
-   ```
+### 🔄 Auto-Update in Action
+- Every 15 days: Worker fetches latest `:free` models from OpenRouter
+- New models auto-categorized and added to pools
+- No redeploy needed
+- Admins can force refresh: `/refreshmodels`
 
-### 🎯 Using Prompt Master (Multi-Provider Optimized)
+### 📝 Response Footer Format
+Every response ends with a clean blockquote footer:
+```html
+<blockquote>🤖 <b>Model Name</b> | ⏱ 2.3s | 🔄 2 models</blockquote>
 ```
-1. Tap 🎯 Prompt Master or type /prompt
-2. Type your rough idea:
-   "help me write a product description for wireless earbuds"
-3. Lyra engine selects best model across all providers
-4. Receive polished prompt in copyable code block
-```
-
-### 🔔 Reminder System (Admin View)
-Reminders run automatically via Cloudflare Cron. To test manually:
-```bash
-# Trigger cron locally
-npx wrangler dev --test-scheduled
-
-# Or simulate via HTTP header
-curl -H "X-Cron: true" https://ivai-bot-v29.your-subdomain.workers.dev
-```
+Renders in Telegram as:
+> 🤖 **Model Name** | ⏱ 2.3s | 🔄 2 models
 
 ---
 
 ## 🗄️ Architecture Overview
 
 ```
-User Message
+User Message (EN/FA)
      │
      ▼
-[Provider Router] → Select primary provider by mode/model
+[Language Detection] → Load STRINGS[lang]
      │
      ▼
-[Parallel Race] → 3 models from different groups (same provider)
+[Provider Router] → OpenRouter → Groq → Google → Emergency
      │
      ▼
-[First Valid Response] → Return + cache + update stats
+[Groq Fix Layer] → truncateMessagesForGroq() + conditional max_tokens
      │
      ▼
-[Fallback Chain] → Next provider → Emergency model
+[Parallel Race] → 3 models from different groups
      │
      ▼
-[Response Tagging] → Append provider badge for transparency
+[First Valid Response] → Return + cache + append blockquote footer
 ```
 
-### KV Storage Schema (v29)
+### KV Storage Schema (v30.1)
 | Key Pattern | Purpose | TTL |
 |-------------|---------|-----|
 | `mode:{userId}` | Active conversation mode | None |
 | `model:{userId}` | Manually selected model ID | None |
+| `lang:{userId}` | User's language preference | None |
 | `mem:{userId}` | Conversation history (last 5) | 1 hour |
 | `cache:{hash}` | Cached API responses | 2 hours |
 | `failed:{modelId}` | Circuit breaker per model | 30 seconds |
-| `last_active:{userId}` | Last user activity timestamp | 10 days |
-| `stats:{userId}` | Usage analytics (per-provider) | 24 hours |
+| `last_active:{userId}` | Last user activity | 15 days |
+| `models_data` | Dynamically fetched model list | 15 days |
+| `models_updated` | Timestamp of last auto-update | 15 days |
 
-### Provider API Endpoints
-| Provider | Endpoint | Auth Header |
-|----------|----------|-------------|
-| 🔵 OpenRouter | `https://openrouter.ai/api/v1/chat/completions` | `Authorization: Bearer {key}` |
-| 🔴 Groq | `https://api.groq.com/openai/v1/chat/completions` | `Authorization: Bearer {key}` |
-| 🟢 Google | `https://generativelanguage.googleapis.com/v1beta/models/{id}:generateContent?key={key}` | API key in URL |
+### Groq-Specific Handling
+```javascript
+// Context limit: 12,000 characters total
+CONFIG.GROQ_MAX_CONTEXT_CHARS = 12000
+
+// Token limit: varies by model (4K-8K)
+CONFIG.GROQ_MAX_TOKENS = 8192
+
+// Some models don't accept max_tokens parameter
+{ supportsMaxTokens: false } // e.g., Llama 4 Scout
+```
 
 ---
 
@@ -271,15 +291,15 @@ User Message
 
 | Provider | Free Tier | Paid Usage | Best For |
 |----------|-----------|------------|----------|
-| **🔵 OpenRouter** | 22 `:free` models | ~$0.10-10/million tokens | Development, variety |
-| **🔴 Groq** | Limited free tier | ~$0.40/million tokens | Speed-critical tasks |
-| **🟢 Google AI Studio** | 60 requests/min free | Pay-as-you-go after | Long-context, Gemini features |
-| **Cloudflare Workers** | 100K requests/day | ~$0.30/million requests | Hosting infrastructure |
+| **🔵 OpenRouter** | 29 `:free` models | ~$0.10-10/million tokens | Primary pool, variety |
+| **🔴 Groq** | Limited free tier | ~$0.40/million tokens | Speed-critical fallback |
+| **🟢 Google AI Studio** | 60 req/min free | Pay-as-you-go after | Long-context fallback |
+| **Cloudflare Workers** | 100K req/day | ~$0.30/million requests | Hosting infrastructure |
 
-> 💡 **Cost Optimization Strategy**:  
+> 💡 **Optimization Strategy**:  
 > 1. Use `:free` OpenRouter models for 90% of traffic  
 > 2. Enable Groq/Google only as fallback (reduces paid usage)  
-> 3. Cache identical queries (2-hour TTL) to avoid repeat API calls  
+> 3. Cache identical queries (2-hour TTL)  
 > 4. Monitor usage per provider in `/debug`
 
 ---
@@ -287,33 +307,33 @@ User Message
 ## 🧪 Testing Checklist
 
 Before going live:
-- [ ] `/start` displays Triple Provider UI with color-coded buttons
-- [ ] Tapping a 🔴 Groq model locks selection and shows provider badge
-- [ ] Simulate OpenRouter failure → verify Groq fallback activates
-- [ ] Simulate Groq failure → verify Google fallback activates
-- [ ] Prompt Master returns optimized prompts with correct formatting
-- [ ] 10-day reminder triggers for test user (use `last_active` KV manipulation)
-- [ ] `/debug` shows provider availability: `🔵 OpenRouter: ✅ | 🔴 Groq: ✅ | 🟢 Google: ✅`
-- [ ] Response footer shows correct provider badge: `(🟢 Served via Google AI Studio)`
-- [ ] Circuit breaker isolates failing models without affecting other providers
+- [ ] `/start` displays clean UI without version clutter
+- [ ] `/lang` shows EN/FA picker and persists selection
+- [ ] Persian users see FA strings; English users see EN strings
+- [ ] Groq models respond without `400`/`413` errors
+- [ ] Long conversations auto-truncate for Groq context limit
+- [ ] Response footer renders as blockquote (not raw HTML)
+- [ ] `/refreshmodels` fetches and applies new model list
+- [ ] Auto-update cron triggers every 15 days (test with `X-Cron` header)
+- [ ] `/debug` shows provider availability and language status
 
 ---
 
 ## 🔐 Security & Best Practices
 
 1. **Never commit API keys**: Use Cloudflare Environment Variables exclusively
-2. **Provider key rotation**: Store keys in a secure vault; update via Cloudflare API
-3. **Rate limit awareness**: Each provider has separate limits — monitor via `/debug`
-4. **User data isolation**: KV keys are user-scoped (`{userId}`) to prevent cross-user leaks
-5. **Error sanitization**: API errors never expose keys or internal paths to end users
+2. **Input sanitization**: All user inputs truncated before API calls
+3. **Error isolation**: API errors never expose keys or internal paths
+4. **User data isolation**: KV keys are user-scoped (`{userId}`)
+5. **Rate limit awareness**: Each provider has separate limits — monitor via `/debug`
 
 ### Recommended Monitoring
 ```bash
 # Track provider success rates
 npx wrangler tail | grep "provider"
 
-# Alert on fallback activation (indicates primary provider issues)
-# Set up Cloudflare Logpush to forward logs to your monitoring system
+# Alert on Groq context errors (indicates truncation needed)
+npx wrangler tail | grep "413\|400.*Groq"
 ```
 
 ---
@@ -323,35 +343,29 @@ npx wrangler tail | grep "provider"
 Contributions welcome! Please follow these steps:
 
 1. **Fork** the repository
-2. **Create** a feature branch: `git checkout -b feat/add-anthropic-provider`
-3. **Commit** changes: `git commit -m 'feat: add Anthropic Claude provider fallback'`
+2. **Create** a feature branch: `git checkout -b feat/add-language-es`
+3. **Commit** changes: `git commit -m 'feat: add Spanish language support'`
 4. **Push** and **Open a Pull Request**
 
-### Adding a New Provider (Guide)
-To add a 4th provider (e.g., Anthropic):
+### Adding a New Language (Guide)
+To add a 3rd language (e.g., Spanish):
 ```javascript
-// 1. Define models array
-const ANTHROPIC_MODELS = [
-  { id: "claude-3-5-sonnet-20241022", name: "Claude 3.5 Sonnet", emoji: "🟣", temp: 0.6, tokens: 200000, group: 2, provider: "anthropic" }
+// 1. Add to STRINGS object
+STRINGS.es = {
+  start_title: "🤖 IVAI",
+  send_anything: "¡Envíame lo que quieras! 👋",
+  // ... all other keys
+};
+
+// 2. Add to SUPPORTED_LANGS array
+const SUPPORTED_LANGS = [
+  { code: "en", name: "🇬🇧 English", flag: "🇬🇧" },
+  { code: "fa", name: "🇮🇷 فارسی", flag: "🇮🇷" },
+  { code: "es", name: "🇪🇸 Español", flag: "🇪🇸" }  // ← New
 ];
 
-// 2. Add to ALL_MODELS
-const ALL_MODELS = [..., ...ANTHROPIC_MODELS];
-
-// 3. Implement API handler
-async function callAnthropicAPI(messages, model, apiKey) {
-  // Format conversion + fetch logic
-}
-
-// 4. Update callAPI() router
-async function callAPI(messages, model, env) {
-  if (model.provider === "anthropic") return callAnthropicAPI(...);
-  // ... existing providers
-}
-
-// 5. Add to fallback chain in processParallel()
-// 6. Update UI helpers: getProviderColor(), getProviderLabel()
-// 7. Update README tables and documentation
+// 3. Update getLang() fallback logic if needed
+// 4. Test with /lang command
 ```
 
 ---
@@ -360,28 +374,27 @@ async function callAPI(messages, model, env) {
 
 | Issue | Solution |
 |-------|----------|
-| Groq/Google fallback not activating | Verify `GROQ_API_KEY`/`GOOGLE_API_KEY` set in Cloudflare env vars |
-| Google API returns 400 | Check `contents[]` format conversion; ensure `systemInstruction` handled |
-| Reminder cron not triggering | Confirm `triggers.crons` in `wrangler.toml` + Worker has `scheduled` handler |
-| Color codes not displaying | Ensure `getProviderColor()` called in keyboard/model rendering functions |
-| Provider badge missing in response | Check `processParallel()` fallback branches append `(🔴 Served via...)` |
+| Groq returns `400 Bad Request` | Verify `truncateMessagesForGroq()` is active; check `supportsMaxTokens` flag |
+| Footer shows raw `<blockquote>` | Ensure `parse_mode: "HTML"` in `sendRaw()`; Telegram client must support blockquotes |
+| Language doesn't persist | Check `CONFIG.KV.LANG` key pattern; verify KV namespace binding |
+| Auto-update not fetching models | Test `fetchModelsFromOpenRouter()` manually; check network permissions in Cloudflare |
+| Persian text displays LTR | Ensure `langNote` is appended to system prompt; verify model supports FA output |
 
 ### Debug Mode (`/debug`)
-Shows real-time provider status:
+Shows real-time status in user's language:
 ```
-🔧 Debug v29
+🔧 Debug v30
 
-👤 User | 🎚 AUTO
-📈 142req (✅128|❌9|💾23)
-⏱ Avg: 3.2s | 🧠 5msg
+👤 User | 🎚 Mode: AUTO
+📈 Requests: 142 (✅128|❌9|💾23)
+⏱ Avg: 3.2s | 🧠 Memory: 5msg
 
 🌐 Models: 29/29 avail
 🔌 Circuit (30s):
 • Llama 3.2 3B: 1f
-• Gemini 2.5 Pro: 0f
 
 ⚡ Parallel: 3 groups | 25s timeout | 30s circuit
-🔵 OpenRouter: ✅ | 🔴 Groq: ✅ | 🟢 Google: ✅
+🔵 OpenRouter | 🔴 Groq | 🟢 Google
 ```
 
 ### Need Help?
@@ -389,19 +402,17 @@ Shows real-time provider status:
 2. View Cloudflare logs: `npx wrangler tail`
 3. Test providers individually:
    ```bash
-   # OpenRouter
-   curl -H "Authorization: Bearer $OR_KEY" https://openrouter.ai/api/v1/models
-   
-   # Groq  
-   curl -H "Authorization: Bearer $GROQ_KEY" https://api.groq.com/openai/v1/models
-   
-   # Google
-   curl "https://generativelanguage.googleapis.com/v1beta/models?key=$GOOGLE_KEY"
+   # Groq context test
+   curl -H "Authorization: Bearer $GROQ_KEY" \
+        -H "Content-Type: application/json" \
+        -d '{"model":"llama-3.3-70b-versatile","messages":[{"role":"user","content":"Hi"}]}' \
+        https://api.groq.com/openai/v1/chat/completions
    ```
-4. Open an [Issue](https://github.com/yourusername/ivai-bot-v29/issues) with:
+4. Open an [Issue](https://github.com/yourusername/ivai-bot-v30/issues) with:
    - Worker URL
-   - `/debug` output screenshot
-   - Provider key status (redact actual keys)
+   - `/debug` output
+   - Language code (`en`/`fa`)
+   - Steps to reproduce
 
 ---
 
@@ -447,8 +458,9 @@ SOFTWARE.
 ---
 
 > **Made with ❤️ by the IVAI Team**  
-> 🌐 [GitHub](https://github.com/yourusername/ivai-bot-v29) • 🤖 [Telegram](https://t.me/YourBotUsername)  
+> 🌐 [GitHub](https://github.com/yourusername/ivai-bot-v30) • 🤖 [Telegram](https://t.me/YourBotUsername)  
 > 🌀 Maintained by [@ILIVIR3](https://t.me/ILIVIR3)
 
-
 ---
+
+
