@@ -5,7 +5,7 @@ https://t.me/IVAI_Llm_bot
 
 
 
-# 🪐 IVAI Bot v32 — Space Edition
+# 🪐 IVAI Bot v32
 
 > **Your intelligent Telegram assistant powered by OpenRouter, Groq & Google AI Studio**
 
