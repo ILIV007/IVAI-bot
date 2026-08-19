@@ -21,7 +21,7 @@ import {
   upsertUser,
   writeAdminAudit
 } from "./storage.js";
-import { adminKeyboard, answerCallback, editMessage, escapeHtml, feedbackKeyboard, modeKeyboard, modeLabel, sendMessage, sendTyping, telegram, welcomeText } from "./telegram.js";
+import { adminKeyboard, answerCallback, editMessage, escapeHtml, modeKeyboard, modeLabel, responseMeta, sendMessage, sendTyping, telegram, welcomeText } from "./telegram.js";
 
 const COMMAND_MODE = Object.freeze({
   "/auto": MODES.AUTO,
@@ -272,12 +272,9 @@ async function processText(message, env) {
     if (settings.memoryEnabled) {
       await saveGuestMemory(key, [...context, { role: "user", content: text }, { role: "assistant", content: result.text }], env);
     }
-    const token = crypto.randomUUID().slice(0, 12);
-    const finalText = `${renderAiText(result.text)}\n\n<blockquote>🪐 ${escapeHtml(result.model)} · ${escapeHtml(modeLabel(result.mode, language))}</blockquote>`;
-    const messageResult = progress?.message_id
-      ? await editMessage(env, { chatId, messageId: progress.message_id, text: finalText, keyboard: feedbackKeyboard(token) })
-      : await sendMessage(env, { chatId, text: finalText, replyTo: message.message_id, keyboard: feedbackKeyboard(token) });
-    await saveFeedbackToken({ token, userId, chatId, responseMessageId: messageResult?.message_id, model: result.model, mode: result.mode }, env);
+    const finalText = `${renderAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: result.mode, language })}`;
+    if (progress?.message_id) await editMessage(env, { chatId, messageId: progress.message_id, text: finalText });
+    else await sendMessage(env, { chatId, text: finalText, replyTo: message.message_id });
   } catch (error) {
     const code = safeError(error);
     const failureText = responseText(language, code === "RATE_LIMIT" ? "busy" : "temporary");
@@ -309,14 +306,11 @@ async function processMedia(message, env) {
       await sendMessage(env, { chatId, text: responseText(language, "unsupportedMedia"), replyTo: message.message_id });
       return;
     }
-    const token = crypto.randomUUID().slice(0, 12);
-    const messageResult = await sendMessage(env, {
+    await sendMessage(env, {
       chatId,
-      text: `${prefix}${renderAiText(result.text)}\n\n<blockquote>🪐 ${escapeHtml(result.model)}</blockquote>`,
-      replyTo: message.message_id,
-      keyboard: feedbackKeyboard(token)
+      text: `${prefix}${renderAiText(result.text)}\n\n${responseMeta({ model: result.model, language })}`,
+      replyTo: message.message_id
     });
-    await saveFeedbackToken({ token, userId, chatId, responseMessageId: messageResult?.message_id, model: result.model, mode: message.voice ? "voice" : "vision" }, env);
   } catch (error) {
     const code = safeError(error);
     await sendMessage(env, { chatId, text: responseText(language, code === "RATE_LIMIT" ? "busy" : "temporary"), replyTo: message.message_id });
@@ -359,8 +353,7 @@ async function handleInlineQuery(query, env) {
         id: token,
         title: "IVAI",
         description: result.text.slice(0, 100),
-        input_message_content: { message_text: `${renderAiText(result.text)}\n\n<blockquote>🪐 ${escapeHtml(result.model)}</blockquote>`, parse_mode: "HTML", disable_web_page_preview: true },
-        reply_markup: feedbackKeyboard(token)
+        input_message_content: { message_text: `${renderAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: result.mode, language })}`, parse_mode: "HTML", disable_web_page_preview: true }
       }]
     });
   } catch (error) {

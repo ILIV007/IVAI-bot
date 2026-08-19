@@ -3,7 +3,7 @@ import test from "node:test";
 import worker from "../src/index.js";
 import { MODES, modeOutputLimit } from "../src/config.js";
 import { hasValidWebhookSecret, parseAdminIds } from "../src/security.js";
-import { splitText } from "../src/telegram.js";
+import { feedbackKeyboard, responseMeta, shortModelLabel, splitText } from "../src/telegram.js";
 
 class KV {
   constructor() { this.values = new Map(); }
@@ -46,6 +46,16 @@ test("splits long Telegram output without dropping content", () => {
 test("keeps bounded free-tier output limits", () => {
   assert.ok(modeOutputLimit(MODES.FAST) < modeOutputLimit(MODES.DEEP));
   assert.ok(modeOutputLimit(MODES.CODE) <= 1800);
+});
+
+test("renders concise linked response metadata without per-message action buttons", () => {
+  assert.equal(feedbackKeyboard(), undefined);
+  assert.equal(shortModelLabel("@cf/meta/llama-4-scout-17b-16e-instruct"), "Llama 4 Scout");
+  assert.equal(shortModelLabel("openai/gpt-oss-20b:free"), "GPT-OSS 20B");
+  const meta = responseMeta({ model: "@cf/zai-org/glm-4.7-flash", mode: "deep" });
+  assert.match(meta, /https:\/\/t\.me\/IVAI_Llm_bot/);
+  assert.match(meta, /GLM 4\.7 Flash/);
+  assert.doesNotMatch(meta, /@cf\/zai-org/);
 });
 
 test("handles a valid start update and sends Telegram output", async () => {

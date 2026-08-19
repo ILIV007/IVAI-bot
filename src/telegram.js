@@ -30,17 +30,10 @@ export function modeKeyboard(language = "en") {
   };
 }
 
-export function feedbackKeyboard(token) {
-  return {
-    inline_keyboard: [
-      [
-        { text: "👍", callback_data: `feedback:up:${token}` },
-        { text: "👎", callback_data: `feedback:down:${token}` },
-        { text: "↻", callback_data: `retry:${token}` },
-        { text: "📋", copy_text: { text: token } }
-      ]
-    ]
-  };
+export function feedbackKeyboard() {
+  // Message actions are intentionally opt-in through commands and admin flows.
+  // Keeping ordinary AI replies button-free reduces visual noise and accidental taps.
+  return undefined;
 }
 
 export function adminKeyboard() {
@@ -126,6 +119,31 @@ export function welcomeText(language = "en") {
     return "<b>🪐 IVAI</b>\n\nدستیار هوشمند رایگان شما. حالت مناسب را انتخاب کنید یا پیام‌تان را بفرستید.";
   }
   return "<b>🪐 IVAI</b>\n\nYour free AI assistant. Choose a mode or send a message.";
+}
+
+export function shortModelLabel(model = "") {
+  const value = String(model || "").toLowerCase();
+  if (value.includes("whisper")) return "Whisper";
+  if (value.includes("llama-guard")) return "Llama Guard";
+  if (value.includes("llama-4-scout")) return "Llama 4 Scout";
+  if (value.includes("glm-4.7-flash")) return "GLM 4.7 Flash";
+  if (value.includes("gemma-4")) return "Gemma 4";
+  if (value.includes("gpt-oss-20b")) return "GPT-OSS 20B";
+  if (value.includes("llama-3.2-3b")) return "Llama 3.2";
+  if (value.includes("llama-3.1-8b")) return "Llama 3.1";
+  if (value.includes("gemini-2.5-flash-lite")) return "Gemini Flash Lite";
+  const compact = String(model || "IVAI")
+    .replace(/^@cf\//, "")
+    .replace(/^[^/]+\//, "")
+    .replace(/:free$/i, "")
+    .replace(/-instruct|-it|-instant/gi, "")
+    .replaceAll("-", " ");
+  return compact.length > 34 ? `${compact.slice(0, 31)}…` : compact;
+}
+
+export function responseMeta({ model, mode, language = "en" }) {
+  const detail = mode ? ` · ${escapeHtml(modeLabel(mode, language))}` : "";
+  return `<blockquote>🪐 <a href="https://t.me/IVAI_Llm_bot">@IVAI_Llm_bot</a> · ${escapeHtml(shortModelLabel(model))}${detail}</blockquote>`;
 }
 
 export function modeLabel(mode, language = "en") {
