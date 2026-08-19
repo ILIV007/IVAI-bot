@@ -1,0 +1,7 @@
+# Copy to .dev.vars for local development. Never commit .dev.vars.
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_WEBHOOK_SECRET=
+ADMIN_TELEGRAM_IDS=
+OPENROUTER_API_KEY=
+GOOGLE_API_KEY=
+GROQ_API_KEY=
