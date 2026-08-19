@@ -21,7 +21,7 @@ import {
   upsertUser,
   writeAdminAudit
 } from "./storage.js";
-import { adminKeyboard, answerCallback, escapeHtml, feedbackKeyboard, modeKeyboard, modeLabel, sendMessage, sendTyping, telegram, welcomeText } from "./telegram.js";
+import { adminKeyboard, answerCallback, editMessage, escapeHtml, feedbackKeyboard, modeKeyboard, modeLabel, sendMessage, sendTyping, telegram, welcomeText } from "./telegram.js";
 
 const COMMAND_MODE = Object.freeze({
   "/auto": MODES.AUTO,
@@ -261,6 +261,11 @@ async function processText(message, env) {
   const key = contextKey(message);
   const context = settings.memoryEnabled ? await getGuestMemory(key, env) : [];
   await sendTyping(env, chatId).catch(() => {});
+  const progress = await sendMessage(env, {
+    chatId,
+    text: language === "fa" ? "<i>IVAI در حال فکرکردن است…</i>" : "<i>IVAI is thinking…</i>",
+    replyTo: message.message_id
+  }).catch(() => null);
 
   try {
     const result = await generateReply({ text, selectedMode: settings.mode, selectedModel: settings.selectedModel, language, context }, env);
@@ -268,16 +273,16 @@ async function processText(message, env) {
       await saveGuestMemory(key, [...context, { role: "user", content: text }, { role: "assistant", content: result.text }], env);
     }
     const token = crypto.randomUUID().slice(0, 12);
-    const messageResult = await sendMessage(env, {
-      chatId,
-      text: `${renderAiText(result.text)}\n\n<blockquote>🪐 ${escapeHtml(result.model)} · ${escapeHtml(modeLabel(result.mode, language))}</blockquote>`,
-      replyTo: message.message_id,
-      keyboard: feedbackKeyboard(token)
-    });
+    const finalText = `${renderAiText(result.text)}\n\n<blockquote>🪐 ${escapeHtml(result.model)} · ${escapeHtml(modeLabel(result.mode, language))}</blockquote>`;
+    const messageResult = progress?.message_id
+      ? await editMessage(env, { chatId, messageId: progress.message_id, text: finalText, keyboard: feedbackKeyboard(token) })
+      : await sendMessage(env, { chatId, text: finalText, replyTo: message.message_id, keyboard: feedbackKeyboard(token) });
     await saveFeedbackToken({ token, userId, chatId, responseMessageId: messageResult?.message_id, model: result.model, mode: result.mode }, env);
   } catch (error) {
     const code = safeError(error);
-    await sendMessage(env, { chatId, text: responseText(language, code === "RATE_LIMIT" ? "busy" : "temporary"), replyTo: message.message_id });
+    const failureText = responseText(language, code === "RATE_LIMIT" ? "busy" : "temporary");
+    if (progress?.message_id) await editMessage(env, { chatId, messageId: progress.message_id, text: failureText }).catch(() => {});
+    else await sendMessage(env, { chatId, text: failureText, replyTo: message.message_id });
     console.error(JSON.stringify({ event: "ai_failure", code, userId: String(userId) }));
   }
 }

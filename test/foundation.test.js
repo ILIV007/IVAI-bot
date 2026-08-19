@@ -114,3 +114,32 @@ test("answers an empty inline query without invoking an AI provider", async () =
     globalThis.fetch = originalFetch;
   }
 });
+
+test("uses one Workers AI call and edits a progress message into the final answer", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    const method = String(url).split("/").at(-1);
+    const result = method === "sendMessage" ? { message_id: 222 } : method === "editMessageText" ? { message_id: 222 } : true;
+    return new Response(JSON.stringify({ ok: true, result }), { status: 200 });
+  };
+  try {
+    const env = { ...baseEnv(), AI: { async run() { return { response: "A concise answer." }; } } };
+    const update = {
+      update_id: 902,
+      message: { message_id: 12, chat: { id: 42, type: "private" }, from: { id: 126679582, first_name: "Owner" }, text: "Explain this briefly" }
+    };
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+      body: JSON.stringify(update)
+    }), env);
+    assert.equal(response.status, 200);
+    assert.equal(calls.filter((call) => /sendChatAction$/.test(call.url)).length, 1);
+    assert.equal(calls.filter((call) => /sendMessage$/.test(call.url)).length, 1);
+    assert.equal(calls.filter((call) => /editMessageText$/.test(call.url)).length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
