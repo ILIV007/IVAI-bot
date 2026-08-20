@@ -1,0 +1,53 @@
+name: Bug report
+description: Report a reproducible problem in IVAI Bot.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a problem. Do not include Telegram tokens, provider keys, webhook secrets, personal chat content, or exported database data. For security-sensitive issues, use the private reporting route in SECURITY.md.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the observed behavior and why it is a problem.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      placeholder: |
+        1. Send ...
+        2. Select ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      options:
+        - Telegram private chat
+        - Telegram group, topic, or Business context
+        - Inline Mode
+        - Guest Mode
+        - Admin Mini App
+        - Scheduled delivery
+        - Deployment or configuration
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized logs or screenshots
+      description: Remove IDs, secrets, chat content, and private URLs before submitting.

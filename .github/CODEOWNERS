@@ -1,0 +1,10 @@
+# Default code owner for review and maintenance.
+* @ILIV007
+
+# Sensitive operational surfaces.
+/.github/ @ILIV007
+/wrangler.jsonc @ILIV007
+/db/ @ILIV007
+/src/security.js @ILIV007
+/src/admin.js @ILIV007
+/src/telegram.js @ILIV007

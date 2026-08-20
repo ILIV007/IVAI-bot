@@ -1,34 +1,45 @@
 # IVAI v3.3 Deployment Checklist
 
-This checklist is intentionally value-free. Use Cloudflare Worker Secrets for every credential and do not commit `.dev.vars`.
+This checklist intentionally contains no secret values. Register every credential as a Cloudflare Worker Secret and do not commit `.dev.vars`.
 
-## 1. Prepare Cloudflare resources
+## 1. Confirm Cloudflare resources
 
 | Check | Required state |
 |---|---|
-| Worker | `ivai-bot` is selected as the deployment target. |
+| Worker | The target Worker is `ivai-bot`. |
 | KV binding | Binding name is `IVAI_KV`. |
-| D1 binding | Binding name is `IVAI_DB`; the database is `ivai_db`. |
+| D1 binding | Binding name is `IVAI_DB`; the target database is `ivai_db`. |
 | Workers AI | Binding name is `AI`. |
-| D1 schema | Apply `db/0001_initial_schema.sql` and then `db/0002_runtime_guards.sql` before allowing the bot to receive user traffic. |
-| Schedule | Add a conservative cron only after broadcast delivery is validated; the scheduled handler processes a small batch. |
+| Observability | Worker observability is enabled with a conservative sampling rate. |
+| Schedule | Cron expression is `*/10 * * * *`; the handler delivers only bounded batches. |
 
-## 2. Register Worker Secrets
+## 2. Apply D1 migrations in order
 
-Create the following names with **real values** in the Cloudflare Worker secret manager. Never use placeholders as deployed values.
+Run every migration exactly once and in the listed order. Never edit an applied migration; add the next sequential migration instead.
 
-| Name | Value format | Notes |
-|---|---|---|
-| `TELEGRAM_BOT_TOKEN` | Telegram bot token | Required for Telegram API calls. |
-| `TELEGRAM_WEBHOOK_SECRET` | Random 32+ byte secret | Must match Telegram webhook `secret_token`. |
-| `ADMIN_TELEGRAM_IDS` | Comma-separated numeric IDs | Bootstrap owner list. |
-| `OPENROUTER_API_KEY` | Optional provider key | Enables model catalog refresh and `:free` fallback. |
-| `GROQ_API_KEY` | Optional provider key | Enables configured free-tier fallback. |
-| `GOOGLE_API_KEY` | Optional provider key | Enables configured free-tier fallback. |
+| Order | Migration | Purpose |
+|---:|---|---|
+| 1 | `db/0001_initial_schema.sql` | Core relational schema for users, settings, conversations, feedback, administration and broadcasts. |
+| 2 | `db/0002_runtime_guards.sql` | Atomic update deduplication and quota counters. |
+| 3 | `db/0003_secretary_reminders.sql` | Task reminder delivery state and indexes. |
+| 4 | `db/0004_reengagement.sql` | Re-engagement consent and delivery state. |
 
-## 3. Deploy and set webhook
+## 3. Register Worker Secrets
 
-After a successful deployment, configure Telegram’s webhook with the deployed Worker URL and the same generated `TELEGRAM_WEBHOOK_SECRET`. Restrict `allowed_updates` to only the update types IVAI needs:
+Create the following names with real values only in the Cloudflare Worker secret manager. Never use deployment placeholders as production values.
+
+| Name | Required | Purpose |
+|---|---:|---|
+| `TELEGRAM_BOT_TOKEN` | Yes | Telegram Bot API access. |
+| `TELEGRAM_WEBHOOK_SECRET` | Yes | Validates the Telegram webhook header. Use a random high-entropy value. |
+| `ADMIN_TELEGRAM_IDS` | Yes | Comma-separated numeric bootstrap owner IDs. |
+| `OPENROUTER_API_KEY` | Optional | Enables the free-model catalog and `:free` fallback. |
+| `GROQ_API_KEY` | Optional | Enables a configured free-tier fallback. |
+| `GOOGLE_API_KEY` | Optional | Enables a configured free-tier fallback. |
+
+## 4. Deploy and configure Telegram
+
+Deploy only after the D1 migrations and secrets are in place. Configure Telegram’s webhook using the Worker URL and a `secret_token` equal to `TELEGRAM_WEBHOOK_SECRET`. Restrict `allowed_updates` to the update types IVAI currently handles:
 
 ```text
 message
@@ -37,28 +48,35 @@ callback_query
 inline_query
 chosen_inline_result
 business_message
+guest_message
+message_reaction
 ```
 
-Do not enable a paid broadcast option. The source does not send `allow_paid_broadcast` and broadcast must operate through normal rate-limited batches.
+Enable Guest Mode and Inline Mode in BotFather after the deployment is live. The Worker uses normal, rate-limited delivery batches and does **not** send the paid `allow_paid_broadcast` flag.
 
-## 4. Acceptance checks
+## 5. Acceptance checks
 
 | Test | Expected result |
 |---|---|
-| Unauthenticated POST | Returns `401`; no update is processed. |
-| `/start` in a new chat | English-first welcome and mode keyboard. |
-| `/lang` | Lets the user explicitly switch to Persian. |
-| `/models`, `/pick 1`, `/model off` | Lists only allowed free models, locks a valid selection, and returns to auto policy. |
-| `/memory on`, `/memory show`, `/memory clear` | Uses short-lived context and permits clearing it. |
-| Voice/photo | Enforces size and daily quota before Workers AI processing. |
-| Inline query | Produces an inline result with feedback controls; an empty query does not call an AI provider. |
-| `/admin` | Non-admins are blocked; a verified owner gets a draft-only broadcast flow. |
-| Broadcast | Requires draft → preview → confirm; test with a dedicated staging audience first. |
+| Unauthenticated webhook POST | Returns `401`; no update is processed. |
+| `/start` in a new private chat | English-first welcome and main mode keyboard. |
+| `/lang` | Displays the paginated language picker and persists a selected option. |
+| `/notify off` then `/notify on` | Updates re-engagement consent without an AI call. |
+| `/models`, `/pick 1`, `/model off` | Lists only allowed free models, locks a valid selection, then returns to automatic selection. |
+| `/memory on`, `/memory show`, `/memory clear` | Uses short-lived context and permits user-controlled clearing. |
+| Voice or photo | Enforces file and quota limits before Workers AI processing. |
+| Inline query | Returns an inline result; an empty query does not invoke a provider. |
+| Guest message | Returns a Guest AI answer with no additional provider fan-out. |
+| Reaction update | Captures feedback without invoking an AI provider. |
+| Business or topic message | Preserves connection and thread context in replies. |
+| `/admin` | Blocks non-admins; a verified owner gets the draft-only broadcast flow. |
+| Broadcast | Requires draft → preview → confirmation and is tested with a staging audience first. |
+| Secretary task | `/task in 30m | reminder test` is claimed and delivered once by the scheduled handler. |
 
-## 5. Free-tier guardrails
+## 6. Free-tier and privacy guardrails
 
-The bot must gracefully refuse or defer a request rather than calling a paid model when its own daily Workers AI budget or a provider’s free limit is exhausted. Verify that all production model IDs remain in `FREE_MODEL_POLICY`, and remove any model whose free access changes.
+The bot must refuse or defer a request rather than calling a paid model when its own Workers AI budget or a provider free limit is exhausted. Verify that every production model stays within `FREE_MODEL_POLICY`, and remove any model whose access terms change. Memory stays opt-in and should be cleared on request.
 
-## 6. Credential hygiene
+## 7. Credential hygiene and incident response
 
-The provider keys and bot token that were shared in the conversation should be rotated after the secrets are registered. This is a routine precaution because credentials are safer when generated and stored only in the provider dashboard and Worker Secrets manager.
+Rotate any token, provider key, or webhook secret that was ever shared outside the secret manager. If a credential is suspected exposed, revoke it in the provider dashboard, update the Cloudflare Worker Secret, redeploy if needed, and reconfigure the Telegram webhook when the webhook secret changes. See [SECURITY.md](../SECURITY.md) for responsible vulnerability reporting.

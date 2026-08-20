@@ -1,0 +1,49 @@
+name: Feature request
+description: Propose an improvement that preserves IVAI's free-only and low-consumption principles.
+title: "feat: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        IVAI accepts features that keep the standard request path economical, protect user privacy, and avoid paid Telegram or AI capabilities.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or user need
+      description: Explain the real user problem, not only the proposed implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe how a user would experience the feature.
+    validations:
+      required: true
+  - type: dropdown
+    id: cost
+    attributes:
+      label: Expected free-tier impact
+      options:
+        - No new model call or external request
+        - One bounded free-tier request in a new user path
+        - Scheduled or batch processing
+        - Unknown; needs design review
+    validations:
+      required: true
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints reviewed
+      options:
+        - label: The proposal does not require paid models, Stars, paid broadcast, or Telegram Premium.
+          required: true
+        - label: The proposal does not require storing additional sensitive user content by default.
+          required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Explain a lighter implementation if one exists.

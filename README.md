@@ -1,6 +1,8 @@
 # IVAI Bot v3.3 — Free-Tier, Secure Telegram AI Assistant
 
-> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3 foundation keeps the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while adding webhook security, a free-only model policy, D1 data, admin controls, responsive Mini App groundwork, multimodal adapters, and inline feedback.
+[![Continuous Integration](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while adding webhook security, a free-only model policy, D1 data, admin controls, responsive Mini App groundwork, multimodal adapters, and inline feedback.
 
 ## Product principles
 
@@ -100,6 +102,16 @@ npm test
 
 > The Worker must remain on the free-only policy. If a provider changes access terms or a model is no longer eligible, remove it from the allowlist rather than silently moving to a paid model.
 
-## Reference implementation review
+## Documentation and contribution
 
-The supplied `multi-bot` archive was reviewed as an implementation reference. Its safe file-size checks, mode routing, worker error boundary, and Workers AI response normalization informed v3.3. Its missing webhook validation, unrestricted KV-only architecture, and direct hard-coded model selection were not adopted. See `../ivai_analysis/Multi_Bot_Reference_Assessment_FA.md` in the task deliverables for the full comparison.
+| Resource | Purpose |
+|---|---|
+| [Architecture](docs/ARCHITECTURE.md) | Module boundaries, request lifecycle, scheduled lifecycle, and data ownership. |
+| [Deployment checklist](docs/DEPLOYMENT_CHECKLIST.md) | Required D1 migrations, secrets, webhook updates, and acceptance checks. |
+| [Telegram feature matrix (FA)](docs/TELEGRAM_FEATURE_MATRIX_FA.md) | Telegram capability coverage and remaining BotFather actions. |
+| [Re-engagement and language decision](docs/REENGAGEMENT_AND_LANGUAGE_DECISION.md) | Consent, delivery limits, and language-selection rationale. |
+| [Changelog](CHANGELOG.md) | Release-level changes for v3.3. |
+| [Contributing](CONTRIBUTING.md) | Free-only, privacy, testing, and migration rules for contributors. |
+| [Security policy](SECURITY.md) | Private reporting process for vulnerabilities and exposed credentials. |
+
+> The supplied `multi-bot` archive was reviewed as a private implementation reference. Its safe file-size checks, mode routing, Worker error boundary, and Workers AI response normalization informed v3.3. Its missing webhook validation, unrestricted KV-only architecture, and direct hard-coded model selection were not adopted.
