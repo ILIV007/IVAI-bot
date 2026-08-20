@@ -1,8 +1,8 @@
-# IVAI Bot v3.3.1 — Free-Tier, Secure Telegram AI Assistant
+# IVAI Bot v3.3.2 — Free-Tier, Secure Telegram AI Assistant
 
 [![Continuous Integration](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.1 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while adding webhook security, a source-verified free-only model policy, D1 data, admin controls, responsive Mini App groundwork, multimodal adapters, and inline feedback.
+> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.2 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while adding webhook security, a source-verified free-only model policy, D1 data, admin controls, a responsive user-facing IVAI Terminal Mini App, multimodal adapters, and inline feedback.
 
 ## Product principles
 
@@ -26,6 +26,7 @@
 | Telegram UX | Rich Draft + Rich Message fallback, colored inline buttons, message chunking, callback handling, Inline Mode, Guest AI replies, and reaction-based group feedback |
 | Multimodal | Voice transcription and image understanding adapters through Workers AI, guarded by file and quota limits |
 | Admin | Owner/admin roles, Telegram-native admin controls, reviewable broadcast drafts, audit logging, responsive `/admin` Mini App shell, and server-side `initData` validation |
+| IVAI Terminal | A lightweight, navy/blue/jade user Mini App at `/app`; server-validated Telegram identity, same-origin JSON API, one shared free AI path per turn, no polling or permanent transcript by default |
 | Context routing | Thread/topic, direct-message topic, and business-connection context are preserved for typing, draft, text and media replies |
 | Re-engagement | A consent-controlled, at-most-once-per-15-days check-in for inactive users; five sequential deliveries per scheduled run, no AI call and `/notify on|off` control |
 | Languages | English-first, Persian-second, plus Arabic, Spanish, Turkish, Russian, Portuguese (Brazil), Indonesian, Hindi, French and German via `/lang` |
@@ -46,7 +47,10 @@ src/
 ├── secretary.js      # Task reminder claim and delivery flow
 ├── reengagement.js   # Consent-controlled inactive-user check-ins
 ├── admin.js          # Validated Mini App admin API
-├── admin-page.js     # Responsive English-first Mini App UI
+├── admin-page.js     # Responsive English-first admin Mini App UI
+├── webapp-auth.js    # Shared server-side Telegram initData validation
+├── app-api.js        # Public IVAI Terminal session and chat API
+├── app-page.js       # Lightweight navy/blue/jade terminal Mini App UI
 └── telegram.js       # Telegram API, rich drafts, keyboards, context-aware safe rendering
 
 db/0001_initial_schema.sql  # D1 base schema
@@ -85,6 +89,7 @@ Copy `.dev.vars.example` to `.dev.vars` for local-only development and never com
 ## Local checks
 
 ```bash
+pnpm install
 npm run check
 npm test
 ```
@@ -96,7 +101,7 @@ npm test
 3. Register actual values as Worker Secrets.
 4. Deploy the Worker.
 5. Set the Telegram webhook with a random `secret_token` that matches `TELEGRAM_WEBHOOK_SECRET`; subscribe only to needed update types.
-6. Enable Inline Mode in BotFather and point the Mini App button at `/admin` only after deployment.
+6. Enable Inline Mode in BotFather. Configure the **Main Mini App** and the bot menu button to `https://ivai-bot.ivai-bot.workers.dev/app`; keep `/admin` as the separate role-protected operations panel.
 7. Validate `/start`, `/help`, language picker, model picker, private Rich Draft/fallback, text, inline query, Guest reply, reaction feedback, Business/Thread context, role checks, broadcast preview, `/task in 30m | reminder test`, and `/notify off` on a staging chat before production use. Cron reminders and inactive-user check-ins are batch-delivered within roughly ten minutes of eligibility.
 8. After the code is live, refresh the Telegram webhook with `guest_message` and `message_reaction` in `allowed_updates`; enable Guest Mode and Inline Mode in BotFather. See `docs/TELEGRAM_FEATURE_MATRIX_FA.md`.
 
@@ -111,7 +116,8 @@ npm test
 | [Telegram feature matrix (FA)](docs/TELEGRAM_FEATURE_MATRIX_FA.md) | Telegram capability coverage and remaining BotFather actions. |
 | [Re-engagement and language decision](docs/REENGAGEMENT_AND_LANGUAGE_DECISION.md) | Consent, delivery limits, and language-selection rationale. |
 | [Provider research](docs/PROVIDER_RESEARCH_2026-08-20.md) | Source-backed model eligibility, deprecation review, provider limits, and safe fallback policy. |
-| [Changelog](CHANGELOG.md) | Release-level changes for v3.3.1. |
+| [IVAI Terminal proposal (FA)](docs/USER_TERMINAL_MINI_APP_PROPOSAL_FA.md) | Security boundary, low-cost architecture, UI design, and rollout plan for the public terminal Mini App. |
+| [Changelog](CHANGELOG.md) | Release-level changes for v3.3.2. |
 | [Contributing](CONTRIBUTING.md) | Free-only, privacy, testing, and migration rules for contributors. |
 | [Security policy](SECURITY.md) | Private reporting process for vulnerabilities and exposed credentials. |
 

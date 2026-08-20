@@ -1,45 +1,11 @@
 import { canBroadcast, canManage, getRole } from "./security.js";
 import { createBroadcastDraft, getAdminOperationalStats, writeAdminAudit } from "./storage.js";
+import { getVerifiedWebAppUser, verifyTelegramInitData } from "./webapp-auth.js";
 
-const encoder = new TextEncoder();
+export { verifyTelegramInitData } from "./webapp-auth.js";
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=UTF-8", "cache-control": "no-store" } });
-}
-
-function equalHex(left, right) {
-  if (!left || !right || left.length !== right.length) return false;
-  let value = 0;
-  for (let i = 0; i < left.length; i += 1) value |= left.charCodeAt(i) ^ right.charCodeAt(i);
-  return value === 0;
-}
-
-async function hmac(key, data) {
-  const cryptoKey = await crypto.subtle.importKey("raw", key, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  return new Uint8Array(await crypto.subtle.sign("HMAC", cryptoKey, encoder.encode(data)));
-}
-
-function toHex(bytes) {
-  return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
-}
-
-export async function verifyTelegramInitData(initData, botToken) {
-  if (!initData || !botToken) return null;
-  const values = new URLSearchParams(initData);
-  const actualHash = values.get("hash");
-  if (!actualHash) return null;
-  values.delete("hash");
-  const authDate = Number(values.get("auth_date") || 0);
-  if (!authDate || Math.abs(Date.now() / 1000 - authDate) > 60 * 60) return null;
-  const dataCheckString = [...values.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => `${key}=${value}`).join("\n");
-  const secret = await hmac(encoder.encode("WebAppData"), botToken);
-  const calculatedHash = toHex(await hmac(secret, dataCheckString));
-  if (!equalHex(calculatedHash, actualHash)) return null;
-  try {
-    return JSON.parse(values.get("user") || "null");
-  } catch {
-    return null;
-  }
 }
 
 async function metrics(env) {
@@ -56,8 +22,7 @@ async function metrics(env) {
 }
 
 async function adminUser(request, env) {
-  const initData = request.headers.get("x-telegram-init-data") || "";
-  const telegramUser = await verifyTelegramInitData(initData, env.TELEGRAM_BOT_TOKEN);
+  const telegramUser = await getVerifiedWebAppUser(request, env);
   if (!telegramUser?.id) return null;
   const role = await getRole(telegramUser.id, env);
   return { telegramUser, role };

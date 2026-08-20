@@ -2,6 +2,21 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.2] - 2026-08-20
+
+### Added
+
+- Added **IVAI Terminal**, a lightweight user-facing Telegram Mini App at `/app` with a navy, deep-blue, and jade terminal interface.
+- Added same-origin `/app/session` and `/app/chat` endpoints that use server-validated Telegram `initData`, existing user settings, shared text quota, and the established free-only sequential AI pipeline.
+- Added a shared `webapp-auth.js` module so admin and public Mini App requests use one server-side HMAC validation implementation.
+- Added a repeatable local Worker development toolchain with Wrangler 4, a committed pnpm lockfile, and a narrow pnpm build allowlist for `esbuild` and `workerd`.
+- Added Terminal security/API/UI tests; the foundation suite now covers 33 passing tests.
+
+### Security
+
+- Added strict no-store, same-origin connect, content-type, referrer, permissions, and nonce-based CSP headers to the public Terminal shell.
+- The public terminal never trusts a browser-supplied user identifier, never renders user/model text through `innerHTML`, and keeps transcripts local unless the existing opt-in memory setting is enabled.
+
 ## [3.3.1] - 2026-08-20
 
 ### Changed
@@ -46,6 +61,7 @@ All notable changes to IVAI Bot are documented in this file. The project follows
 
 - Baseline IVAI bot experience on which the v3.3 modular modernization is built.
 
+[3.3.2]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.1...v3.3.2
 [3.3.1]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.0...v3.3.1
 [3.3.0]: https://github.com/ILIV007/IVAI-bot/compare/12936cb...593ea80
 [3.2.0]: https://github.com/ILIV007/IVAI-bot

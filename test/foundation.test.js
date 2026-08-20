@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import test from "node:test";
 import worker from "../src/index.js";
 import { generateReply } from "../src/ai.js";
@@ -127,6 +128,14 @@ function baseEnv() {
   };
 }
 
+function signedWebAppInitData(user = { id: 126679582, first_name: "Owner", language_code: "en" }) {
+  const values = new URLSearchParams({ auth_date: String(Math.floor(Date.now() / 1000)), user: JSON.stringify(user) });
+  const dataCheckString = [...values.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([key, value]) => `${key}=${value}`).join("\n");
+  const secret = createHmac("sha256", "WebAppData").update("test-token").digest();
+  values.set("hash", createHmac("sha256", secret).update(dataCheckString).digest("hex"));
+  return values.toString();
+}
+
 test("rejects a webhook request without the secret header", async () => {
   const response = await worker.fetch(new Request("https://worker.test/", { method: "POST", body: "{}" }), baseEnv());
   assert.equal(response.status, 401);
@@ -190,8 +199,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.1 release version", () => {
-  assert.equal(APP.version, "3.3.1");
+test("declares the official v3.3.2 release version", () => {
+  assert.equal(APP.version, "3.3.2");
 });
 
 test("keeps bounded free-tier output limits", () => {
@@ -268,6 +277,54 @@ test("serves an English-first responsive admin page", async () => {
 test("rejects an admin API request without validated Telegram Mini App data", async () => {
   const response = await worker.fetch(new Request("https://worker.test/admin/session", { method: "POST", body: "{}" }), baseEnv());
   assert.equal(response.status, 401);
+});
+
+test("serves a lightweight IVAI Terminal shell with strict same-origin security headers", async () => {
+  const response = await worker.fetch(new Request("https://worker.test/app"), baseEnv());
+  const html = await response.text();
+  assert.equal(response.status, 200);
+  assert.match(html, /IVAI \/\/ TERMINAL/);
+  assert.match(html, /--navy:#07192f/);
+  assert.match(html, /--jade:#16b89b/);
+  assert.match(html, /textContent=text/);
+  assert.match(response.headers.get("content-security-policy"), /connect-src 'self'/);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+});
+
+test("rejects unauthenticated Terminal API requests", async () => {
+  const response = await worker.fetch(new Request("https://worker.test/app/session", { method: "POST", body: "{}" }), baseEnv());
+  assert.equal(response.status, 401);
+  assert.equal((await response.json()).code, "UNAUTHORIZED");
+});
+
+test("runs exactly one free AI path for an authenticated Terminal chat turn", async () => {
+  const calls = [];
+  const env = { ...baseEnv(), AI: { async run(model, payload) { calls.push({ model, payload }); return { response: "Terminal reply." }; } } };
+  const response = await worker.fetch(new Request("https://worker.test/app/chat", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-telegram-init-data": signedWebAppInitData() },
+    body: JSON.stringify({ text: "Explain KV briefly" })
+  }), env);
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(body.text, "Terminal reply.");
+  assert.equal(body.mode, "deep");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].model, "@cf/google/gemma-4-26b-a4b-it");
+});
+
+test("rejects invalid Terminal prompts before calling an AI provider", async () => {
+  let calls = 0;
+  const env = { ...baseEnv(), AI: { async run() { calls += 1; return { response: "unused" }; } } };
+  const response = await worker.fetch(new Request("https://worker.test/app/chat", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-telegram-init-data": signedWebAppInitData() },
+    body: JSON.stringify({ text: "   " })
+  }), env);
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code, "INVALID_INPUT");
+  assert.equal(calls, 0);
 });
 
 test("shows a read-only operations summary to an authorized admin", async () => {
