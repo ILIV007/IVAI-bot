@@ -66,11 +66,11 @@ async function runGuard({ text, language }, env) {
   return { text: guardReplyText(raw, language), provider: "workers-ai", model };
 }
 
-async function runWorkersAi({ messages, mode }, env) {
+async function runWorkersAi({ messages, mode, selectedModel }, env) {
   if (!env.AI?.run) throw new Error("Workers AI is not configured");
   const budget = await reserveWorkersAiBudget(mode === MODES.DEEP ? 4 : 2, env);
   if (!budget.allowed) throw new Error("Workers AI free quota guard blocked the request");
-  const model = FREE_MODEL_POLICY.workersAi.text[0];
+  const model = FREE_MODEL_POLICY.workersAi.text.includes(selectedModel) ? selectedModel : FREE_MODEL_POLICY.workersAi.text[0];
   const result = await env.AI.run(model, {
     messages,
     max_tokens: modeOutputLimit(mode),
@@ -101,9 +101,9 @@ async function runOpenRouter({ messages, mode, selectedModel }, env) {
   return { text: String(text).trim(), provider: "openrouter", model: payload.model || model };
 }
 
-async function runGroq({ messages, mode }, env) {
+async function runGroq({ messages, mode, selectedModel }, env) {
   if (!env.GROQ_API_KEY) throw new Error("Groq is not configured");
-  const model = FREE_MODEL_POLICY.groq[0];
+  const model = FREE_MODEL_POLICY.groq.includes(selectedModel) ? selectedModel : FREE_MODEL_POLICY.groq[0];
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { authorization: `Bearer ${env.GROQ_API_KEY}`, "content-type": "application/json" },
@@ -116,9 +116,9 @@ async function runGroq({ messages, mode }, env) {
   return { text: String(text).trim(), provider: "groq", model };
 }
 
-async function runGoogle({ messages, mode }, env) {
+async function runGoogle({ messages, mode, selectedModel }, env) {
   if (!env.GOOGLE_API_KEY) throw new Error("Google AI Studio is not configured");
-  const model = FREE_MODEL_POLICY.google[0];
+  const model = FREE_MODEL_POLICY.google.includes(selectedModel) ? selectedModel : FREE_MODEL_POLICY.google[0];
   const system = messages.find((message) => message.role === "system")?.content || "";
   const contents = messages.filter((message) => message.role !== "system").map((message) => ({
     role: message.role === "assistant" ? "model" : "user",
@@ -144,7 +144,12 @@ export async function generateReply({ text, selectedMode, selectedModel, languag
   const mode = detectMode(text, selectedMode);
   if (mode === MODES.GUARD) return { ...(await runGuard({ text, language }, env)), mode };
   const messages = normalizeMessages({ text, context, mode, language });
-  const attempts = [runWorkersAi, runOpenRouter, runGroq, runGoogle];
+  const preferred = selectedModel?.startsWith("@cf/") ? runWorkersAi
+    : selectedModel?.endsWith(":free") ? runOpenRouter
+      : FREE_MODEL_POLICY.groq.includes(selectedModel) ? runGroq
+        : FREE_MODEL_POLICY.google.includes(selectedModel) ? runGoogle
+          : null;
+  const attempts = preferred ? [preferred, ...[runWorkersAi, runOpenRouter, runGroq, runGoogle].filter((attempt) => attempt !== preferred)] : [runWorkersAi, runOpenRouter, runGroq, runGoogle];
   const failures = [];
   for (const attempt of attempts) {
     try {

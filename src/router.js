@@ -22,7 +22,7 @@ import {
   upsertUser,
   writeAdminAudit
 } from "./storage.js";
-import { adminKeyboard, answerCallback, editMessage, escapeHtml, extendedModeKeyboard, modeKeyboard, modeLabel, responseMeta, sendMessage, sendTyping, telegram, welcomeText } from "./telegram.js";
+import { adminKeyboard, answerCallback, editMessage, escapeHtml, modelPickerKeyboard, modeKeyboard, modeLabel, responseMeta, sendMessage, sendTyping, settingsKeyboard, startThinkingAnimation, telegram, thinkingText, welcomeText } from "./telegram.js";
 
 const COMMAND_MODE = Object.freeze({
   "/auto": MODES.AUTO,
@@ -66,9 +66,9 @@ function responseText(language, key) {
 
 function helpText(language) {
   if (language === "fa") {
-    return `<b>راهنمای IVAI</b>\n\n<b>حالت‌های اصلی</b>\n/auto · /fast · /deep · /code · /prompt\n\n<b>حالت‌های متمرکز</b>\n/guest · /guard · /secretary · /management · /thread\n\n<b>مدل‌ها</b>\n/models · /refreshmodels · /pick 1 · /model off\n\n<b>حافظه</b>\n/memory on · /memory show · /memory clear\n\n<b>زبان</b>\n/lang\n\n<b>سایر</b>\n/debug · /reset · /admin`;
+    return `<b>راهنمای IVAI</b>\n\n<b>شروع سریع</b>\nیک پیام بفرستید؛ حالت <code>/auto</code> بهترین مسیر رایگان را انتخاب می‌کند.\n\n<b>سه حالت اصلی</b>\n<code>/auto</code> — انتخاب خودکار\n<code>/fast</code> — پاسخ کوتاه و سریع\n<code>/deep</code> — پاسخ ساختاریافته و دقیق\n\n<b>انتخاب مدل رایگان</b>\n<code>/models</code> یا دکمهٔ «انتخاب مدل»؛ مدل انتخابی اولویت دارد و در خطا fallback رایگان فعال می‌ماند.\n<code>/model off</code> — بازگشت به Auto\n\n<b>ابزارها</b>\n<code>/guard</code> — بررسی ایمنی یک‌مرحله‌ای\n<code>/memory on|off|show|clear</code>\n<code>/lang</code> · <code>/debug</code> · <code>/reset</code>\n\n<b>نکته</b>\nهمهٔ مسیرهای مدل فقط free-only هستند.`;
   }
-  return `<b>IVAI Help</b>\n\n<b>Core modes</b>\n/auto · /fast · /deep · /code · /prompt\n\n<b>Focused modes</b>\n/guest · /guard · /secretary · /management · /thread\n\n<b>Models</b>\n/models · /refreshmodels · /pick 1 · /model off\n\n<b>Memory</b>\n/memory on · /memory show · /memory clear\n\n<b>Language</b>\n/lang\n\n<b>Other</b>\n/debug · /reset · /admin`;
+  return `<b>IVAI Help</b>\n\n<b>Quick start</b>\nSend a message. <code>/auto</code> chooses the best available free route.\n\n<b>Three main modes</b>\n<code>/auto</code> — automatic routing\n<code>/fast</code> — concise, quick answers\n<code>/deep</code> — structured, careful answers\n\n<b>Choose a free AI model</b>\nUse <code>/models</code> or the “Pick model” button. A chosen model is preferred, while free fallback remains available on failure.\n<code>/model off</code> — return to Auto\n\n<b>Tools</b>\n<code>/guard</code> — one-call safety check\n<code>/memory on|off|show|clear</code>\n<code>/lang</code> · <code>/debug</code> · <code>/reset</code>\n\n<b>Policy</b>\nEvery model route is free-only.`;
 }
 
 function renderAiText(text) {
@@ -104,14 +104,17 @@ async function saveFeedbackToken({ token, userId, chatId, responseMessageId, mod
   });
 }
 
-async function sendModelList(chatId, language, selectedModel, env) {
+async function modelPickerView(language, selectedModel, env, page = 0) {
   const catalog = await getFreeModelCatalog(env);
-  const selected = selectedModel ? `\n\n<b>${language === "fa" ? "مدل قفل‌شده" : "Locked model"}:</b> <code>${escapeHtml(selectedModel)}</code>` : "";
-  const heading = language === "fa" ? "<b>مدل‌های رایگان موجود</b>" : "<b>Available free models</b>";
-  await sendMessage(env, {
-    chatId,
-    text: `${heading}\n${renderModelList(catalog, language)}${selected}\n\n${language === "fa" ? "برای انتخاب: /pick شماره" : "To select: /pick number"}`
-  });
+  const locked = selectedModel ? `<code>${escapeHtml(selectedModel)}</code>` : (language === "fa" ? "Auto" : "Auto");
+  const heading = language === "fa" ? "<b>انتخاب مدل AI رایگان</b>" : "<b>Free AI model picker</b>";
+  const detail = language === "fa" ? "مدل انتخابی شما اولویت دارد؛ اگر موقتاً در دسترس نباشد، fallback رایگان و ترتیبی فعال می‌شود." : "Your selected model is preferred; if it is temporarily unavailable, ordered free fallback stays active.";
+  return { text: `${heading}\n\n<b>${language === "fa" ? "مدل فعال" : "Active model"}:</b> ${locked}\n${detail}`, keyboard: modelPickerKeyboard(catalog, { page, selectedModel, language }) };
+}
+
+async function sendModelList(chatId, language, selectedModel, env, replyTo) {
+  const view = await modelPickerView(language, selectedModel, env);
+  await sendMessage(env, { chatId, text: view.text, keyboard: view.keyboard, replyTo });
 }
 
 async function handleCommand(message, env, language) {
@@ -125,7 +128,7 @@ async function handleCommand(message, env, language) {
     return true;
   }
   if (command === "/help") {
-    await sendMessage(env, { chatId, text: helpText(language), replyTo: message.message_id });
+    await sendMessage(env, { chatId, text: helpText(language), keyboard: modeKeyboard(language), replyTo: message.message_id });
     return true;
   }
   if (COMMAND_MODE[command]) {
@@ -137,13 +140,13 @@ async function handleCommand(message, env, language) {
     await sendMessage(env, {
       chatId,
       text: "<b>Language / زبان</b>",
-      keyboard: { inline_keyboard: [[{ text: "English", callback_data: "lang:en" }, { text: "فارسی", callback_data: "lang:fa" }]] },
+      keyboard: { inline_keyboard: [[{ text: "English", callback_data: "lang:en", style: "primary" }, { text: "فارسی", callback_data: "lang:fa", style: "success" }], [{ text: "← Menu", callback_data: "menu:main" }]] },
       replyTo: message.message_id
     });
     return true;
   }
   if (command === "/models" || (command === "/model" && !argumentText)) {
-    await sendModelList(chatId, language, settings.selectedModel, env);
+    await sendModelList(chatId, language, settings.selectedModel, env, message.message_id);
     return true;
   }
   if (command === "/model" && args[0] === "off") {
@@ -265,12 +268,14 @@ async function processText(message, env) {
   await sendTyping(env, chatId).catch(() => {});
   const progress = await sendMessage(env, {
     chatId,
-    text: language === "fa" ? "<i>IVAI در حال فکرکردن است…</i>" : "<i>IVAI is thinking…</i>",
+    text: thinkingText(language, 0),
     replyTo: message.message_id
   }).catch(() => null);
+  const thinking = progress?.message_id ? startThinkingAnimation(env, { chatId, messageId: progress.message_id, language }) : null;
 
   try {
     const result = await generateReply({ text, selectedMode: settings.mode, selectedModel: settings.selectedModel, language, context }, env);
+    await thinking?.stop();
     if (settings.memoryEnabled) {
       await saveGuestMemory(key, [...context, { role: "user", content: text }, { role: "assistant", content: result.text }], env);
     }
@@ -290,6 +295,7 @@ async function processText(message, env) {
     await sendMessage(env, { chatId, text: result.text, replyTo: message.message_id, parseMode: null });
     await sendMessage(env, { chatId, text: responseMeta({ model: result.model, mode: result.mode, language }) });
   } catch (error) {
+    await thinking?.stop();
     const code = safeError(error);
     const failureText = responseText(language, code === "RATE_LIMIT" ? "busy" : "temporary");
     if (progress?.message_id) await editMessage(env, { chatId, messageId: progress.message_id, text: failureText }).catch(() => {});
@@ -401,15 +407,83 @@ async function processCallback(query, env) {
   const language = (await getUserSettings(userId, env)).language || "en";
   const data = String(query.data || "");
   await answerCallback(env, query.id).catch(() => {});
+  const messageId = query.message?.message_id;
+  if (!chatId || !messageId) return;
+
+  if (data === "menu:main" || data === "modes:back") {
+    await editMessage(env, { chatId, messageId, text: welcomeText(language), keyboard: modeKeyboard(language) });
+    return;
+  }
+  if (data === "menu:help") {
+    await editMessage(env, { chatId, messageId, text: helpText(language), keyboard: modeKeyboard(language) });
+    return;
+  }
+  if (data === "menu:models") {
+    const settings = await getUserSettings(userId, env);
+    const view = await modelPickerView(language, settings.selectedModel, env);
+    await editMessage(env, { chatId, messageId, text: view.text, keyboard: view.keyboard });
+    return;
+  }
+  if (data.startsWith("model:page:")) {
+    const page = Number(data.slice("model:page:".length));
+    const settings = await getUserSettings(userId, env);
+    const view = await modelPickerView(language, settings.selectedModel, env, Number.isFinite(page) ? page : 0);
+    await editMessage(env, { chatId, messageId, text: view.text, keyboard: view.keyboard });
+    return;
+  }
+  if (data.startsWith("model:pick:")) {
+    const index = Number(data.slice("model:pick:".length));
+    const catalog = await getFreeModelCatalog(env);
+    const model = catalog[index];
+    if (!model) return;
+    await setSelectedModel(userId, model.id, env);
+    const view = await modelPickerView(language, model.id, env, Math.floor(index / 6));
+    await editMessage(env, { chatId, messageId, text: `${language === "fa" ? "✓ مدل انتخاب شد" : "✓ Model selected"}: <code>${escapeHtml(model.id)}</code>\n${language === "fa" ? "این مدل در اولویت است و fallback رایگان باقی می‌ماند." : "This model is preferred; free fallback remains available."}`, keyboard: view.keyboard });
+    return;
+  }
+  if (data === "model:auto") {
+    await setSelectedModel(userId, null, env);
+    const view = await modelPickerView(language, null, env);
+    await editMessage(env, { chatId, messageId, text: `${language === "fa" ? "✓ Auto policy فعال شد." : "✓ Auto policy is active."}\n\n${view.text}`, keyboard: view.keyboard });
+    return;
+  }
+  if (data === "model:refresh") {
+    try { await refreshFreeModelCatalog(env); } catch { /* The picker keeps the last safe catalog. */ }
+    const settings = await getUserSettings(userId, env);
+    const view = await modelPickerView(language, settings.selectedModel, env);
+    await editMessage(env, { chatId, messageId, text: view.text, keyboard: view.keyboard });
+    return;
+  }
+  if (data === "model:noop") return;
+  if (data === "menu:settings" || data === "settings:open") {
+    const settings = await getUserSettings(userId, env);
+    const text = `<b>${language === "fa" ? "تنظیمات IVAI" : "IVAI settings"}</b>\n\n${language === "fa" ? "حالت" : "Mode"}: <code>${escapeHtml(modeLabel(settings.mode, language))}</code>\n${language === "fa" ? "مدل" : "Model"}: <code>${escapeHtml(settings.selectedModel || "Auto")}</code>\n${language === "fa" ? "حافظه" : "Memory"}: <code>${settings.memoryEnabled ? "on" : "off"}</code>`;
+    await editMessage(env, { chatId, messageId, text, keyboard: settingsKeyboard(language, settings.memoryEnabled) });
+    return;
+  }
+  if (data === "settings:memory") {
+    const settings = await getUserSettings(userId, env);
+    await setMemoryEnabled(userId, !settings.memoryEnabled, env);
+    const next = { ...settings, memoryEnabled: !settings.memoryEnabled };
+    const text = `<b>${language === "fa" ? "تنظیمات IVAI" : "IVAI settings"}</b>\n\n${language === "fa" ? "حافظه" : "Memory"}: <code>${next.memoryEnabled ? "on" : "off"}</code>`;
+    await editMessage(env, { chatId, messageId, text, keyboard: settingsKeyboard(language, next.memoryEnabled) });
+    return;
+  }
+  if (data === "settings:reset") {
+    await setUserMode(userId, MODES.AUTO, env);
+    await setSelectedModel(userId, null, env);
+    await setMemoryEnabled(userId, false, env);
+    await clearGuestMemory(conversationKey({ chatId, userId, threadId: getThreadId(query.message), replyTo: query.message?.reply_to_message?.message_id }), env);
+    await editMessage(env, { chatId, messageId, text: language === "fa" ? "✓ تنظیمات بازنشانی شد." : "✓ Settings reset.", keyboard: modeKeyboard(language) });
+    return;
+  }
+  if (data === "menu:language") {
+    await editMessage(env, { chatId, messageId, text: "<b>Language / زبان</b>", keyboard: { inline_keyboard: [[{ text: "English", callback_data: "lang:en", style: "primary" }, { text: "فارسی", callback_data: "lang:fa", style: "success" }], [{ text: "← Menu", callback_data: "menu:main" }]] } });
+    return;
+  }
 
   if (data === "modes:more") {
-    if (!chatId || !query.message?.message_id) return;
-    await editMessage(env, {
-      chatId,
-      messageId: query.message.message_id,
-      text: language === "fa" ? "<b>حالت‌های متمرکز</b>\n\nحالت مناسب وظیفه‌تان را انتخاب کنید. تنظیمات در پیام بعدی شما اعمال می‌شود." : "<b>Focused modes</b>\n\nChoose the mode that matches your task. Your setting will apply to the next message.",
-      keyboard: extendedModeKeyboard(language)
-    });
+    await editMessage(env, { chatId, messageId, text: helpText(language), keyboard: modeKeyboard(language) });
     return;
   }
   if (data === "modes:back") {
@@ -436,7 +510,7 @@ async function processCallback(query, env) {
     const selected = data.slice(5);
     if (!["en", "fa"].includes(selected)) return;
     await setUserLanguage(userId, selected, env);
-    await sendMessage(env, { chatId, text: selected === "fa" ? "✓ زبان فارسی فعال شد." : "✓ English is now active." });
+    await editMessage(env, { chatId, messageId, text: selected === "fa" ? "✓ زبان فارسی فعال شد." : "✓ English is now active.", keyboard: modeKeyboard(selected) });
     return;
   }
   if (data === "settings:open") {

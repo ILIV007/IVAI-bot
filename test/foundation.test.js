@@ -4,7 +4,7 @@ import worker from "../src/index.js";
 import { generateReply } from "../src/ai.js";
 import { APP, MODES, modeOutputLimit } from "../src/config.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
-import { extendedModeKeyboard, feedbackKeyboard, modeKeyboard, modeLabel, responseMeta, shortModelLabel, splitText } from "../src/telegram.js";
+import { feedbackKeyboard, modeKeyboard, modeLabel, modelPickerKeyboard, responseMeta, shortModelLabel, splitText, thinkingText } from "../src/telegram.js";
 
 class KV {
   constructor() { this.values = new Map(); }
@@ -114,13 +114,18 @@ test("keeps bounded free-tier output limits", () => {
   assert.ok(modeOutputLimit(MODES.THREAD) <= 900);
 });
 
-test("exposes focused modes through a compact secondary menu", () => {
+test("presents three main modes with semantic styles and a paginated model picker", () => {
   const core = modeKeyboard("en").inline_keyboard.flat();
-  const focused = extendedModeKeyboard("en").inline_keyboard.flat();
-  assert.ok(core.some((button) => button.callback_data === "modes:more"));
-  assert.ok(focused.some((button) => button.callback_data === "mode:thread"));
-  assert.equal(modeLabel(MODES.THREAD, "en"), "Thread");
-  assert.equal(modeLabel(MODES.SECRETARY, "fa"), "منشی");
+  const modeCallbacks = core.filter((button) => button.callback_data.startsWith("mode:")).map((button) => button.callback_data);
+  assert.deepEqual(modeCallbacks, ["mode:auto", "mode:fast", "mode:deep"]);
+  assert.equal(core.find((button) => button.callback_data === "mode:auto").style, "primary");
+  assert.equal(core.find((button) => button.callback_data === "menu:models").style, "success");
+  const picker = modelPickerKeyboard([{ id: "@cf/zai-org/glm-4.7-flash", name: "GLM 4.7 Flash", provider: "workers-ai" }], { selectedModel: "@cf/zai-org/glm-4.7-flash" }).inline_keyboard.flat();
+  assert.ok(picker.some((button) => button.callback_data === "model:pick:0" && button.style === "success"));
+  assert.ok(picker.some((button) => button.callback_data === "model:auto" && button.style === "primary"));
+  assert.equal(thinkingText("en", 0), "<i>IVAI is thinking.</i>");
+  assert.equal(thinkingText("en", 2), "<i>IVAI is thinking...</i>");
+  assert.equal(modeLabel(MODES.DEEP, "en"), "Deep");
 });
 
 test("renders concise linked response metadata without per-message action buttons", () => {
@@ -298,4 +303,42 @@ test("rejects unsupported admin API methods instead of returning the public heal
   const response = await worker.fetch(new Request("https://worker.test/admin/session"), baseEnv());
   assert.equal(response.status, 405);
   assert.deepEqual(await response.json(), { ok: false, error: "method_not_allowed" });
+});
+
+test("prefers the selected free Workers AI model before fallback", async () => {
+  const calls = [];
+  const env = {
+    ...baseEnv(),
+    AI: { async run(model) { calls.push(model); return { response: "Selected model reply" }; } }
+  };
+  const result = await generateReply({ text: "Hello", selectedMode: MODES.FAST, selectedModel: "@cf/google/gemma-4-26b-a4b-it", language: "en", context: [] }, env);
+  assert.deepEqual(calls, ["@cf/google/gemma-4-26b-a4b-it"]);
+  assert.equal(result.model, "@cf/google/gemma-4-26b-a4b-it");
+});
+
+test("opens a callback-driven model picker and selects a displayed free model", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 91 } }), { status: 200 });
+  };
+  try {
+    const update = {
+      update_id: 904,
+      callback_query: {
+        id: "picker-1", from: { id: 7, first_name: "Picker" }, data: "model:pick:0",
+        message: { message_id: 20, chat: { id: 42, type: "private" }, from: { id: 8285612628, is_bot: true } }
+      }
+    };
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST", headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" }, body: JSON.stringify(update)
+    }), baseEnv());
+    assert.equal(response.status, 200);
+    const edit = calls.find((call) => /editMessageText$/.test(call.url));
+    assert.match(edit.body.text, /Model selected/);
+    assert.equal(edit.body.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === "model:auto"), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

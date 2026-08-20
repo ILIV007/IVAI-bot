@@ -10,44 +10,71 @@ export function escapeHtml(value = "") {
     .replaceAll('"', "&quot;");
 }
 
+function button(text, callbackData, style) {
+  return { text, callback_data: callbackData, ...(style ? { style } : {}) };
+}
+
+function providerIcon(provider) {
+  return { "workers-ai": "🟣", openrouter: "🔵", groq: "🟠", google: "🟢" }[provider] || "⚪";
+}
+
 export function modeKeyboard(language = "en") {
   const fa = language === "fa";
   return {
     inline_keyboard: [
       [
-        { text: fa ? "⚡ سریع" : "⚡ Fast", callback_data: "mode:fast" },
-        { text: fa ? "🧠 عمیق" : "🧠 Deep", callback_data: "mode:deep" }
+        button(fa ? "🔀 خودکار" : "🔀 Auto", "mode:auto", "primary"),
+        button(fa ? "⚡ سریع" : "⚡ Fast", "mode:fast"),
+        button(fa ? "🧠 عمیق" : "🧠 Deep", "mode:deep")
       ],
       [
-        { text: fa ? "💻 کد" : "💻 Code", callback_data: "mode:code" },
-        { text: fa ? "✨ پرامپت" : "✨ Prompt", callback_data: "mode:prompt" }
+        button(fa ? "🎛 انتخاب مدل" : "🎛 Pick model", "menu:models", "success"),
+        button(fa ? "📖 راهنما" : "📖 Help", "menu:help")
       ],
       [
-        { text: fa ? "🔀 خودکار" : "🔀 Auto", callback_data: "mode:auto" },
-        { text: fa ? "▦ حالت‌های بیشتر" : "▦ More modes", callback_data: "modes:more" }
+        button(fa ? "⚙️ تنظیمات" : "⚙️ Settings", "menu:settings"),
+        button(fa ? "🌐 زبان" : "🌐 Language", "menu:language")
       ]
     ]
   };
 }
 
-export function extendedModeKeyboard(language = "en") {
+export function modelPickerKeyboard(models, { page = 0, selectedModel, language = "en", pageSize = 6 } = {}) {
+  const safePage = Math.max(0, Math.min(page, Math.max(0, Math.ceil(models.length / pageSize) - 1)));
+  const start = safePage * pageSize;
+  const pageModels = models.slice(start, start + pageSize);
+  const rows = [];
+  for (let index = 0; index < pageModels.length; index += 2) {
+    rows.push(pageModels.slice(index, index + 2).map((model, offset) => {
+      const absoluteIndex = start + index + offset;
+      const selected = model.id === selectedModel;
+      return button(`${selected ? "✓ " : ""}${providerIcon(model.provider)} ${shortModelLabel(model.name)}`, `model:pick:${absoluteIndex}`, selected ? "success" : undefined);
+    }));
+  }
+  const nav = [];
+  if (safePage > 0) nav.push(button("◀", `model:page:${safePage - 1}`));
+  nav.push(button(`${safePage + 1}/${Math.max(1, Math.ceil(models.length / pageSize))}`, "model:noop"));
+  if (start + pageSize < models.length) nav.push(button("▶", `model:page:${safePage + 1}`));
+  rows.push(nav);
+  rows.push([
+    button(language === "fa" ? "🔀 Auto" : "🔀 Auto", "model:auto", "primary"),
+    button(language === "fa" ? "↻ به‌روزرسانی" : "↻ Refresh", "model:refresh"),
+    button(language === "fa" ? "← منو" : "← Menu", "menu:main")
+  ]);
+  return { inline_keyboard: rows };
+}
+
+export function settingsKeyboard(language = "en", memoryEnabled = false) {
   const fa = language === "fa";
-  return {
-    inline_keyboard: [
-      [
-        { text: fa ? "👤 مهمان" : "👤 Guest", callback_data: "mode:guest" },
-        { text: fa ? "🛡 Guard" : "🛡 Guard", callback_data: "mode:guard" }
-      ],
-      [
-        { text: fa ? "🗂 منشی" : "🗂 Secretary", callback_data: "mode:secretary" },
-        { text: fa ? "📣 مدیریت" : "📣 Management", callback_data: "mode:management" }
-      ],
-      [
-        { text: fa ? "🧵 Thread" : "🧵 Thread", callback_data: "mode:thread" },
-        { text: fa ? "← بازگشت" : "← Back", callback_data: "modes:back" }
-      ]
-    ]
-  };
+  return { inline_keyboard: [
+    [button(memoryEnabled ? (fa ? "✓ حافظه روشن" : "✓ Memory on") : (fa ? "حافظه خاموش" : "Memory off"), "settings:memory", memoryEnabled ? "success" : undefined)],
+    [button(fa ? "↺ بازنشانی تنظیمات" : "↺ Reset settings", "settings:reset", "danger")],
+    [button(fa ? "← منو" : "← Menu", "menu:main")]
+  ] };
+}
+
+export function extendedModeKeyboard(language = "en") {
+  return modeKeyboard(language);
 }
 
 export function feedbackKeyboard() {
@@ -85,6 +112,41 @@ export async function telegram(env, method, body) {
 
 export async function sendTyping(env, chatId) {
   return telegram(env, "sendChatAction", { chat_id: chatId, action: "typing" });
+}
+
+export function thinkingText(language = "en", frame = 0) {
+  const dots = [".", "..", "..."][frame % 3];
+  return language === "fa" ? `<i>IVAI در حال فکر کردن${dots}</i>` : `<i>IVAI is thinking${dots}</i>`;
+}
+
+export function startThinkingAnimation(env, { chatId, messageId, language = "en", intervalMs = 900 }) {
+  let stopped = false;
+  let frame = 1;
+  let timer;
+  let wake;
+  const task = (async () => {
+    while (!stopped) {
+      await new Promise((resolve) => {
+        wake = resolve;
+        timer = setTimeout(resolve, intervalMs);
+      });
+      timer = undefined;
+      if (stopped) break;
+      await Promise.all([
+        editMessage(env, { chatId, messageId, text: thinkingText(language, frame) }).catch(() => {}),
+        sendTyping(env, chatId).catch(() => {})
+      ]);
+      frame += 1;
+    }
+  })();
+  return {
+    stop: async () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      wake?.();
+      await task;
+    }
+  };
 }
 
 export async function sendMessage(env, { chatId, text, replyTo, keyboard, disablePreview = true, parseMode = "HTML" }) {
@@ -136,9 +198,9 @@ export function splitText(text, maxLength) {
 
 export function welcomeText(language = "en") {
   if (language === "fa") {
-    return "<b>🪐 IVAI</b>\n\nدستیار هوشمند رایگان شما. حالت مناسب را انتخاب کنید یا پیام‌تان را بفرستید.";
+    return "<b>🪐 IVAI</b>\nدستیار AI رایگان و کم‌مصرف شما\n\nیک پیام بفرستید تا چت را شروع کنیم. <b>Auto</b> بهترین مسیر رایگان را انتخاب می‌کند؛ برای کنترل بیشتر، یک مدل رایگان از picker انتخاب کنید.\n\n<b>شروع سریع:</b> پیام خود را بنویسید، یک حالت انتخاب کنید یا <code>/help</code> را بزنید.";
   }
-  return "<b>🪐 IVAI</b>\n\nYour free AI assistant. Choose a mode or send a message.";
+  return "<b>🪐 IVAI</b>\nYour low-cost, free AI assistant\n\nSend any message to begin. <b>Auto</b> chooses the best available free route; use the model picker when you want a preferred model.\n\n<b>Quick start:</b> write your prompt, pick one of three modes, or use <code>/help</code>.";
 }
 
 export function shortModelLabel(model = "") {

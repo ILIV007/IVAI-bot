@@ -3,35 +3,53 @@ import { FREE_MODEL_POLICY } from "./config.js";
 const CATALOG_KEY = "catalog:openrouter:free:v1";
 const CATALOG_TTL_SECONDS = 6 * 60 * 60;
 const REFRESH_COOLDOWN_SECONDS = 15 * 60;
-const MAX_MODELS = 48;
+const MAX_OPENROUTER_MODELS = 48;
 
 function categoryFor(model) {
   const value = `${model.id} ${model.name || ""}`.toLowerCase();
   if (/coder|code|devstral|qwen.*coder/.test(value)) return "code";
-  if (/reason|thinking|70b|80b|32b|deep/.test(value)) return "deep";
+  if (/reason|thinking|70b|80b|32b|deep|gemma-4/.test(value)) return "deep";
   return "fast";
 }
 
-function normalize(model) {
+function normalize(model, provider = "openrouter") {
   return {
     id: String(model.id),
     name: String(model.name || model.id),
-    category: categoryFor(model),
+    provider,
+    category: model.category || categoryFor(model),
     contextLength: Number(model.context_length || 0)
   };
 }
 
+function fixedFreeModels() {
+  return [
+    ...FREE_MODEL_POLICY.workersAi.text.map((id) => normalize({ id }, "workers-ai")),
+    ...FREE_MODEL_POLICY.groq.map((id) => normalize({ id }, "groq")),
+    ...FREE_MODEL_POLICY.google.map((id) => normalize({ id }, "google"))
+  ];
+}
+
+function mergeCatalog(openRouterModels = []) {
+  const all = [...fixedFreeModels(), ...openRouterModels.map((model) => normalize(model, "openrouter"))];
+  return all.filter((model, index) => all.findIndex((entry) => entry.id === model.id) === index);
+}
+
 export function defaultFreeModels() {
-  return FREE_MODEL_POLICY.openRouter.map((id) => normalize({ id, name: id }));
+  return mergeCatalog(FREE_MODEL_POLICY.openRouter.map((id) => ({ id, name: id })));
+}
+
+export function isSelectableFreeModel(modelId) {
+  return defaultFreeModels().some((model) => model.id === modelId) || String(modelId || "").endsWith(":free");
 }
 
 export async function getFreeModelCatalog(env) {
   if (!env.IVAI_KV) return defaultFreeModels();
   try {
     const parsed = JSON.parse((await env.IVAI_KV.get(CATALOG_KEY)) || "null");
-    if (Array.isArray(parsed?.models) && parsed.models.length) return parsed.models;
+    if (Array.isArray(parsed?.models)) return mergeCatalog(parsed.models);
   } catch {
-    // A corrupt cache must never block the fallback catalog.
+    // A corrupt cache must never block the fixed free catalog.
   }
   return defaultFreeModels();
 }
@@ -48,28 +66,25 @@ export async function refreshFreeModelCatalog(env) {
   const payload = await response.json();
   const models = (payload?.data || [])
     .filter((model) => typeof model?.id === "string" && model.id.endsWith(":free"))
-    .map(normalize)
+    .map((model) => normalize(model, "openrouter"))
     .filter((model, index, all) => all.findIndex((entry) => entry.id === model.id) === index)
     .sort((left, right) => left.name.localeCompare(right.name))
-    .slice(0, MAX_MODELS);
+    .slice(0, MAX_OPENROUTER_MODELS);
 
   if (!models.length) throw new Error("OpenRouter did not return an eligible free model.");
   await env.IVAI_KV.put(CATALOG_KEY, JSON.stringify({ models, refreshedAt: new Date().toISOString() }), { expirationTtl: CATALOG_TTL_SECONDS });
   await env.IVAI_KV.put(cooldownKey, "1", { expirationTtl: REFRESH_COOLDOWN_SECONDS });
-  return { refreshed: true, models };
+  return { refreshed: true, models: mergeCatalog(models) };
 }
 
 export async function selectCatalogModel(index, env) {
   const catalog = await getFreeModelCatalog(env);
   const model = catalog[Number(index) - 1];
-  return model?.id?.endsWith(":free") ? model : null;
+  return model && isSelectableFreeModel(model.id) ? model : null;
 }
 
 export function renderModelList(models, language = "en", page = 0, size = 8) {
   const start = Math.max(0, page) * size;
   const list = models.slice(start, start + size);
-  if (language === "fa") {
-    return list.map((model, index) => `${start + index + 1}. <code>${model.id}</code> — ${model.category}`).join("\n");
-  }
   return list.map((model, index) => `${start + index + 1}. <code>${model.id}</code> — ${model.category}`).join("\n");
 }
