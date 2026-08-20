@@ -277,7 +277,7 @@ test("answers an empty inline query without invoking an AI provider", async () =
   }
 });
 
-test("uses one Workers AI call and edits a progress message into the final answer", async () => {
+test("uses one Workers AI call and completes a Rich Draft with a final rich message", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   globalThis.fetch = async (url, init) => {
@@ -299,8 +299,9 @@ test("uses one Workers AI call and edits a progress message into the final answe
     }), env);
     assert.equal(response.status, 200);
     assert.equal(calls.filter((call) => /sendChatAction$/.test(call.url)).length, 1);
-    assert.equal(calls.filter((call) => /sendMessage$/.test(call.url)).length, 1);
-    assert.equal(calls.filter((call) => /editMessageText$/.test(call.url)).length, 1);
+    assert.equal(calls.filter((call) => /sendRichMessageDraft$/.test(call.url)).length, 1);
+    assert.equal(calls.filter((call) => /sendRichMessage$/.test(call.url)).length, 1);
+    assert.equal(calls.filter((call) => /sendMessage$/.test(call.url)).length, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -327,8 +328,8 @@ test("delivers a long AI response in complete follow-up messages instead of trun
       body: JSON.stringify(update)
     }), env);
     assert.equal(response.status, 200);
-    const edit = calls.find((call) => /editMessageText$/.test(call.url));
-    assert.match(edit.body.text, /full response is sent below/i);
+    assert.equal(calls.filter((call) => /sendRichMessageDraft$/.test(call.url)).length, 1);
+    assert.equal(calls.filter((call) => /editMessageText$/.test(call.url)).length, 0);
     const delivered = calls.filter((call) => /sendMessage$/.test(call.url) && !/thinking/.test(call.body.text));
     assert.ok(delivered.length >= 2);
     assert.ok(delivered.some((call) => !Object.hasOwn(call.body, "parse_mode")));
@@ -397,6 +398,77 @@ test("delivers each due Secretary reminder once after an atomic claim", async ()
     assert.deepEqual(second, { claimed: 0, sent: 0, retried: 0, failed: 0 });
     assert.equal(calls.filter((call) => /sendMessage$/.test(call.url)).length, 1);
     assert.match(calls[0].body.text, /Review the launch/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("answers a guest AI query with one model call and the Guest Query API", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ ok: true, result: true }), { status: 200 });
+  };
+  try {
+    let modelCalls = 0;
+    const env = { ...baseEnv(), AI: { async run() { modelCalls += 1; return { response: "Guest answer." }; } } };
+    const update = { update_id: 1101, guest_message: { message_id: 41, chat: { id: -1001, type: "supergroup" }, from: { id: 7 }, guest_bot_caller_user: { id: 7 }, guest_query_id: "guest-query-1", text: "Explain this" } };
+    const response = await worker.fetch(new Request("https://worker.test/", { method: "POST", headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" }, body: JSON.stringify(update) }), env);
+    assert.equal(response.status, 200);
+    assert.equal(modelCalls, 1);
+    const guest = calls.find((call) => /answerGuestQuery$/.test(call.url));
+    assert.equal(guest.body.guest_query_id, "guest-query-1");
+    assert.equal(guest.body.result.type, "article");
+    assert.match(guest.body.result.input_message_content.message_text, /Guest answer/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("preserves business and topic context for an AI reply", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    const method = String(url).split("/").at(-1);
+    return new Response(JSON.stringify({ ok: true, result: method === "sendMessage" ? { message_id: 901 } : true }), { status: 200 });
+  };
+  try {
+    const env = { ...baseEnv(), AI: { async run() { return { response: "Connected answer." }; } } };
+    const update = { update_id: 1102, business_message: { message_id: 52, chat: { id: 42, type: "private" }, from: { id: 7 }, business_connection_id: "business-connection-1", message_thread_id: 88, text: "Reply here" } };
+    await worker.fetch(new Request("https://worker.test/", { method: "POST", headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" }, body: JSON.stringify(update) }), env);
+    const action = calls.find((call) => /sendChatAction$/.test(call.url));
+    const progress = calls.find((call) => /sendMessage$/.test(call.url));
+    const final = calls.find((call) => /editMessageText$/.test(call.url));
+    assert.equal(action.body.business_connection_id, "business-connection-1");
+    assert.equal(action.body.message_thread_id, 88);
+    assert.equal(progress.body.business_connection_id, "business-connection-1");
+    assert.equal(progress.body.message_thread_id, 88);
+    assert.equal(final.body.business_connection_id, "business-connection-1");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("falls back to standard progress and final text if Rich Draft is unavailable", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    const method = String(url).split("/").at(-1);
+    if (method === "sendRichMessageDraft") return new Response(JSON.stringify({ ok: false, description: "Rich messages unavailable" }), { status: 400 });
+    const result = method === "sendMessage" ? { message_id: 909 } : true;
+    return new Response(JSON.stringify({ ok: true, result }), { status: 200 });
+  };
+  try {
+    const env = { ...baseEnv(), AI: { async run() { return { response: "Fallback answer." }; } } };
+    const update = { update_id: 1103, message: { message_id: 63, chat: { id: 42, type: "private" }, from: { id: 7 }, text: "Use fallback" } };
+    await worker.fetch(new Request("https://worker.test/", { method: "POST", headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" }, body: JSON.stringify(update) }), env);
+    assert.equal(calls.filter((call) => /sendRichMessageDraft$/.test(call.url)).length, 1);
+    assert.equal(calls.filter((call) => /sendRichMessage$/.test(call.url)).length, 0);
+    assert.equal(calls.filter((call) => /sendMessage$/.test(call.url)).length, 1);
+    assert.equal(calls.filter((call) => /editMessageText$/.test(call.url)).length, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }

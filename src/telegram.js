@@ -110,8 +110,14 @@ export async function telegram(env, method, body) {
   return json.result;
 }
 
-export async function sendTyping(env, chatId) {
-  return telegram(env, "sendChatAction", { chat_id: chatId, action: "typing" });
+export async function sendTyping(env, chatId, { threadId, businessConnectionId, directMessagesTopicId } = {}) {
+  return telegram(env, "sendChatAction", {
+    chat_id: chatId,
+    action: "typing",
+    message_thread_id: threadId || undefined,
+    business_connection_id: businessConnectionId || undefined,
+    direct_messages_topic_id: directMessagesTopicId || undefined
+  });
 }
 
 export function thinkingText(language = "en", frame = 0) {
@@ -119,7 +125,7 @@ export function thinkingText(language = "en", frame = 0) {
   return language === "fa" ? `<i>IVAI در حال فکر کردن${dots}</i>` : `<i>IVAI is thinking${dots}</i>`;
 }
 
-export function startThinkingAnimation(env, { chatId, messageId, language = "en", intervalMs = 900 }) {
+export function startThinkingAnimation(env, { chatId, messageId, language = "en", intervalMs = 900, threadId, businessConnectionId, directMessagesTopicId }) {
   let stopped = false;
   let frame = 1;
   let timer;
@@ -133,8 +139,8 @@ export function startThinkingAnimation(env, { chatId, messageId, language = "en"
       timer = undefined;
       if (stopped) break;
       await Promise.all([
-        editMessage(env, { chatId, messageId, text: thinkingText(language, frame) }).catch(() => {}),
-        sendTyping(env, chatId).catch(() => {})
+        editMessage(env, { chatId, messageId, text: thinkingText(language, frame), businessConnectionId }).catch(() => {}),
+        sendTyping(env, chatId, { threadId, businessConnectionId, directMessagesTopicId }).catch(() => {})
       ]);
       frame += 1;
     }
@@ -149,7 +155,29 @@ export function startThinkingAnimation(env, { chatId, messageId, language = "en"
   };
 }
 
-export async function sendMessage(env, { chatId, text, replyTo, keyboard, disablePreview = true, parseMode = "HTML" }) {
+export async function sendRichMessage(env, { chatId, html, replyTo, keyboard, threadId, businessConnectionId, directMessagesTopicId, silent = false, rtl = false }) {
+  return telegram(env, "sendRichMessage", {
+    chat_id: chatId,
+    business_connection_id: businessConnectionId || undefined,
+    message_thread_id: threadId || undefined,
+    direct_messages_topic_id: directMessagesTopicId || undefined,
+    rich_message: { html, is_rtl: rtl || undefined, skip_entity_detection: false },
+    disable_notification: silent || undefined,
+    reply_parameters: replyTo ? { message_id: replyTo } : undefined,
+    reply_markup: keyboard
+  });
+}
+
+export async function sendRichMessageDraft(env, { chatId, draftId, html, threadId, rtl = false }) {
+  return telegram(env, "sendRichMessageDraft", {
+    chat_id: chatId,
+    message_thread_id: threadId || undefined,
+    draft_id: draftId,
+    rich_message: { html, is_rtl: rtl || undefined, skip_entity_detection: false }
+  });
+}
+
+export async function sendMessage(env, { chatId, text, replyTo, keyboard, disablePreview = true, parseMode = "HTML", threadId, businessConnectionId, directMessagesTopicId, receiverUserId, callbackQueryId, silent = false }) {
   const parts = splitText(text, APP.maxTelegramText);
   let finalMessage;
   for (let index = 0; index < parts.length; index += 1) {
@@ -158,6 +186,12 @@ export async function sendMessage(env, { chatId, text, replyTo, keyboard, disabl
       text: parts[index],
       parse_mode: parseMode || undefined,
       disable_web_page_preview: disablePreview,
+      message_thread_id: threadId || undefined,
+      business_connection_id: businessConnectionId || undefined,
+      direct_messages_topic_id: directMessagesTopicId || undefined,
+      receiver_user_id: receiverUserId || undefined,
+      callback_query_id: callbackQueryId || undefined,
+      disable_notification: silent || undefined,
       reply_parameters: index === 0 && replyTo ? { message_id: replyTo } : undefined,
       reply_markup: index === parts.length - 1 ? keyboard : undefined
     });
@@ -165,13 +199,14 @@ export async function sendMessage(env, { chatId, text, replyTo, keyboard, disabl
   return finalMessage;
 }
 
-export async function editMessage(env, { chatId, messageId, text, keyboard }) {
+export async function editMessage(env, { chatId, messageId, text, keyboard, businessConnectionId }) {
   return telegram(env, "editMessageText", {
     chat_id: chatId,
     message_id: messageId,
     text: text.slice(0, APP.maxTelegramText),
     parse_mode: "HTML",
     disable_web_page_preview: true,
+    business_connection_id: businessConnectionId || undefined,
     reply_markup: keyboard
   });
 }

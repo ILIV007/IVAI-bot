@@ -25,7 +25,7 @@ import {
   upsertUser,
   writeAdminAudit
 } from "./storage.js";
-import { adminKeyboard, answerCallback, editMessage, escapeHtml, modelPickerKeyboard, modeKeyboard, modeLabel, responseMeta, sendMessage, sendTyping, settingsKeyboard, startThinkingAnimation, telegram, thinkingText, welcomeText } from "./telegram.js";
+import { adminKeyboard, answerCallback, editMessage, escapeHtml, modelPickerKeyboard, modeKeyboard, modeLabel, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendTyping, settingsKeyboard, startThinkingAnimation, telegram, thinkingText, welcomeText } from "./telegram.js";
 
 const COMMAND_MODE = Object.freeze({
   "/auto": MODES.AUTO,
@@ -46,6 +46,45 @@ function languageFromMessage(message) {
 
 function userMessage(update) {
   return update.message || update.edited_message || update.business_message || null;
+}
+
+async function handleGuestMessage(message, env) {
+  const guestQueryId = message?.guest_query_id;
+  const prompt = String(message?.text || message?.caption || "").trim();
+  if (!guestQueryId || !prompt) return;
+  const language = languageFromMessage(message);
+  const userId = message?.guest_bot_caller_user?.id || message?.from?.id || "guest";
+  const usage = await allowUsage({ scope: "guest", id: userId, limit: APP.userHourlyTextLimit }, env);
+  let text;
+  try {
+    if (!usage.allowed) throw new Error("RATE_LIMIT");
+    const result = await generateReply({ text: prompt, selectedMode: MODES.GUEST, language, context: [] }, env);
+    text = `${renderAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: MODES.GUEST, language })}`;
+  } catch (error) {
+    text = responseText(language, safeError(error) === "RATE_LIMIT" ? "busy" : "temporary");
+  }
+  await telegram(env, "answerGuestQuery", {
+    guest_query_id: guestQueryId,
+    result: {
+      type: "article",
+      id: crypto.randomUUID(),
+      title: "IVAI",
+      input_message_content: { message_text: text, parse_mode: "HTML", disable_web_page_preview: true }
+    }
+  });
+}
+
+async function handleMessageReaction(reaction, env) {
+  const emoji = reaction?.new_reaction?.find((entry) => entry?.type === "emoji")?.emoji;
+  const score = emoji === "👍" ? 1 : emoji === "👎" ? -1 : null;
+  if (!score || !reaction?.user?.id || !reaction?.chat?.id || !reaction?.message_id) return;
+  await recordFeedback({
+    userId: reaction.user.id,
+    chatId: reaction.chat.id,
+    messageId: reaction.message_id,
+    score,
+    kind: "reaction"
+  }, env).catch((error) => console.error(JSON.stringify({ event: "reaction_feedback_failure", error: String(error?.message || "unknown") })));
 }
 
 function responseText(language, key) {
@@ -93,6 +132,14 @@ function contextKey(message) {
     threadId: getThreadId(message),
     replyTo: message.reply_to_message?.message_id
   });
+}
+
+function messageSendContext(message) {
+  return {
+    threadId: message.message_thread_id || undefined,
+    businessConnectionId: message.business_connection_id || undefined,
+    directMessagesTopicId: message.direct_messages_topic?.topic_id || undefined
+  };
 }
 
 function commandParts(text) {
@@ -321,6 +368,7 @@ async function processText(message, env) {
   const text = message.text.trim();
   const userId = message.from?.id;
   const chatId = message.chat.id;
+  const delivery = messageSendContext(message);
   const knownSettings = await getUserSettings(userId, env);
   const language = knownSettings.language || languageFromMessage(message) || "en";
   await upsertUser({ user: message.from, chat: message.chat, language }, env);
@@ -329,19 +377,36 @@ async function processText(message, env) {
   const settings = await getUserSettings(userId, env);
   const usage = await allowUsage({ scope: "text", id: userId, limit: APP.userHourlyTextLimit }, env);
   if (!usage.allowed) {
-    await sendMessage(env, { chatId, text: responseText(language, "busy"), replyTo: message.message_id });
+    await sendMessage(env, { chatId, text: responseText(language, "busy"), replyTo: message.message_id, ...delivery });
     return;
   }
 
   const key = contextKey(message);
   const context = settings.memoryEnabled ? await getGuestMemory(key, env) : [];
-  await sendTyping(env, chatId).catch(() => {});
-  const progress = await sendMessage(env, {
+  await sendTyping(env, chatId, delivery).catch(() => {});
+  const richEligible = message.chat?.type === "private" && !delivery.businessConnectionId;
+  let richDraftActive = false;
+  if (richEligible) {
+    try {
+      await sendRichMessageDraft(env, {
+        chatId,
+        draftId: Number(message.message_id) || 1,
+        html: `<tg-thinking>${language === "fa" ? "IVAI در حال فکر کردن" : "IVAI is thinking"}</tg-thinking>`,
+        threadId: delivery.threadId,
+        rtl: language === "fa"
+      });
+      richDraftActive = true;
+    } catch (error) {
+      console.info(JSON.stringify({ event: "rich_draft_fallback", error: String(error?.message || "unknown") }));
+    }
+  }
+  const progress = richDraftActive ? null : await sendMessage(env, {
     chatId,
     text: thinkingText(language, 0),
-    replyTo: message.message_id
+    replyTo: message.message_id,
+    ...delivery
   }).catch(() => null);
-  const thinking = progress?.message_id ? startThinkingAnimation(env, { chatId, messageId: progress.message_id, language }) : null;
+  const thinking = progress?.message_id ? startThinkingAnimation(env, { chatId, messageId: progress.message_id, language, ...delivery }) : null;
 
   try {
     const result = await generateReply({ text, selectedMode: settings.mode, selectedModel: settings.selectedModel, language, context }, env);
@@ -351,25 +416,34 @@ async function processText(message, env) {
     }
     const finalText = `${renderAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: result.mode, language })}`;
     if (finalText.length <= APP.maxTelegramText) {
-      if (progress?.message_id) await editMessage(env, { chatId, messageId: progress.message_id, text: finalText });
-      else await sendMessage(env, { chatId, text: finalText, replyTo: message.message_id });
+      if (richDraftActive) {
+        try {
+          await sendRichMessage(env, { chatId, html: finalText, replyTo: message.message_id, ...delivery, rtl: language === "fa" });
+          return;
+        } catch (error) {
+          console.info(JSON.stringify({ event: "rich_message_fallback", error: String(error?.message || "unknown") }));
+        }
+      }
+      if (progress?.message_id) await editMessage(env, { chatId, messageId: progress.message_id, text: finalText, businessConnectionId: delivery.businessConnectionId });
+      else await sendMessage(env, { chatId, text: finalText, replyTo: message.message_id, ...delivery });
       return;
     }
     if (progress?.message_id) {
       await editMessage(env, {
         chatId,
         messageId: progress.message_id,
-        text: language === "fa" ? "<i>پاسخ طولانی است و در پیام‌های زیر ارسال شد.</i>" : "<i>The full response is sent below.</i>"
+        text: language === "fa" ? "<i>پاسخ طولانی است و در پیام‌های زیر ارسال شد.</i>" : "<i>The full response is sent below.</i>",
+        businessConnectionId: delivery.businessConnectionId
       });
     }
-    await sendMessage(env, { chatId, text: result.text, replyTo: message.message_id, parseMode: null });
-    await sendMessage(env, { chatId, text: responseMeta({ model: result.model, mode: result.mode, language }) });
+    await sendMessage(env, { chatId, text: result.text, replyTo: message.message_id, parseMode: null, ...delivery });
+    await sendMessage(env, { chatId, text: responseMeta({ model: result.model, mode: result.mode, language }), ...delivery });
   } catch (error) {
     await thinking?.stop();
     const code = safeError(error);
     const failureText = responseText(language, code === "RATE_LIMIT" ? "busy" : "temporary");
-    if (progress?.message_id) await editMessage(env, { chatId, messageId: progress.message_id, text: failureText }).catch(() => {});
-    else await sendMessage(env, { chatId, text: failureText, replyTo: message.message_id });
+    if (progress?.message_id) await editMessage(env, { chatId, messageId: progress.message_id, text: failureText, businessConnectionId: delivery.businessConnectionId }).catch(() => {});
+    else await sendMessage(env, { chatId, text: failureText, replyTo: message.message_id, ...delivery });
     console.error(JSON.stringify({ event: "ai_failure", code, userId: String(userId) }));
   }
 }
@@ -377,11 +451,12 @@ async function processText(message, env) {
 async function processMedia(message, env) {
   const userId = message.from?.id;
   const chatId = message.chat?.id;
+  const delivery = messageSendContext(message);
   const language = (await getUserSettings(userId, env)).language || languageFromMessage(message) || "en";
   await upsertUser({ user: message.from, chat: message.chat, language }, env);
   const usage = await allowUsage({ scope: "media", id: userId, limit: APP.userDailyMediaLimit, windowSeconds: 24 * 60 * 60 }, env);
   if (!usage.allowed) {
-    await sendMessage(env, { chatId, text: responseText(language, "busy"), replyTo: message.message_id });
+    await sendMessage(env, { chatId, text: responseText(language, "busy"), replyTo: message.message_id, ...delivery });
     return;
   }
   try {
@@ -393,17 +468,18 @@ async function processMedia(message, env) {
     } else if (message.photo?.length) {
       result = await analyzePhoto({ fileId: message.photo.at(-1).file_id, caption: message.caption || "", language }, env);
     } else {
-      await sendMessage(env, { chatId, text: responseText(language, "unsupportedMedia"), replyTo: message.message_id });
+      await sendMessage(env, { chatId, text: responseText(language, "unsupportedMedia"), replyTo: message.message_id, ...delivery });
       return;
     }
     await sendMessage(env, {
       chatId,
       text: `${prefix}${renderAiText(result.text)}\n\n${responseMeta({ model: result.model, language })}`,
-      replyTo: message.message_id
+      replyTo: message.message_id,
+      ...delivery
     });
   } catch (error) {
     const code = safeError(error);
-    await sendMessage(env, { chatId, text: responseText(language, code === "RATE_LIMIT" ? "busy" : "temporary"), replyTo: message.message_id });
+    await sendMessage(env, { chatId, text: responseText(language, code === "RATE_LIMIT" ? "busy" : "temporary"), replyTo: message.message_id, ...delivery });
     console.error(JSON.stringify({ event: "media_failure", code, userId: String(userId) }));
   }
 }
@@ -659,6 +735,8 @@ async function processCallback(query, env) {
 }
 
 export async function handleUpdate(update, env) {
+  if (update.guest_message) return handleGuestMessage(update.guest_message, env);
+  if (update.message_reaction) return handleMessageReaction(update.message_reaction, env);
   if (update.inline_query) return handleInlineQuery(update.inline_query, env);
   if (update.chosen_inline_result) return handleChosenInlineResult(update.chosen_inline_result, env);
   if (update.callback_query) return processCallback(update.callback_query, env);
