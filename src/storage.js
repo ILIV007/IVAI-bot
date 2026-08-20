@@ -180,3 +180,68 @@ export async function writeAdminAudit({ actorId, action, targetType, targetId, m
     .bind(String(actorId), action, targetType || null, targetId || null, JSON.stringify(metadata || {}))
     .run();
 }
+
+function taskId() {
+  return crypto.randomUUID();
+}
+
+export async function createSecretaryTask({ userId, chatId, title, dueAt = null }, env) {
+  if (!env.IVAI_DB || !userId || !chatId || !title) throw new Error("Task storage is unavailable");
+  const id = taskId();
+  await env.IVAI_DB.prepare(`INSERT INTO tasks (
+    id, telegram_user_id, telegram_chat_id, title, due_at, status, reminder_status, updated_at
+  ) VALUES (?, ?, ?, ?, ?, 'open', ?)`).bind(
+    id, String(userId), String(chatId), String(title).slice(0, 500), dueAt, dueAt ? "pending" : "sent"
+  ).run();
+  return { id, title: String(title).slice(0, 500), dueAt };
+}
+
+export async function listSecretaryTasks(userId, env, { includeClosed = false, limit = 12 } = {}) {
+  if (!env.IVAI_DB || !userId) return [];
+  const query = includeClosed
+    ? "SELECT id, title, due_at AS dueAt, status, reminder_status AS reminderStatus FROM tasks WHERE telegram_user_id=? ORDER BY CASE status WHEN 'open' THEN 0 ELSE 1 END, due_at IS NULL, due_at ASC, created_at DESC LIMIT ?"
+    : "SELECT id, title, due_at AS dueAt, status, reminder_status AS reminderStatus FROM tasks WHERE telegram_user_id=? AND status='open' ORDER BY due_at IS NULL, due_at ASC, created_at DESC LIMIT ?";
+  const result = await env.IVAI_DB.prepare(query).bind(String(userId), limit).all();
+  return result?.results || [];
+}
+
+export async function updateSecretaryTaskStatus({ id, userId, status }, env) {
+  if (!env.IVAI_DB || !id || !userId || !["done", "cancelled"].includes(status)) return false;
+  const result = await env.IVAI_DB.prepare("UPDATE tasks SET status=?, updated_at=CURRENT_TIMESTAMP WHERE id=? AND telegram_user_id=? AND status='open'").bind(status, id, String(userId)).run();
+  return Boolean(result?.meta?.changes);
+}
+
+export async function claimDueSecretaryTasks(env, { limit = 4, now = new Date().toISOString(), leaseSeconds = 15 * 60 } = {}) {
+  if (!env.IVAI_DB) return [];
+  const candidates = await env.IVAI_DB.prepare(`SELECT id, telegram_user_id AS userId, telegram_chat_id AS chatId, title, due_at AS dueAt, reminder_attempts AS attempts
+    FROM tasks
+    WHERE status='open' AND due_at IS NOT NULL
+      AND reminder_status IN ('pending', 'retry', 'sending')
+      AND due_at <= ?
+      AND (reminder_lease_until IS NULL OR reminder_lease_until <= ?)
+    ORDER BY due_at ASC LIMIT ?`).bind(now, now, limit).all();
+  const leaseUntil = new Date(Date.parse(now) + leaseSeconds * 1000).toISOString();
+  const claimed = [];
+  for (const task of candidates?.results || []) {
+    const update = await env.IVAI_DB.prepare(`UPDATE tasks SET reminder_status='sending', reminder_attempts=reminder_attempts+1,
+      reminder_lease_until=?, updated_at=CURRENT_TIMESTAMP
+      WHERE id=? AND status='open' AND reminder_status IN ('pending','retry','sending')
+        AND (reminder_lease_until IS NULL OR reminder_lease_until <= ?)`)
+      .bind(leaseUntil, task.id, now).run();
+    if (update?.meta?.changes) claimed.push({ ...task, attempts: Number(task.attempts || 0) + 1 });
+  }
+  return claimed;
+}
+
+export async function markSecretaryReminderSent({ id, messageId = null }, env) {
+  if (!env.IVAI_DB || !id) return;
+  await env.IVAI_DB.prepare(`UPDATE tasks SET reminder_status='sent', reminder_lease_until=NULL, reminded_at=CURRENT_TIMESTAMP,
+    reminder_message_id=?, reminder_last_error=NULL, updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(messageId ? String(messageId) : null, id).run();
+}
+
+export async function markSecretaryReminderFailed({ id, attempts, error }, env) {
+  if (!env.IVAI_DB || !id) return;
+  const status = Number(attempts || 0) >= 3 ? "failed" : "retry";
+  await env.IVAI_DB.prepare(`UPDATE tasks SET reminder_status=?, reminder_lease_until=NULL, reminder_last_error=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+    .bind(status, String(error || "Telegram delivery failed").slice(0, 500), id).run();
+}

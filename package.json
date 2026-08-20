@@ -6,7 +6,7 @@
   "description": "IVAI — privacy-aware, free-tier Telegram AI assistant for Cloudflare Workers.",
   "scripts": {
     "test": "node --test",
-    "check": "node --check src/index.js && node --check src/config.js && node --check src/security.js && node --check src/telegram.js && node --check src/storage.js && node --check src/ai.js && node --check src/catalog.js && node --check src/broadcast.js && node --check src/media.js && node --check src/admin.js && node --check src/admin-page.js && node --check src/router.js",
+    "check": "node --check src/index.js && node --check src/config.js && node --check src/security.js && node --check src/telegram.js && node --check src/storage.js && node --check src/ai.js && node --check src/catalog.js && node --check src/broadcast.js && node --check src/secretary.js && node --check src/media.js && node --check src/admin.js && node --check src/admin-page.js && node --check src/router.js",
     "dev": "wrangler dev",
     "deploy": "wrangler deploy"
   },

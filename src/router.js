@@ -7,11 +7,13 @@ import { allowUsage, canBroadcast, canManage, getRole, safeError } from "./secur
 import {
   clearGuestMemory,
   conversationKey,
+  createSecretaryTask,
   createBroadcastDraft,
   getGuestMemory,
   getAdminOperationalStats,
   getUserDebugStats,
   getUserSettings,
+  listSecretaryTasks,
   markBroadcastConfirmed,
   recordFeedback,
   saveGuestMemory,
@@ -19,6 +21,7 @@ import {
   setSelectedModel,
   setUserLanguage,
   setUserMode,
+  updateSecretaryTaskStatus,
   upsertUser,
   writeAdminAudit
 } from "./storage.js";
@@ -66,9 +69,9 @@ function responseText(language, key) {
 
 function helpText(language) {
   if (language === "fa") {
-    return `<b>راهنمای IVAI</b>\n\n<b>شروع سریع</b>\nیک پیام بفرستید؛ حالت <code>/auto</code> بهترین مسیر رایگان را انتخاب می‌کند.\n\n<b>سه حالت اصلی</b>\n<code>/auto</code> — انتخاب خودکار\n<code>/fast</code> — پاسخ کوتاه و سریع\n<code>/deep</code> — پاسخ ساختاریافته و دقیق\n\n<b>انتخاب مدل رایگان</b>\n<code>/models</code> یا دکمهٔ «انتخاب مدل»؛ مدل انتخابی اولویت دارد و در خطا fallback رایگان فعال می‌ماند.\n<code>/model off</code> — بازگشت به Auto\n\n<b>ابزارها</b>\n<code>/guard</code> — بررسی ایمنی یک‌مرحله‌ای\n<code>/memory on|off|show|clear</code>\n<code>/lang</code> · <code>/debug</code> · <code>/reset</code>\n\n<b>نکته</b>\nهمهٔ مسیرهای مدل فقط free-only هستند.`;
+    return `<b>راهنمای IVAI</b>\n\n<b>شروع سریع</b>\nیک پیام بفرستید؛ حالت <code>/auto</code> بهترین مسیر رایگان را انتخاب می‌کند.\n\n<b>سه حالت اصلی</b>\n<code>/auto</code> — انتخاب خودکار\n<code>/fast</code> — پاسخ کوتاه و سریع\n<code>/deep</code> — پاسخ ساختاریافته و دقیق\n\n<b>انتخاب مدل رایگان</b>\n<code>/models</code> یا دکمهٔ «انتخاب مدل»؛ مدل انتخابی اولویت دارد و در خطا fallback رایگان فعال می‌ماند.\n<code>/model off</code> — بازگشت به Auto\n\n<b>ابزارها</b>\n<code>/guard</code> — بررسی ایمنی یک‌مرحله‌ای\n<code>/task عنوان</code> · <code>/task in 30m | عنوان</code> · <code>/tasks</code>\n<code>/memory on|off|show|clear</code>\n<code>/lang</code> · <code>/debug</code> · <code>/reset</code>\n\n<b>نکته</b>\nهمهٔ مسیرهای مدل فقط free-only هستند.`;
   }
-  return `<b>IVAI Help</b>\n\n<b>Quick start</b>\nSend a message. <code>/auto</code> chooses the best available free route.\n\n<b>Three main modes</b>\n<code>/auto</code> — automatic routing\n<code>/fast</code> — concise, quick answers\n<code>/deep</code> — structured, careful answers\n\n<b>Choose a free AI model</b>\nUse <code>/models</code> or the “Pick model” button. A chosen model is preferred, while free fallback remains available on failure.\n<code>/model off</code> — return to Auto\n\n<b>Tools</b>\n<code>/guard</code> — one-call safety check\n<code>/memory on|off|show|clear</code>\n<code>/lang</code> · <code>/debug</code> · <code>/reset</code>\n\n<b>Policy</b>\nEvery model route is free-only.`;
+  return `<b>IVAI Help</b>\n\n<b>Quick start</b>\nSend a message. <code>/auto</code> chooses the best available free route.\n\n<b>Three main modes</b>\n<code>/auto</code> — automatic routing\n<code>/fast</code> — concise, quick answers\n<code>/deep</code> — structured, careful answers\n\n<b>Choose a free AI model</b>\nUse <code>/models</code> or the “Pick model” button. A chosen model is preferred, while free fallback remains available on failure.\n<code>/model off</code> — return to Auto\n\n<b>Tools</b>\n<code>/guard</code> — one-call safety check\n<code>/task title</code> · <code>/task in 30m | title</code> · <code>/tasks</code>\n<code>/memory on|off|show|clear</code>\n<code>/lang</code> · <code>/debug</code> · <code>/reset</code>\n\n<b>Policy</b>\nEvery model route is free-only.`;
 }
 
 function renderAiText(text) {
@@ -95,6 +98,44 @@ function contextKey(message) {
 function commandParts(text) {
   const [rawCommand = "", ...argumentsList] = String(text || "").trim().split(/\s+/);
   return { command: rawCommand.toLowerCase().split("@")[0], args: argumentsList, argumentText: argumentsList.join(" ").trim() };
+}
+
+function parseTaskInput(input) {
+  const value = String(input || "").trim();
+  if (!value) return { error: "missing" };
+  const pipe = value.indexOf("|");
+  if (pipe < 0) return { title: value.slice(0, 500), dueAt: null };
+  const dueText = value.slice(0, pipe).trim();
+  const title = value.slice(pipe + 1).trim().slice(0, 500);
+  if (!title) return { error: "missing" };
+  let dueAt;
+  const relative = dueText.match(/^in\s+(\d{1,4})\s*([mh])$/i);
+  if (relative) {
+    const amount = Number(relative[1]);
+    dueAt = new Date(Date.now() + amount * (relative[2].toLowerCase() === "h" ? 60 * 60 * 1000 : 60 * 1000));
+  } else {
+    if (!/(Z|[+-]\d{2}:\d{2})$/i.test(dueText)) return { error: "timezone" };
+    dueAt = new Date(dueText);
+  }
+  if (Number.isNaN(dueAt.getTime()) || dueAt.getTime() <= Date.now() + 30 * 1000) return { error: "date" };
+  return { title, dueAt: dueAt.toISOString() };
+}
+
+function secretaryTaskText(tasks, language) {
+  const title = language === "fa" ? "<b>🗂 Taskهای IVAI</b>" : "<b>🗂 IVAI tasks</b>";
+  if (!tasks.length) return `${title}\n\n${language === "fa" ? "task باز ندارید." : "You have no open tasks."}`;
+  return `${title}\n\n${tasks.map((task, index) => {
+    const due = task.dueAt ? `\n<i>${escapeHtml(task.dueAt.replace(".000Z", "Z"))}</i>` : "";
+    return `${index + 1}. ${escapeHtml(task.title)}${due}\n<code>${task.id.slice(0, 8)}</code>`;
+  }).join("\n\n")}`;
+}
+
+function secretaryTaskKeyboard(tasks, language) {
+  const rows = tasks.slice(0, 8).map((task) => [
+    { text: `${language === "fa" ? "✓ انجام" : "✓ Done"}: ${String(task.title).slice(0, 20)}`, callback_data: `task:done:${task.id}`, style: "success" },
+    { text: language === "fa" ? "لغو" : "Cancel", callback_data: `task:cancel:${task.id}`, style: "danger" }
+  ]);
+  return rows.length ? { inline_keyboard: rows } : undefined;
 }
 
 async function saveFeedbackToken({ token, userId, chatId, responseMessageId, model, mode }, env) {
@@ -175,6 +216,35 @@ async function handleCommand(message, env, language) {
       console.error(JSON.stringify({ event: "model_catalog_refresh_failure", error: String(error?.message || "unknown") }));
       await sendMessage(env, { chatId, text: responseText(language, "refreshFailed"), replyTo: message.message_id });
     }
+    return true;
+  }
+  if (command === "/task") {
+    const parsed = parseTaskInput(argumentText);
+    if (parsed.error) {
+      const usage = language === "fa" ? "استفاده: <code>/task عنوان</code> یا <code>/task in 30m | عنوان</code> یا <code>/task 2026-08-21T09:00:00+03:30 | عنوان</code>" : "Usage: <code>/task title</code>, <code>/task in 30m | title</code>, or <code>/task 2026-08-21T09:00:00+03:30 | title</code>";
+      await sendMessage(env, { chatId, text: usage, replyTo: message.message_id });
+      return true;
+    }
+    try {
+      const task = await createSecretaryTask({ userId, chatId, title: parsed.title, dueAt: parsed.dueAt }, env);
+      const due = task.dueAt ? `\n\n${language === "fa" ? "یادآوری" : "Reminder"}: <code>${escapeHtml(task.dueAt.replace(".000Z", "Z"))}</code>` : "";
+      await sendMessage(env, { chatId, text: `${language === "fa" ? "✓ task ساخته شد" : "✓ Task created"}: <b>${escapeHtml(task.title)}</b>${due}`, replyTo: message.message_id });
+    } catch {
+      await sendMessage(env, { chatId, text: responseText(language, "temporary"), replyTo: message.message_id });
+    }
+    return true;
+  }
+  if (command === "/tasks") {
+    const tasks = await listSecretaryTasks(userId, env);
+    await sendMessage(env, { chatId, text: secretaryTaskText(tasks, language), keyboard: secretaryTaskKeyboard(tasks, language), replyTo: message.message_id });
+    return true;
+  }
+  if (command === "/done" || command === "/cancel") {
+    const token = String(args[0] || "").toLowerCase();
+    const tasks = await listSecretaryTasks(userId, env, { limit: 50 });
+    const matches = tasks.filter((task) => task.id.toLowerCase().startsWith(token));
+    const ok = token.length >= 4 && matches.length === 1 && await updateSecretaryTaskStatus({ id: matches[0].id, userId, status: command === "/done" ? "done" : "cancelled" }, env);
+    await sendMessage(env, { chatId, text: ok ? (command === "/done" ? (language === "fa" ? "✓ task انجام شد." : "✓ Task marked done.") : (language === "fa" ? "✓ task لغو شد." : "✓ Task cancelled.")) : (language === "fa" ? "شناسهٔ task معتبر نیست. /tasks را باز کنید." : "That task ID is not valid. Open /tasks."), replyTo: message.message_id });
     return true;
   }
   if (command === "/memory") {
@@ -410,6 +480,15 @@ async function processCallback(query, env) {
   const messageId = query.message?.message_id;
   if (!chatId || !messageId) return;
 
+  if (data.startsWith("task:")) {
+    const [, action, taskId] = data.split(":");
+    if (!["done", "cancel"].includes(action) || !taskId) return;
+    const changed = await updateSecretaryTaskStatus({ id: taskId, userId, status: action === "done" ? "done" : "cancelled" }, env);
+    const tasks = await listSecretaryTasks(userId, env);
+    const prefix = changed ? (action === "done" ? (language === "fa" ? "✓ task انجام شد." : "✓ Task marked done.") : (language === "fa" ? "✓ task لغو شد." : "✓ Task cancelled.")) : (language === "fa" ? "این task دیگر باز نیست." : "This task is no longer open.");
+    await editMessage(env, { chatId, messageId, text: `${prefix}\n\n${secretaryTaskText(tasks, language)}`, keyboard: secretaryTaskKeyboard(tasks, language) });
+    return;
+  }
   if (data === "menu:main" || data === "modes:back") {
     await editMessage(env, { chatId, messageId, text: welcomeText(language), keyboard: modeKeyboard(language) });
     return;

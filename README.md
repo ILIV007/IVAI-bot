@@ -16,8 +16,9 @@
 
 | Area | Included in v3.3 foundation |
 |---|---|
-| Core commands | `/start`, `/menu`, `/help`, `/auto`, `/fast`, `/deep`, `/code`, `/prompt`, `/guest`, `/guard`, `/secretary`, `/management`, `/lang`, `/debug`, `/reset` |
-| Model controls | `/models`, `/refreshmodels`, `/pick <number>`, `/model off` with a cached free-only OpenRouter catalog |
+| Core commands | `/start`, `/menu`, `/help`, `/auto`, `/fast`, `/deep`, `/guard`, `/lang`, `/debug`, `/reset` |
+| Secretary | `/task title`, `/task in 30m | title`, `/task <ISO-8601-with-offset> | title`, `/tasks`, `/done <id>`, `/cancel <id>`; reminders are delivered in a small free cron batch |
+| Model controls | `/models`, `/refreshmodels`, `/pick <number>`, `/model off` with a unified free-only picker across configured providers |
 | Memory controls | `/memory on`, `/memory off`, `/memory show`, `/memory clear` |
 | Providers | Workers AI first, then OpenRouter `:free`, Groq, and Google AI Studio as sequential configured fallbacks |
 | Telegram UX | Mobile-friendly inline keyboards, message chunking, feedback buttons, callback handling, Inline Mode, and `chosen_inline_result` tracking |
@@ -37,12 +38,14 @@ src/
 ├── security.js       # Webhook check, owner role, dedupe, quotas
 ├── storage.js        # D1/KV persistence
 ├── broadcast.js      # Draft/confirm/queue/batch delivery flow
+├── secretary.js      # Task reminder claim and delivery flow
 ├── admin.js          # Validated Mini App admin API
 ├── admin-page.js     # Responsive English-first Mini App UI
 └── telegram.js       # Telegram API, keyboards, safe rendering
 
 db/0001_initial_schema.sql  # D1 base schema
 db/0002_runtime_guards.sql  # Atomic dedupe and quota guards
+db/0003_secretary_reminders.sql # Task reminder delivery state and indexes
 test/foundation.test.js      # Node test suite
 wrangler.jsonc               # Binding-only Worker configuration
 ```
@@ -81,13 +84,13 @@ npm test
 
 ## Deployment sequence
 
-1. Apply `db/0001_initial_schema.sql` and then `db/0002_runtime_guards.sql` to the production D1 database.
+1. Apply `db/0001_initial_schema.sql`, `db/0002_runtime_guards.sql`, and then `db/0003_secretary_reminders.sql` to the production D1 database.
 2. Attach `IVAI_KV`, `IVAI_DB`, and `AI` bindings to `ivai-bot`.
 3. Register actual values as Worker Secrets.
 4. Deploy the Worker.
 5. Set the Telegram webhook with a random `secret_token` that matches `TELEGRAM_WEBHOOK_SECRET`; subscribe only to needed update types.
 6. Enable Inline Mode in BotFather and point the Mini App button at `/admin` only after deployment.
-7. Validate `/start`, `/help`, text, inline query, feedback, role checks, and the broadcast preview on a staging chat before production use.
+7. Validate `/start`, `/help`, model picker, text, inline query, feedback, role checks, broadcast preview, and `/task in 30m | reminder test` on a staging chat before production use. Cron reminders are batch-delivered within roughly ten minutes of their due time.
 
 > The Worker must remain on the free-only policy. If a provider changes access terms or a model is no longer eligible, remove it from the allowlist rather than silently moving to a paid model.
 

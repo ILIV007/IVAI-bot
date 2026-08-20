@@ -3,6 +3,7 @@ import { handleUpdate } from "./router.js";
 import { processBroadcastBatch, seedBroadcastDeliveries } from "./broadcast.js";
 import { handleAdminRequest } from "./admin.js";
 import { renderAdminPage } from "./admin-page.js";
+import { processSecretaryReminderBatch } from "./secretary.js";
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=UTF-8" } });
@@ -50,6 +51,7 @@ export default {
         await seedBroadcastDeliveries(campaign.id, env);
         await processBroadcastBatch(campaign.id, env);
       }
+      await processSecretaryReminderBatch(env, { limit: 4 });
     })();
     ctx.waitUntil(job);
   }

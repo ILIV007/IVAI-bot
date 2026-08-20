@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import worker from "../src/index.js";
 import { generateReply } from "../src/ai.js";
+import { processSecretaryReminderBatch } from "../src/secretary.js";
 import { APP, MODES, modeOutputLimit } from "../src/config.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
 import { feedbackKeyboard, modeKeyboard, modeLabel, modelPickerKeyboard, responseMeta, shortModelLabel, splitText, thinkingText } from "../src/telegram.js";
@@ -36,6 +37,44 @@ class GuardD1 {
           if (next > Number(limit)) return null;
           this.counters.set(key, next);
           return { value: next };
+        }
+      })
+    };
+  }
+}
+
+class ReminderD1 {
+  constructor() {
+    this.tasks = [{ id: "task-1", userId: "7", chatId: "42", title: "Review the launch", dueAt: "2026-08-20T00:00:00.000Z", attempts: 0, status: "open", reminderStatus: "pending", lease: null }];
+  }
+
+  prepare(sql) {
+    return {
+      bind: (...params) => ({
+        all: async () => {
+          if (!sql.includes("FROM tasks")) return { results: [] };
+          return { results: this.tasks.filter((task) => task.status === "open" && ["pending", "retry", "sending"].includes(task.reminderStatus)).map((task) => ({ id: task.id, userId: task.userId, chatId: task.chatId, title: task.title, dueAt: task.dueAt, attempts: task.attempts })) };
+        },
+        run: async () => {
+          const task = this.tasks.find((entry) => entry.id === params.at(-1) || entry.id === params.at(-2));
+          if (sql.includes("reminder_status='sending'")) {
+            const id = params[1];
+            const row = this.tasks.find((entry) => entry.id === id);
+            if (!row || row.reminderStatus !== "pending") return { meta: { changes: 0 } };
+            row.reminderStatus = "sending"; row.attempts += 1; row.lease = params[0];
+            return { meta: { changes: 1 } };
+          }
+          if (sql.includes("reminder_status='sent'")) {
+            const row = this.tasks.find((entry) => entry.id === params[1]);
+            if (row) { row.reminderStatus = "sent"; row.lease = null; }
+            return { meta: { changes: row ? 1 : 0 } };
+          }
+          if (sql.includes("reminder_status=?")) {
+            const row = this.tasks.find((entry) => entry.id === params[2]);
+            if (row) { row.reminderStatus = params[0]; row.lease = null; }
+            return { meta: { changes: row ? 1 : 0 } };
+          }
+          return { meta: { changes: task ? 1 : 0 } };
         }
       })
     };
@@ -338,6 +377,26 @@ test("opens a callback-driven model picker and selects a displayed free model", 
     const edit = calls.find((call) => /editMessageText$/.test(call.url));
     assert.match(edit.body.text, /Model selected/);
     assert.equal(edit.body.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === "model:auto"), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("delivers each due Secretary reminder once after an atomic claim", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 404 } }), { status: 200 });
+  };
+  try {
+    const env = { ...baseEnv(), IVAI_DB: new ReminderD1() };
+    const first = await processSecretaryReminderBatch(env, { now: "2026-08-20T00:10:00.000Z" });
+    const second = await processSecretaryReminderBatch(env, { now: "2026-08-20T00:20:00.000Z" });
+    assert.deepEqual(first, { claimed: 1, sent: 1, retried: 0, failed: 0 });
+    assert.deepEqual(second, { claimed: 0, sent: 0, retried: 0, failed: 0 });
+    assert.equal(calls.filter((call) => /sendMessage$/.test(call.url)).length, 1);
+    assert.match(calls[0].body.text, /Review the launch/);
   } finally {
     globalThis.fetch = originalFetch;
   }
