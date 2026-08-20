@@ -492,7 +492,7 @@ async function processCallback(query, env) {
       await sendMessage(env, { chatId, text: responseText(language, "noAccess") });
       return;
     }
-    await sendMessage(env, { chatId, text: "<b>Guard status</b>\n\nGuard is available as an opt-in response mode through <code>/guard</code>. It keeps the one-model-call policy and provides safety-focused assistance. Automatic classifier enforcement is intentionally not enabled yet, so no hidden second model call is added to ordinary chats." });
+    await sendMessage(env, { chatId, text: "<b>Guard status</b>\n\nGuard is available as an opt-in safety classifier through <code>/guard</code>. It uses Llama Guard in exactly one model call and returns a verdict without generating a second content response. Automatic classification remains off in ordinary chats." });
     return;
   }
   if (data === "admin:policy") {

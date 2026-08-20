@@ -34,6 +34,38 @@ function normalizeMessages({ text, context, mode, language }) {
   return [system, ...memory, { role: "user", content: String(text).slice(0, APP.maxInputCharacters) }];
 }
 
+function guardReplyText(raw, language) {
+  const verdict = String(raw || "").trim().toLowerCase();
+  if (/^unsafe\b/.test(verdict)) {
+    return language === "fa"
+      ? "**نتیجهٔ Guard: نیازمند احتیاط**\n\nاین پیام توسط classifier ایمنی به‌عنوان محتوای بالقوه ناامن علامت‌گذاری شد. در Guard Mode پردازش بیشتر انجام نمی‌شود."
+      : "**Guard result: caution required**\n\nThe safety classifier flagged this input as potentially unsafe. Guard Mode will not process it further.";
+  }
+  if (/^safe\b/.test(verdict)) {
+    return language === "fa"
+      ? "**نتیجهٔ Guard: بدون دسته‌بندی ایمنی**\n\nGuard بررسی را انجام داد و دستهٔ ناامنی مشخصی علامت‌گذاری نشد. برای پاسخ کامل، حالت دیگری مانند /auto را انتخاب کنید."
+      : "**Guard result: no safety category flagged**\n\nGuard completed a safety check without flagging a category. Choose another mode such as /auto for a full answer.";
+  }
+  return language === "fa"
+    ? "**نتیجهٔ Guard: نامشخص**\n\nclassifier ایمنی نتیجهٔ قابل‌تفسیر برنگرداند؛ برای احتیاط، Guard Mode پاسخ محتوایی تولید نکرد."
+    : "**Guard result: inconclusive**\n\nThe safety classifier did not return a recognizable verdict, so Guard Mode did not generate a content response.";
+}
+
+async function runGuard({ text, language }, env) {
+  if (!env.AI?.run) throw new Error("Workers AI is not configured");
+  const budget = await reserveWorkersAiBudget(1, env);
+  if (!budget.allowed) throw new Error("Workers AI free quota guard blocked Guard Mode");
+  const model = FREE_MODEL_POLICY.workersAi.guard[0];
+  const result = await env.AI.run(model, {
+    messages: [{ role: "user", content: String(text).slice(0, APP.maxInputCharacters) }],
+    max_tokens: 96,
+    temperature: 0
+  });
+  const raw = result?.response || result?.result?.response || result?.choices?.[0]?.message?.content;
+  if (!String(raw || "").trim()) throw new Error("Llama Guard returned an empty response");
+  return { text: guardReplyText(raw, language), provider: "workers-ai", model };
+}
+
 async function runWorkersAi({ messages, mode }, env) {
   if (!env.AI?.run) throw new Error("Workers AI is not configured");
   const budget = await reserveWorkersAiBudget(mode === MODES.DEEP ? 4 : 2, env);
@@ -110,6 +142,7 @@ async function runGoogle({ messages, mode }, env) {
 
 export async function generateReply({ text, selectedMode, selectedModel, language, context }, env) {
   const mode = detectMode(text, selectedMode);
+  if (mode === MODES.GUARD) return { ...(await runGuard({ text, language }, env)), mode };
   const messages = normalizeMessages({ text, context, mode, language });
   const attempts = [runWorkersAi, runOpenRouter, runGroq, runGoogle];
   const failures = [];

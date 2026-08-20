@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import worker from "../src/index.js";
+import { generateReply } from "../src/ai.js";
 import { APP, MODES, modeOutputLimit } from "../src/config.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
 import { extendedModeKeyboard, feedbackKeyboard, modeKeyboard, modeLabel, responseMeta, shortModelLabel, splitText } from "../src/telegram.js";
@@ -64,6 +65,25 @@ test("uses D1 atomic guards for dedupe and quotas when available", async () => {
   assert.equal((await allowUsage({ scope: "text", id: 42, limit: 2 }, env)).allowed, false);
   assert.equal((await reserveWorkersAiBudget(9000, env)).allowed, true);
   assert.equal((await reserveWorkersAiBudget(1, env)).allowed, false);
+});
+
+test("runs Guard Mode through Llama Guard with exactly one classifier call", async () => {
+  const calls = [];
+  const env = {
+    ...baseEnv(),
+    AI: {
+      async run(model, input) {
+        calls.push({ model, input });
+        return { response: "unsafe\nS1" };
+      }
+    }
+  };
+  const result = await generateReply({ text: "Classify this message", selectedMode: MODES.GUARD, language: "en", context: [] }, env);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].model, "@cf/meta/llama-guard-3-8b");
+  assert.equal(result.mode, MODES.GUARD);
+  assert.match(result.text, /caution required/i);
+  assert.doesNotMatch(result.text, /Llama 4 Scout|GLM/i);
 });
 
 test("accepts an exact webhook secret and rejects length variants", () => {
