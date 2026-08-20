@@ -1,5 +1,5 @@
 import { canBroadcast, canManage, getRole } from "./security.js";
-import { createBroadcastDraft, writeAdminAudit } from "./storage.js";
+import { createBroadcastDraft, getAdminOperationalStats, writeAdminAudit } from "./storage.js";
 
 const encoder = new TextEncoder();
 
@@ -43,14 +43,16 @@ export async function verifyTelegramInitData(initData, botToken) {
 }
 
 async function metrics(env) {
-  if (!env.IVAI_DB) return { activeUsers: null, pendingBroadcasts: null, aiBudgetRemaining: null };
-  const [users, broadcasts] = await Promise.all([
-    env.IVAI_DB.prepare("SELECT COUNT(*) AS count FROM users WHERE last_seen_at >= datetime('now', '-30 days')").first(),
-    env.IVAI_DB.prepare("SELECT COUNT(*) AS count FROM broadcast_campaigns WHERE status IN ('draft','confirmed','queued','sending')").first()
-  ]);
-  const date = new Date().toISOString().slice(0, 10);
-  const used = Number(await env.IVAI_KV?.get(`quota:workers-ai:${date}`) || 0);
-  return { activeUsers: Number(users?.count || 0), pendingBroadcasts: Number(broadcasts?.count || 0), aiBudgetRemaining: Math.max(0, 9000 - used) };
+  const stats = await getAdminOperationalStats(env);
+  return {
+    activeUsers: stats.activeUsers30d,
+    pendingBroadcasts: stats.pendingBroadcasts,
+    aiBudgetRemaining: stats.workersAiBudgetRemaining,
+    totalUsers: stats.totalUsers,
+    activeUsers7d: stats.activeUsers7d,
+    activeChats30d: stats.activeChats30d,
+    feedback7d: stats.feedback7d
+  };
 }
 
 async function adminUser(request, env) {

@@ -19,7 +19,8 @@ function systemInstruction(mode, language) {
     [MODES.PROMPT]: "Transform the request into a precise reusable prompt. Include an optimized prompt and brief usage notes.",
     [MODES.GUARD]: "Prioritize safety, clarity, and concise moderation guidance.",
     [MODES.SECRETARY]: "Turn the request into clear notes, tasks, dates, and next actions. Do not invent commitments.",
-    [MODES.MANAGEMENT]: "Assist with community management using concise, transparent, actionable guidance."
+    [MODES.MANAGEMENT]: "Assist with community management using concise, transparent, actionable guidance.",
+    [MODES.THREAD]: "Treat this conversation or Telegram topic as a focused work thread. Keep context scoped to the thread, summarize decisions briefly, and end with the next useful action when appropriate."
   }[mode] || "Give a helpful, accurate response.";
   return `${brand.name} is a ${brand.voice} assistant. ${brand.rule} ${modeInstruction} ${languageInstruction}`;
 }

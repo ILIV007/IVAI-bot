@@ -20,7 +20,8 @@ export const APP = Object.freeze({
     prompt: 1000,
     guard: 300,
     secretary: 900,
-    management: 900
+    management: 900,
+    thread: 900
   }
 });
 
@@ -47,7 +48,8 @@ export const USER_FACING_MODES = new Set([
   MODES.GUEST,
   MODES.GUARD,
   MODES.SECRETARY,
-  MODES.MANAGEMENT
+  MODES.MANAGEMENT,
+  MODES.THREAD
 ]);
 
 export const ROLE = Object.freeze({

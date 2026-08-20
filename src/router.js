@@ -9,6 +9,7 @@ import {
   conversationKey,
   createBroadcastDraft,
   getGuestMemory,
+  getAdminOperationalStats,
   getUserDebugStats,
   getUserSettings,
   markBroadcastConfirmed,
@@ -21,7 +22,7 @@ import {
   upsertUser,
   writeAdminAudit
 } from "./storage.js";
-import { adminKeyboard, answerCallback, editMessage, escapeHtml, modeKeyboard, modeLabel, responseMeta, sendMessage, sendTyping, telegram, welcomeText } from "./telegram.js";
+import { adminKeyboard, answerCallback, editMessage, escapeHtml, extendedModeKeyboard, modeKeyboard, modeLabel, responseMeta, sendMessage, sendTyping, telegram, welcomeText } from "./telegram.js";
 
 const COMMAND_MODE = Object.freeze({
   "/auto": MODES.AUTO,
@@ -32,7 +33,8 @@ const COMMAND_MODE = Object.freeze({
   "/guest": MODES.GUEST,
   "/guard": MODES.GUARD,
   "/secretary": MODES.SECRETARY,
-  "/management": MODES.MANAGEMENT
+  "/management": MODES.MANAGEMENT,
+  "/thread": MODES.THREAD
 });
 
 function languageFromMessage(message) {
@@ -64,9 +66,9 @@ function responseText(language, key) {
 
 function helpText(language) {
   if (language === "fa") {
-    return `<b>IVAI Help</b>\n\n<b>Modes</b>\n/auto · /fast · /deep · /code · /prompt\n\n<b>Models</b>\n/models · /refreshmodels · /pick 1 · /model off\n\n<b>Memory</b>\n/memory on · /memory show · /memory clear\n\n<b>Language</b>\n/lang\n\n<b>Other</b>\n/debug · /reset · /admin`;
+    return `<b>راهنمای IVAI</b>\n\n<b>حالت‌های اصلی</b>\n/auto · /fast · /deep · /code · /prompt\n\n<b>حالت‌های متمرکز</b>\n/guest · /guard · /secretary · /management · /thread\n\n<b>مدل‌ها</b>\n/models · /refreshmodels · /pick 1 · /model off\n\n<b>حافظه</b>\n/memory on · /memory show · /memory clear\n\n<b>زبان</b>\n/lang\n\n<b>سایر</b>\n/debug · /reset · /admin`;
   }
-  return `<b>IVAI Help</b>\n\n<b>Modes</b>\n/auto · /fast · /deep · /code · /prompt\n\n<b>Models</b>\n/models · /refreshmodels · /pick 1 · /model off\n\n<b>Memory</b>\n/memory on · /memory show · /memory clear\n\n<b>Language</b>\n/lang\n\n<b>Other</b>\n/debug · /reset · /admin`;
+  return `<b>IVAI Help</b>\n\n<b>Core modes</b>\n/auto · /fast · /deep · /code · /prompt\n\n<b>Focused modes</b>\n/guest · /guard · /secretary · /management · /thread\n\n<b>Models</b>\n/models · /refreshmodels · /pick 1 · /model off\n\n<b>Memory</b>\n/memory on · /memory show · /memory clear\n\n<b>Language</b>\n/lang\n\n<b>Other</b>\n/debug · /reset · /admin`;
 }
 
 function renderAiText(text) {
@@ -376,6 +378,11 @@ async function handleChosenInlineResult(result, env) {
   }
 }
 
+function adminStatsText(stats) {
+  const value = (item) => item ?? "n/a";
+  return `<b>IVAI Operations</b>\n\n<b>Audience</b>\nTotal users: <code>${value(stats.totalUsers)}</code>\nActive users (7d): <code>${value(stats.activeUsers7d)}</code>\nActive users (30d): <code>${value(stats.activeUsers30d)}</code>\nActive chats (30d): <code>${value(stats.activeChats30d)}</code>\n\n<b>Operations</b>\nFeedback (7d): <code>${value(stats.feedback7d)}</code>\nBroadcasts awaiting delivery: <code>${value(stats.pendingBroadcasts)}</code>\nWorkers AI daily budget remaining: <code>${value(stats.workersAiBudgetRemaining)}</code>`;
+}
+
 async function processCallback(query, env) {
   const userId = query.from?.id;
   const chatId = query.message?.chat?.id;
@@ -383,6 +390,26 @@ async function processCallback(query, env) {
   const data = String(query.data || "");
   await answerCallback(env, query.id).catch(() => {});
 
+  if (data === "modes:more") {
+    if (!chatId || !query.message?.message_id) return;
+    await editMessage(env, {
+      chatId,
+      messageId: query.message.message_id,
+      text: language === "fa" ? "<b>حالت‌های متمرکز</b>\n\nحالت مناسب وظیفه‌تان را انتخاب کنید. تنظیمات در پیام بعدی شما اعمال می‌شود." : "<b>Focused modes</b>\n\nChoose the mode that matches your task. Your setting will apply to the next message.",
+      keyboard: extendedModeKeyboard(language)
+    });
+    return;
+  }
+  if (data === "modes:back") {
+    if (!chatId || !query.message?.message_id) return;
+    await editMessage(env, {
+      chatId,
+      messageId: query.message.message_id,
+      text: welcomeText(language),
+      keyboard: modeKeyboard(language)
+    });
+    return;
+  }
   if (data.startsWith("mode:")) {
     const mode = data.slice(5);
     if (!USER_FACING_MODES.has(mode)) {
@@ -436,6 +463,33 @@ async function processCallback(query, env) {
   if (data === "admin:broadcast") {
     const role = await getRole(userId, env);
     await sendMessage(env, { chatId, text: canBroadcast(role) ? "Send <code>/broadcast your message</code> to create a reviewable draft." : responseText(language, "noAccess") });
+    return;
+  }
+  if (data === "admin:stats") {
+    const role = await getRole(userId, env);
+    if (!canManage(role)) {
+      await sendMessage(env, { chatId, text: responseText(language, "noAccess") });
+      return;
+    }
+    await sendMessage(env, { chatId, text: adminStatsText(await getAdminOperationalStats(env)) });
+    return;
+  }
+  if (data === "admin:guard") {
+    const role = await getRole(userId, env);
+    if (!canManage(role)) {
+      await sendMessage(env, { chatId, text: responseText(language, "noAccess") });
+      return;
+    }
+    await sendMessage(env, { chatId, text: "<b>Guard status</b>\n\nGuard is available as an opt-in response mode through <code>/guard</code>. It keeps the one-model-call policy and provides safety-focused assistance. Automatic classifier enforcement is intentionally not enabled yet, so no hidden second model call is added to ordinary chats." });
+    return;
+  }
+  if (data === "admin:policy") {
+    const role = await getRole(userId, env);
+    if (!canManage(role)) {
+      await sendMessage(env, { chatId, text: responseText(language, "noAccess") });
+      return;
+    }
+    await sendMessage(env, { chatId, text: "<b>IVAI Free Policy</b>\n\n• Free routes only: Workers AI, OpenRouter <code>:free</code>, Groq free tier, and Google AI Studio free tier.\n• One model call per request; providers use ordered fallback, never parallel races.\n• Workers AI has a daily budget guard.\n• Broadcasts require a separate draft and confirmation before the delivery queue can run." });
   }
 }
 

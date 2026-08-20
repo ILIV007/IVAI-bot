@@ -24,7 +24,27 @@ export function modeKeyboard(language = "en") {
       ],
       [
         { text: fa ? "🔀 خودکار" : "🔀 Auto", callback_data: "mode:auto" },
-        { text: fa ? "⚙️ تنظیمات" : "⚙️ Settings", callback_data: "settings:open" }
+        { text: fa ? "▦ حالت‌های بیشتر" : "▦ More modes", callback_data: "modes:more" }
+      ]
+    ]
+  };
+}
+
+export function extendedModeKeyboard(language = "en") {
+  const fa = language === "fa";
+  return {
+    inline_keyboard: [
+      [
+        { text: fa ? "👤 مهمان" : "👤 Guest", callback_data: "mode:guest" },
+        { text: fa ? "🛡 Guard" : "🛡 Guard", callback_data: "mode:guard" }
+      ],
+      [
+        { text: fa ? "🗂 منشی" : "🗂 Secretary", callback_data: "mode:secretary" },
+        { text: fa ? "📣 مدیریت" : "📣 Management", callback_data: "mode:management" }
+      ],
+      [
+        { text: fa ? "🧵 Thread" : "🧵 Thread", callback_data: "mode:thread" },
+        { text: fa ? "← بازگشت" : "← Back", callback_data: "modes:back" }
       ]
     ]
   };
@@ -149,7 +169,7 @@ export function responseMeta({ model, mode, language = "en" }) {
 export function modeLabel(mode, language = "en") {
   const fa = language === "fa";
   const labels = fa
-    ? { [MODES.AUTO]: "خودکار", [MODES.FAST]: "سریع", [MODES.DEEP]: "عمیق", [MODES.CODE]: "کد", [MODES.PROMPT]: "پرامپت" }
-    : { [MODES.AUTO]: "Auto", [MODES.FAST]: "Fast", [MODES.DEEP]: "Deep", [MODES.CODE]: "Code", [MODES.PROMPT]: "Prompt" };
+    ? { [MODES.AUTO]: "خودکار", [MODES.FAST]: "سریع", [MODES.DEEP]: "عمیق", [MODES.CODE]: "کد", [MODES.PROMPT]: "پرامپت", [MODES.GUEST]: "مهمان", [MODES.GUARD]: "Guard", [MODES.SECRETARY]: "منشی", [MODES.MANAGEMENT]: "مدیریت", [MODES.THREAD]: "Thread" }
+    : { [MODES.AUTO]: "Auto", [MODES.FAST]: "Fast", [MODES.DEEP]: "Deep", [MODES.CODE]: "Code", [MODES.PROMPT]: "Prompt", [MODES.GUEST]: "Guest", [MODES.GUARD]: "Guard", [MODES.SECRETARY]: "Secretary", [MODES.MANAGEMENT]: "Management", [MODES.THREAD]: "Thread" };
   return labels[mode] || mode;
 }

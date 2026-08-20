@@ -3,7 +3,7 @@ import test from "node:test";
 import worker from "../src/index.js";
 import { MODES, modeOutputLimit } from "../src/config.js";
 import { hasValidWebhookSecret, parseAdminIds } from "../src/security.js";
-import { feedbackKeyboard, responseMeta, shortModelLabel, splitText } from "../src/telegram.js";
+import { extendedModeKeyboard, feedbackKeyboard, modeKeyboard, modeLabel, responseMeta, shortModelLabel, splitText } from "../src/telegram.js";
 
 class KV {
   constructor() { this.values = new Map(); }
@@ -46,6 +46,16 @@ test("splits long Telegram output without dropping content", () => {
 test("keeps bounded free-tier output limits", () => {
   assert.ok(modeOutputLimit(MODES.FAST) < modeOutputLimit(MODES.DEEP));
   assert.ok(modeOutputLimit(MODES.CODE) <= 1800);
+  assert.ok(modeOutputLimit(MODES.THREAD) <= 900);
+});
+
+test("exposes focused modes through a compact secondary menu", () => {
+  const core = modeKeyboard("en").inline_keyboard.flat();
+  const focused = extendedModeKeyboard("en").inline_keyboard.flat();
+  assert.ok(core.some((button) => button.callback_data === "modes:more"));
+  assert.ok(focused.some((button) => button.callback_data === "mode:thread"));
+  assert.equal(modeLabel(MODES.THREAD, "en"), "Thread");
+  assert.equal(modeLabel(MODES.SECRETARY, "fa"), "منشی");
 });
 
 test("renders concise linked response metadata without per-message action buttons", () => {
@@ -100,6 +110,37 @@ test("serves an English-first responsive admin page", async () => {
 test("rejects an admin API request without validated Telegram Mini App data", async () => {
   const response = await worker.fetch(new Request("https://worker.test/admin/session", { method: "POST", body: "{}" }), baseEnv());
   assert.equal(response.status, 401);
+});
+
+test("shows a read-only operations summary to an authorized admin", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 89 } }), { status: 200 });
+  };
+  try {
+    const update = {
+      update_id: 700,
+      callback_query: {
+        id: "stats-callback",
+        from: { id: 126679582, first_name: "Owner" },
+        data: "admin:stats",
+        message: { message_id: 10, chat: { id: 42, type: "private" } }
+      }
+    };
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+      body: JSON.stringify(update)
+    }), baseEnv());
+    assert.equal(response.status, 200);
+    const summary = calls.find((call) => /sendMessage$/.test(call.url));
+    assert.match(summary.body.text, /IVAI Operations/);
+    assert.match(summary.body.text, /Workers AI daily budget remaining/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("answers an empty inline query without invoking an AI provider", async () => {

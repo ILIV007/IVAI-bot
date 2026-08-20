@@ -5,3 +5,5 @@ node_modules/
 .env.*
 !.dev.vars.example
 coverage/
+.deploy/
+.tmp-*.json

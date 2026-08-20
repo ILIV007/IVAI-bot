@@ -108,6 +108,38 @@ export async function getUserDebugStats(userId, env) {
   return { feedbackCount: Number(feedback?.count || 0), lastSeenAt: user?.last_seen_at || null };
 }
 
+export async function getAdminOperationalStats(env) {
+  const fallback = {
+    totalUsers: null,
+    activeUsers7d: null,
+    activeUsers30d: null,
+    activeChats30d: null,
+    feedback7d: null,
+    pendingBroadcasts: null,
+    workersAiBudgetRemaining: null
+  };
+  if (!env.IVAI_DB) return fallback;
+  const [totalUsers, activeUsers7d, activeUsers30d, activeChats30d, feedback7d, pendingBroadcasts] = await Promise.all([
+    env.IVAI_DB.prepare("SELECT COUNT(*) AS count FROM users").first(),
+    env.IVAI_DB.prepare("SELECT COUNT(*) AS count FROM users WHERE last_seen_at >= datetime('now', '-7 days')").first(),
+    env.IVAI_DB.prepare("SELECT COUNT(*) AS count FROM users WHERE last_seen_at >= datetime('now', '-30 days')").first(),
+    env.IVAI_DB.prepare("SELECT COUNT(*) AS count FROM chats WHERE last_seen_at >= datetime('now', '-30 days')").first(),
+    env.IVAI_DB.prepare("SELECT COUNT(*) AS count FROM feedback WHERE created_at >= datetime('now', '-7 days')").first(),
+    env.IVAI_DB.prepare("SELECT COUNT(*) AS count FROM broadcast_campaigns WHERE status IN ('draft','confirmed','queued','sending')").first()
+  ]);
+  const date = new Date().toISOString().slice(0, 10);
+  const workersAiUsed = Number(await env.IVAI_KV?.get(`quota:workers-ai:${date}`) || 0);
+  return {
+    totalUsers: Number(totalUsers?.count || 0),
+    activeUsers7d: Number(activeUsers7d?.count || 0),
+    activeUsers30d: Number(activeUsers30d?.count || 0),
+    activeChats30d: Number(activeChats30d?.count || 0),
+    feedback7d: Number(feedback7d?.count || 0),
+    pendingBroadcasts: Number(pendingBroadcasts?.count || 0),
+    workersAiBudgetRemaining: Math.max(0, 9000 - workersAiUsed)
+  };
+}
+
 export async function recordFeedback({ userId, chatId, messageId, model, score, kind, detail }, env) {
   if (!env.IVAI_DB || !userId) return;
   await env.IVAI_DB
