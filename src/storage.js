@@ -137,7 +137,7 @@ export async function getAdminOperationalStats(env) {
     activeChats30d: Number(activeChats30d?.count || 0),
     feedback7d: Number(feedback7d?.count || 0),
     pendingBroadcasts: Number(pendingBroadcasts?.count || 0),
-    workersAiBudgetRemaining: Math.max(0, 9000 - workersAiUsed)
+    workersAiBudgetRemaining: Math.max(0, APP.systemDailyWorkersAiBudget - workersAiUsed)
   };
 }
 

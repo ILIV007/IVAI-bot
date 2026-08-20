@@ -92,6 +92,25 @@ export async function claimUpdate(updateId, env) {
   return true;
 }
 
+export async function releaseUpdateClaim(updateId, env) {
+  if (!updateId) return;
+  let releasedByD1 = false;
+  if (env.IVAI_DB) {
+    try {
+      await env.IVAI_DB
+        .prepare("DELETE FROM processed_updates WHERE telegram_update_id = ?")
+        .bind(String(updateId))
+        .run();
+      releasedByD1 = true;
+    } catch (error) {
+      logRuntimeGuardFallback("dedupe_release", error);
+    }
+  }
+  if (!releasedByD1 && env.IVAI_KV) {
+    await env.IVAI_KV.delete(`dedupe:update:${updateId}`);
+  }
+}
+
 export async function allowUsage({ scope, id, limit, windowSeconds = 3600 }, env) {
   if (!id) return { allowed: true, remaining: limit };
   const bucket = Math.floor(Date.now() / (windowSeconds * 1000));

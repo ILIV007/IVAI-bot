@@ -1,4 +1,4 @@
-import { cleanupRuntimeGuards, hasValidWebhookSecret, claimUpdate } from "./security.js";
+import { cleanupRuntimeGuards, hasValidWebhookSecret, claimUpdate, releaseUpdateClaim } from "./security.js";
 import { handleUpdate } from "./router.js";
 import { processBroadcastBatch, seedBroadcastDeliveries } from "./broadcast.js";
 import { handleAdminRequest } from "./admin.js";
@@ -56,15 +56,18 @@ export default {
     if (request.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, 405);
     if (!hasValidWebhookSecret(request, env)) return json({ ok: false, error: "unauthorized" }, 401);
 
+    let update;
     try {
-      const update = await request.json();
+      update = await request.json();
       if (!await claimUpdate(update?.update_id, env)) return json({ ok: true, duplicate: true });
       await handleUpdate(update, env);
       return json({ ok: true });
     } catch (error) {
-      console.error(JSON.stringify({ event: "webhook_failure", error: String(error?.message || "unknown") }));
-      // Telegram retries non-2xx webhook calls; never expose internals in the response.
-      return json({ ok: true });
+      await releaseUpdateClaim(update?.update_id, env).catch(() => {});
+      console.error(JSON.stringify({ event: "webhook_failure", updateId: String(update?.update_id || "unknown"), error: String(error?.message || "unknown") }));
+      // A non-2xx response asks Telegram to retry. The claim is released above so
+      // retry does not get suppressed by the idempotency guard.
+      return json({ ok: false, error: "temporary_failure" }, 500);
     }
   },
 

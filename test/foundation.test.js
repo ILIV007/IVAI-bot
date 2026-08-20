@@ -7,6 +7,7 @@ import { processSecretaryReminderBatch } from "../src/secretary.js";
 import { processReengagementBatch } from "../src/reengagement.js";
 import { APP, defaultFreeModelFor, FREE_MODEL_POLICY, LANGUAGE_OPTIONS, MODES, modeOutputLimit } from "../src/config.js";
 import { defaultFreeModels, refreshFreeModelCatalog } from "../src/catalog.js";
+import { getAdminOperationalStats } from "../src/storage.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
 import { feedbackKeyboard, languageKeyboard, modeKeyboard, modeLabel, modelPickerKeyboard, responseMeta, shortModelLabel, splitText, terminalKeyboard, thinkingText } from "../src/telegram.js";
 
@@ -14,6 +15,7 @@ class KV {
   constructor() { this.values = new Map(); }
   async get(key) { return this.values.get(key) || null; }
   async put(key, value) { this.values.set(key, value); }
+  async delete(key) { this.values.delete(key); }
 }
 
 class GuardD1 {
@@ -141,6 +143,27 @@ test("rejects a webhook request without the secret header", async () => {
   assert.equal(response.status, 401);
 });
 
+test("returns a retryable status and releases an update claim after webhook processing fails", async () => {
+  const originalFetch = globalThis.fetch;
+  const kv = new KV();
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: false, description: "temporary Telegram failure" }), { status: 502 });
+  try {
+    const update = {
+      update_id: 4,
+      message: { message_id: 14, chat: { id: 42, type: "private" }, from: { id: 126679582, first_name: "Owner" }, text: "/start" }
+    };
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+      body: JSON.stringify(update)
+    }), { ...baseEnv(), IVAI_KV: kv });
+    assert.equal(response.status, 500);
+    assert.equal(await kv.get("dedupe:update:4"), null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("uses D1 atomic guards for dedupe and quotas when available", async () => {
   const env = { ...baseEnv(), IVAI_DB: new GuardD1() };
   assert.equal(await claimUpdate(1001, env), true);
@@ -199,8 +222,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.4 release version", () => {
-  assert.equal(APP.version, "3.3.4");
+test("declares the official v3.3.5 release version", () => {
+  assert.equal(APP.version, "3.3.5");
 });
 
 test("keeps bounded free-tier output limits", () => {
@@ -268,6 +291,44 @@ test("handles a valid start update and sends Telegram output", async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("clears Terminal memory together with the current conversation", async () => {
+  const originalFetch = globalThis.fetch;
+  const kv = new KV();
+  await kv.put("guest:42:126679582:main:root", JSON.stringify([{ role: "user", content: "private chat" }]));
+  await kv.put("guest:126679582:126679582:terminal:root", JSON.stringify([{ role: "user", content: "terminal" }]));
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true, result: { message_id: 79 } }), { status: 200 });
+  try {
+    const update = {
+      update_id: 3,
+      message: { message_id: 13, chat: { id: 42, type: "private" }, from: { id: 126679582, first_name: "Owner" }, text: "/memory clear" }
+    };
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+      body: JSON.stringify(update)
+    }), { ...baseEnv(), IVAI_KV: kv });
+    assert.equal(response.status, 200);
+    assert.equal(await kv.get("guest:42:126679582:main:root"), null);
+    assert.equal(await kv.get("guest:126679582:126679582:terminal:root"), null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("reports the same conservative Workers AI budget enforced at runtime", async () => {
+  const first = async () => ({ count: 0 });
+  const env = {
+    IVAI_DB: {
+      prepare(sql) {
+        const counter = async () => sql.includes("runtime_counters") ? { value: APP.systemDailyWorkersAiBudget - 1 } : { count: 0 };
+        return { first: counter, bind: () => ({ first: counter }) };
+      }
+    }
+  };
+  const stats = await getAdminOperationalStats(env);
+  assert.equal(stats.workersAiBudgetRemaining, 1);
 });
 
 test("opens IVAI Terminal through a private-chat Web App button without invoking AI", async () => {

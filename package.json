@@ -1,6 +1,6 @@
 {
   "name": "ivai-bot",
-  "version": "3.3.4",
+  "version": "3.3.5",
   "private": true,
   "type": "module",
   "description": "IVAI — privacy-aware, free-tier Telegram AI assistant for Cloudflare Workers.",

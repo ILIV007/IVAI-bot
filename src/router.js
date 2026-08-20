@@ -160,6 +160,17 @@ function mainKeyboard(language, message) {
   return modeKeyboard(language, { includeTerminal: message?.chat?.type === "private" });
 }
 
+function terminalMemoryKey(userId) {
+  return conversationKey({ chatId: userId, userId, threadId: "terminal" });
+}
+
+async function clearUserMemory(message, env) {
+  await Promise.all([
+    clearGuestMemory(contextKey(message), env),
+    clearGuestMemory(terminalMemoryKey(message.from?.id), env)
+  ]);
+}
+
 function parseTaskInput(input) {
   const value = String(input || "").trim();
   if (!value) return { error: "missing" };
@@ -346,8 +357,8 @@ async function handleCommand(message, env, language) {
       return true;
     }
     if (action === "clear") {
-      await clearGuestMemory(key, env);
-      await sendMessage(env, { chatId, text: language === "fa" ? "✓ حافظهٔ این گفت‌وگو پاک شد." : "✓ This conversation memory was cleared.", replyTo: message.message_id });
+      await clearUserMemory(message, env);
+      await sendMessage(env, { chatId, text: language === "fa" ? "✓ حافظهٔ این گفت‌وگو و IVAI Terminal پاک شد." : "✓ This conversation and IVAI Terminal memory were cleared.", replyTo: message.message_id });
       return true;
     }
     const memory = await getGuestMemory(key, env);
@@ -368,8 +379,8 @@ async function handleCommand(message, env, language) {
     await setUserMode(userId, MODES.AUTO, env);
     await setSelectedModel(userId, null, env);
     await setMemoryEnabled(userId, false, env);
-    await clearGuestMemory(contextKey(message), env);
-    await sendMessage(env, { chatId, text: language === "fa" ? "✓ تنظیمات IVAI بازنشانی شد." : "✓ IVAI settings were reset.", replyTo: message.message_id });
+    await clearUserMemory(message, env);
+    await sendMessage(env, { chatId, text: language === "fa" ? "✓ تنظیمات IVAI و حافظهٔ Terminal بازنشانی شد." : "✓ IVAI settings and Terminal memory were reset.", replyTo: message.message_id });
     return true;
   }
   if (command === "/admin") {
@@ -677,8 +688,11 @@ async function processCallback(query, env) {
     await setUserMode(userId, MODES.AUTO, env);
     await setSelectedModel(userId, null, env);
     await setMemoryEnabled(userId, false, env);
-    await clearGuestMemory(conversationKey({ chatId, userId, threadId: getThreadId(query.message), replyTo: query.message?.reply_to_message?.message_id }), env);
-    await editMessage(env, { chatId, messageId, text: language === "fa" ? "✓ تنظیمات بازنشانی شد." : "✓ Settings reset.", keyboard: mainKeyboard(language, query.message) });
+    await Promise.all([
+      clearGuestMemory(conversationKey({ chatId, userId, threadId: getThreadId(query.message), replyTo: query.message?.reply_to_message?.message_id }), env),
+      clearGuestMemory(terminalMemoryKey(userId), env)
+    ]);
+    await editMessage(env, { chatId, messageId, text: language === "fa" ? "✓ تنظیمات و حافظهٔ Terminal بازنشانی شد." : "✓ Settings and Terminal memory were reset.", keyboard: mainKeyboard(language, query.message) });
     return;
   }
   if (data === "menu:language") {
