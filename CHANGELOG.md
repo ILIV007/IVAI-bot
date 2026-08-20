@@ -2,6 +2,14 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.4] - 2026-08-20
+
+### Changed
+
+- Added the private-chat IVAI Terminal Web App button directly to `/start`, `/menu`, and `/help`, while keeping group menus free of private-only Web App controls.
+- Updated the help copy and callback return paths so the Terminal entry point remains visible after normal private-chat navigation.
+- Added regression coverage for private versus default menu behavior; the suite remains at 34 passing tests.
+
 ## [3.3.3] - 2026-08-20
 
 ### Added
@@ -69,6 +77,7 @@ All notable changes to IVAI Bot are documented in this file. The project follows
 
 - Baseline IVAI bot experience on which the v3.3 modular modernization is built.
 
+[3.3.4]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.3...v3.3.4
 [3.3.3]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.2...v3.3.3
 [3.3.2]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.1...v3.3.2
 [3.3.1]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.0...v3.3.1

@@ -18,25 +18,25 @@ function providerIcon(provider) {
   return { "workers-ai": "🟣", openrouter: "🔵", groq: "🟠", google: "🟢" }[provider] || "⚪";
 }
 
-export function modeKeyboard(language = "en") {
+export function modeKeyboard(language = "en", { includeTerminal = false } = {}) {
   const fa = language === "fa";
-  return {
-    inline_keyboard: [
-      [
-        button(fa ? "🔀 خودکار" : "🔀 Auto", "mode:auto", "primary"),
-        button(fa ? "⚡ سریع" : "⚡ Fast", "mode:fast"),
-        button(fa ? "🧠 عمیق" : "🧠 Deep", "mode:deep")
-      ],
-      [
-        button(fa ? "🎛 انتخاب مدل" : "🎛 Pick model", "menu:models", "success"),
-        button(fa ? "📖 راهنما" : "📖 Help", "menu:help")
-      ],
-      [
-        button(fa ? "⚙️ تنظیمات" : "⚙️ Settings", "menu:settings"),
-        button(fa ? "🌐 زبان" : "🌐 Language", "menu:language")
-      ]
+  const rows = [
+    [
+      button(fa ? "🔀 خودکار" : "🔀 Auto", "mode:auto", "primary"),
+      button(fa ? "⚡ سریع" : "⚡ Fast", "mode:fast"),
+      button(fa ? "🧠 عمیق" : "🧠 Deep", "mode:deep")
+    ],
+    [
+      button(fa ? "🎛 انتخاب مدل" : "🎛 Pick model", "menu:models", "success"),
+      button(fa ? "📖 راهنما" : "📖 Help", "menu:help")
+    ],
+    [
+      button(fa ? "⚙️ تنظیمات" : "⚙️ Settings", "menu:settings"),
+      button(fa ? "🌐 زبان" : "🌐 Language", "menu:language")
     ]
-  };
+  ];
+  if (includeTerminal) rows.push(terminalKeyboard(language).inline_keyboard[0]);
+  return { inline_keyboard: rows };
 }
 
 export function modelPickerKeyboard(models, { page = 0, selectedModel, language = "en", pageSize = 6 } = {}) {

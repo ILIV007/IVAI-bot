@@ -199,8 +199,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.3 release version", () => {
-  assert.equal(APP.version, "3.3.3");
+test("declares the official v3.3.4 release version", () => {
+  assert.equal(APP.version, "3.3.4");
 });
 
 test("keeps bounded free-tier output limits", () => {
@@ -222,6 +222,8 @@ test("presents three main modes with semantic styles and a paginated model picke
   assert.equal(thinkingText("en", 2), "<i>IVAI is thinking...</i>");
   assert.equal(modeLabel(MODES.DEEP, "en"), "Deep");
   assert.equal(terminalKeyboard("en").inline_keyboard[0][0].web_app.url, APP.terminalAppUrl);
+  assert.ok(!core.some((button) => button.web_app));
+  assert.equal(modeKeyboard("en", { includeTerminal: true }).inline_keyboard.at(-1)[0].web_app.url, APP.terminalAppUrl);
 });
 
 test("renders concise linked response metadata without per-message action buttons", () => {
@@ -262,6 +264,7 @@ test("handles a valid start update and sends Telegram output", async () => {
     assert.equal(calls.length, 1);
     assert.match(calls[0].url, /sendMessage$/);
     assert.match(calls[0].body.text, /IVAI/);
+    assert.equal(calls[0].body.reply_markup.inline_keyboard.at(-1)[0].web_app.url, APP.terminalAppUrl);
   } finally {
     globalThis.fetch = originalFetch;
   }
