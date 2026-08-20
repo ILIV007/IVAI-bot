@@ -110,6 +110,11 @@ export function feedbackKeyboard() {
   return undefined;
 }
 
+export function terminalKeyboard(language = "en") {
+  const label = language === "fa" ? "⌘ بازکردن IVAI Terminal" : language === "ar" ? "⌘ افتح IVAI Terminal" : "⌘ Open IVAI Terminal";
+  return { inline_keyboard: [[{ text: label, web_app: { url: APP.terminalAppUrl }, style: "success" }]] };
+}
+
 export function adminKeyboard() {
   return {
     inline_keyboard: [

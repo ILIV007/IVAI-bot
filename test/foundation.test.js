@@ -8,7 +8,7 @@ import { processReengagementBatch } from "../src/reengagement.js";
 import { APP, defaultFreeModelFor, FREE_MODEL_POLICY, LANGUAGE_OPTIONS, MODES, modeOutputLimit } from "../src/config.js";
 import { defaultFreeModels, refreshFreeModelCatalog } from "../src/catalog.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
-import { feedbackKeyboard, languageKeyboard, modeKeyboard, modeLabel, modelPickerKeyboard, responseMeta, shortModelLabel, splitText, thinkingText } from "../src/telegram.js";
+import { feedbackKeyboard, languageKeyboard, modeKeyboard, modeLabel, modelPickerKeyboard, responseMeta, shortModelLabel, splitText, terminalKeyboard, thinkingText } from "../src/telegram.js";
 
 class KV {
   constructor() { this.values = new Map(); }
@@ -199,8 +199,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.2 release version", () => {
-  assert.equal(APP.version, "3.3.2");
+test("declares the official v3.3.3 release version", () => {
+  assert.equal(APP.version, "3.3.3");
 });
 
 test("keeps bounded free-tier output limits", () => {
@@ -221,6 +221,7 @@ test("presents three main modes with semantic styles and a paginated model picke
   assert.equal(thinkingText("en", 0), "<i>IVAI is thinking.</i>");
   assert.equal(thinkingText("en", 2), "<i>IVAI is thinking...</i>");
   assert.equal(modeLabel(MODES.DEEP, "en"), "Deep");
+  assert.equal(terminalKeyboard("en").inline_keyboard[0][0].web_app.url, APP.terminalAppUrl);
 });
 
 test("renders concise linked response metadata without per-message action buttons", () => {
@@ -261,6 +262,32 @@ test("handles a valid start update and sends Telegram output", async () => {
     assert.equal(calls.length, 1);
     assert.match(calls[0].url, /sendMessage$/);
     assert.match(calls[0].body.text, /IVAI/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("opens IVAI Terminal through a private-chat Web App button without invoking AI", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 78 } }), { status: 200 });
+  };
+  try {
+    const update = {
+      update_id: 2,
+      message: { message_id: 12, chat: { id: 42, type: "private" }, from: { id: 126679582, first_name: "Owner" }, text: "/terminal" }
+    };
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+      body: JSON.stringify(update)
+    }), baseEnv());
+    assert.equal(response.status, 200);
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].url, /sendMessage$/);
+    assert.equal(calls[0].body.reply_markup.inline_keyboard[0][0].web_app.url, APP.terminalAppUrl);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -27,7 +27,7 @@ import {
   upsertUser,
   writeAdminAudit
 } from "./storage.js";
-import { adminKeyboard, answerCallback, editMessage, escapeHtml, languageKeyboard, languageMenuText, modelPickerKeyboard, modeKeyboard, modeLabel, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendTyping, settingsKeyboard, startThinkingAnimation, telegram, thinkingText, welcomeText } from "./telegram.js";
+import { adminKeyboard, answerCallback, editMessage, escapeHtml, languageKeyboard, languageMenuText, modelPickerKeyboard, modeKeyboard, modeLabel, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendTyping, settingsKeyboard, startThinkingAnimation, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
 
 const COMMAND_MODE = Object.freeze({
   "/auto": MODES.AUTO,
@@ -240,6 +240,15 @@ async function handleCommand(message, env, language) {
   }
   if (command === "/help") {
     await sendMessage(env, { chatId, text: helpText(language), keyboard: modeKeyboard(language), replyTo: message.message_id });
+    return true;
+  }
+  if (command === "/terminal") {
+    if (message.chat?.type !== "private") {
+      await sendMessage(env, { chatId, text: language === "fa" ? "IVAI Terminal فقط در چت خصوصی با بات باز می‌شود." : "IVAI Terminal can only be opened in a private chat with the bot.", replyTo: message.message_id });
+      return true;
+    }
+    const text = language === "fa" ? "<b>IVAI Terminal</b> آماده است. پیام‌ها در همان رابط سبک ردوبدل می‌شوند و از همان مسیرهای رایگان IVAI استفاده می‌کنند." : "<b>IVAI Terminal</b> is ready. Messages stay inside the lightweight terminal and use the same IVAI free-only routes.";
+    await sendMessage(env, { chatId, text, keyboard: terminalKeyboard(language), replyTo: message.message_id });
     return true;
   }
   if (COMMAND_MODE[command]) {
