@@ -2,6 +2,21 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.1] - 2026-08-20
+
+### Changed
+
+- Refreshed the provider policy against current official provider documentation while preserving the free-only contract.
+- Replaced Groq's retired `llama-3.1-8b-instant` with active GPT-OSS 20B, GPT-OSS 120B, and Qwen 3.6 27B production-model routes.
+- Added current Workers AI text, vision, and Whisper Turbo options; explicitly excluded paid-only Workers AI frontier models such as GLM 5.2.
+- Added current Gemini Flash and Flash-Lite free-tier options without Google Search grounding, Maps, media generation, or paid-only models.
+- Replaced OpenRouter's fragile fixed model IDs with the official `openrouter/free` router for automatic fallback. The refreshed picker admits dynamic `:free` entries only after zero-price metadata and text-chat capability checks.
+- Converted the Worker AI quota guard to a conservative 8,000-Neuron daily reservation budget, leaving a 20% buffer below Cloudflare's 10,000-Neuron free allocation.
+
+### Security
+
+- A model selected from an OpenRouter cache must now exist in the verified catalog; the old suffix-only selectability rule was removed.
+
 ## [3.3.0] - 2026-08-20
 
 ### Added
@@ -31,5 +46,6 @@ All notable changes to IVAI Bot are documented in this file. The project follows
 
 - Baseline IVAI bot experience on which the v3.3 modular modernization is built.
 
+[3.3.1]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.0...v3.3.1
 [3.3.0]: https://github.com/ILIV007/IVAI-bot/compare/12936cb...593ea80
 [3.2.0]: https://github.com/ILIV007/IVAI-bot

@@ -1,8 +1,8 @@
-# IVAI Bot v3.3 — Free-Tier, Secure Telegram AI Assistant
+# IVAI Bot v3.3.1 — Free-Tier, Secure Telegram AI Assistant
 
 [![Continuous Integration](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while adding webhook security, a free-only model policy, D1 data, admin controls, responsive Mini App groundwork, multimodal adapters, and inline feedback.
+> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.1 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while adding webhook security, a source-verified free-only model policy, D1 data, admin controls, responsive Mini App groundwork, multimodal adapters, and inline feedback.
 
 ## Product principles
 
@@ -22,14 +22,14 @@
 | Secretary | `/task title`, `/task in 30m | title`, `/task <ISO-8601-with-offset> | title`, `/tasks`, `/done <id>`, `/cancel <id>`; reminders are delivered in a small free cron batch |
 | Model controls | `/models`, `/refreshmodels`, `/pick <number>`, `/model off` with a unified free-only picker across configured providers |
 | Memory controls | `/memory on`, `/memory off`, `/memory show`, `/memory clear` |
-| Providers | Workers AI first, then OpenRouter `:free`, Groq, and Google AI Studio as sequential configured fallbacks |
+| Providers | Workers AI first, then the official OpenRouter Free Router and verified zero-price `:free` catalog entries, active Groq GPT-OSS/Qwen models, and Gemini Flash/Flash-Lite free-tier models as sequential fallbacks |
 | Telegram UX | Rich Draft + Rich Message fallback, colored inline buttons, message chunking, callback handling, Inline Mode, Guest AI replies, and reaction-based group feedback |
 | Multimodal | Voice transcription and image understanding adapters through Workers AI, guarded by file and quota limits |
 | Admin | Owner/admin roles, Telegram-native admin controls, reviewable broadcast drafts, audit logging, responsive `/admin` Mini App shell, and server-side `initData` validation |
 | Context routing | Thread/topic, direct-message topic, and business-connection context are preserved for typing, draft, text and media replies |
 | Re-engagement | A consent-controlled, at-most-once-per-15-days check-in for inactive users; five sequential deliveries per scheduled run, no AI call and `/notify on|off` control |
 | Languages | English-first, Persian-second, plus Arabic, Spanish, Turkish, Russian, Portuguese (Brazil), Indonesian, Hindi, French and German via `/lang` |
-| Security | Telegram webhook secret validation, update deduplication, no Secret in source control, user-level rate limits, and daily Workers AI budget guard |
+| Security | Telegram webhook secret validation, update deduplication, no Secret in source control, user-level rate limits, strict zero-price catalog admission, and a conservative 8,000-Neuron daily Workers AI budget guard |
 
 ## Project layout
 
@@ -110,7 +110,8 @@ npm test
 | [Deployment checklist](docs/DEPLOYMENT_CHECKLIST.md) | Required D1 migrations, secrets, webhook updates, and acceptance checks. |
 | [Telegram feature matrix (FA)](docs/TELEGRAM_FEATURE_MATRIX_FA.md) | Telegram capability coverage and remaining BotFather actions. |
 | [Re-engagement and language decision](docs/REENGAGEMENT_AND_LANGUAGE_DECISION.md) | Consent, delivery limits, and language-selection rationale. |
-| [Changelog](CHANGELOG.md) | Release-level changes for v3.3. |
+| [Provider research](docs/PROVIDER_RESEARCH_2026-08-20.md) | Source-backed model eligibility, deprecation review, provider limits, and safe fallback policy. |
+| [Changelog](CHANGELOG.md) | Release-level changes for v3.3.1. |
 | [Contributing](CONTRIBUTING.md) | Free-only, privacy, testing, and migration rules for contributors. |
 | [Security policy](SECURITY.md) | Private reporting process for vulnerabilities and exposed credentials. |
 

@@ -1,6 +1,6 @@
 export const APP = Object.freeze({
   name: "IVAI",
-  version: "3.3.0",
+  version: "3.3.1",
   timezone: "UTC",
   maxTelegramText: 4096,
   maxInlineResults: 10,
@@ -10,7 +10,8 @@ export const APP = Object.freeze({
   cacheTtlSeconds: 15 * 60,
   userHourlyTextLimit: 24,
   userDailyMediaLimit: 4,
-  systemDailyWorkersAiBudget: 9000,
+  // Cloudflare Workers Free grants 10,000 Neurons/day. Requests reserve a conservative estimate from this 8,000-Neuron budget, preserving a 20% buffer for metering variance.
+  systemDailyWorkersAiBudget: 8000,
   maxInputCharacters: 12000,
   maxOutputTokens: {
     fast: 700,
@@ -88,22 +89,66 @@ export const SECRET_NAMES = Object.freeze([
   "GROQ_API_KEY"
 ]);
 
-// Only entries confirmed as usable under a free-tier policy may be added here.
-// The runtime gate rejects every model not present in this allowlist.
+// Only models confirmed for the current no-charge tier are listed here. Frontier models
+// that require paid billing (for example Cloudflare GLM 5.2) are intentionally excluded.
+// The static entries are conservative production fallbacks; OpenRouter's dynamic catalog is
+// separately verified from zero-price metadata before it is exposed in the picker.
 export const FREE_MODEL_POLICY = Object.freeze({
-  workersAi: {
-    text: ["@cf/zai-org/glm-4.7-flash", "@cf/google/gemma-4-26b-a4b-it"],
-    vision: ["@cf/meta/llama-4-scout-17b-16e-instruct"],
-    speech: ["@cf/openai/whisper"],
-    guard: ["@cf/meta/llama-guard-3-8b"]
-  },
-  openRouter: [
-    "meta-llama/llama-3.2-3b-instruct:free",
-    "openai/gpt-oss-20b:free"
-  ],
-  groq: ["llama-3.1-8b-instant"],
-  google: ["gemini-2.5-flash-lite"]
+  workersAi: Object.freeze({
+    text: Object.freeze([
+      "@cf/zai-org/glm-4.7-flash",
+      "@cf/google/gemma-4-26b-a4b-it",
+      "@cf/openai/gpt-oss-20b",
+      "@cf/ibm-granite/granite-4.0-h-micro"
+    ]),
+    vision: Object.freeze([
+      "@cf/google/gemma-4-26b-a4b-it",
+      "@cf/meta/llama-4-scout-17b-16e-instruct"
+    ]),
+    speech: Object.freeze([
+      "@cf/openai/whisper-large-v3-turbo",
+      "@cf/openai/whisper"
+    ]),
+    guard: Object.freeze(["@cf/meta/llama-guard-3-8b"])
+  }),
+  // The official free router selects only currently available zero-cost models.
+  openRouter: Object.freeze(["openrouter/free"]),
+  // Groq retired llama-3.1-8b-instant on 2026-08-16; these are active production models.
+  groq: Object.freeze([
+    "openai/gpt-oss-20b",
+    "openai/gpt-oss-120b",
+    "qwen/qwen3.6-27b"
+  ]),
+  // Text-only Gemini calls: no Search grounding, Maps, media generation, or paid-only model.
+  google: Object.freeze([
+    "gemini-3.7-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite"
+  ])
 });
+
+export function defaultFreeModelFor(provider, mode = MODES.AUTO) {
+  if (provider === "workers-ai") {
+    return [MODES.DEEP, MODES.CODE].includes(mode)
+      ? FREE_MODEL_POLICY.workersAi.text[1]
+      : FREE_MODEL_POLICY.workersAi.text[0];
+  }
+  if (provider === "google") {
+    if ([MODES.DEEP, MODES.CODE].includes(mode)) return FREE_MODEL_POLICY.google[0];
+    if (mode === MODES.FAST) return FREE_MODEL_POLICY.google[2];
+    return FREE_MODEL_POLICY.google[1];
+  }
+  if (provider === "groq") {
+    return [MODES.DEEP, MODES.CODE].includes(mode)
+      ? FREE_MODEL_POLICY.groq[1]
+      : FREE_MODEL_POLICY.groq[0];
+  }
+  if (provider === "openrouter") return FREE_MODEL_POLICY.openRouter[0];
+  return null;
+}
 
 export function modeOutputLimit(mode) {
   return APP.maxOutputTokens[mode] ?? APP.maxOutputTokens.auto;

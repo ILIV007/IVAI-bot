@@ -1,4 +1,4 @@
-import { APP, FREE_MODEL_POLICY, getBrand, getLanguageOption, MODES, modeOutputLimit } from "./config.js";
+import { APP, defaultFreeModelFor, FREE_MODEL_POLICY, getBrand, getLanguageOption, MODES, modeOutputLimit } from "./config.js";
 import { reserveWorkersAiBudget } from "./security.js";
 
 function detectMode(text, selectedMode) {
@@ -24,6 +24,15 @@ function systemInstruction(mode, language) {
     [MODES.THREAD]: "Treat this conversation or Telegram topic as a focused work thread. Keep context scoped to the thread, summarize decisions briefly, and end with the next useful action when appropriate."
   }[mode] || "Give a helpful, accurate response.";
   return `${brand.name} is a ${brand.voice} assistant. ${brand.rule} ${modeInstruction} ${languageInstruction}`;
+}
+
+function workersAiReserveUnits(mode) {
+  // Conservative Neuron reservations based on the maximum allowed output for each user path.
+  // The budget guard favors a graceful free-tier refusal over approaching paid usage.
+  if (mode === MODES.GUARD) return 250;
+  if ([MODES.DEEP, MODES.CODE].includes(mode)) return 800;
+  if (mode === MODES.FAST) return 300;
+  return 450;
 }
 
 function normalizeMessages({ text, context, mode, language }) {
@@ -54,7 +63,7 @@ function guardReplyText(raw, language) {
 
 async function runGuard({ text, language }, env) {
   if (!env.AI?.run) throw new Error("Workers AI is not configured");
-  const budget = await reserveWorkersAiBudget(1, env);
+  const budget = await reserveWorkersAiBudget(workersAiReserveUnits(MODES.GUARD), env);
   if (!budget.allowed) throw new Error("Workers AI free quota guard blocked Guard Mode");
   const model = FREE_MODEL_POLICY.workersAi.guard[0];
   const result = await env.AI.run(model, {
@@ -69,9 +78,11 @@ async function runGuard({ text, language }, env) {
 
 async function runWorkersAi({ messages, mode, selectedModel }, env) {
   if (!env.AI?.run) throw new Error("Workers AI is not configured");
-  const budget = await reserveWorkersAiBudget(mode === MODES.DEEP ? 4 : 2, env);
+  const budget = await reserveWorkersAiBudget(workersAiReserveUnits(mode), env);
   if (!budget.allowed) throw new Error("Workers AI free quota guard blocked the request");
-  const model = FREE_MODEL_POLICY.workersAi.text.includes(selectedModel) ? selectedModel : FREE_MODEL_POLICY.workersAi.text[0];
+  const model = FREE_MODEL_POLICY.workersAi.text.includes(selectedModel)
+    ? selectedModel
+    : defaultFreeModelFor("workers-ai", mode);
   const result = await env.AI.run(model, {
     messages,
     max_tokens: modeOutputLimit(mode),
@@ -82,9 +93,15 @@ async function runWorkersAi({ messages, mode, selectedModel }, env) {
   return { text: String(text).trim(), provider: "workers-ai", model };
 }
 
+function isOpenRouterFreeModel(model) {
+  return model === "openrouter/free" || String(model || "").endsWith(":free");
+}
+
 async function runOpenRouter({ messages, mode, selectedModel }, env) {
   if (!env.OPENROUTER_API_KEY) throw new Error("OpenRouter is not configured");
-  const model = selectedModel?.endsWith(":free") ? selectedModel : FREE_MODEL_POLICY.openRouter[mode === MODES.CODE ? 1 : 0];
+  const model = isOpenRouterFreeModel(selectedModel)
+    ? selectedModel
+    : defaultFreeModelFor("openrouter", mode);
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -104,7 +121,9 @@ async function runOpenRouter({ messages, mode, selectedModel }, env) {
 
 async function runGroq({ messages, mode, selectedModel }, env) {
   if (!env.GROQ_API_KEY) throw new Error("Groq is not configured");
-  const model = FREE_MODEL_POLICY.groq.includes(selectedModel) ? selectedModel : FREE_MODEL_POLICY.groq[0];
+  const model = FREE_MODEL_POLICY.groq.includes(selectedModel)
+    ? selectedModel
+    : defaultFreeModelFor("groq", mode);
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { authorization: `Bearer ${env.GROQ_API_KEY}`, "content-type": "application/json" },
@@ -119,7 +138,9 @@ async function runGroq({ messages, mode, selectedModel }, env) {
 
 async function runGoogle({ messages, mode, selectedModel }, env) {
   if (!env.GOOGLE_API_KEY) throw new Error("Google AI Studio is not configured");
-  const model = FREE_MODEL_POLICY.google.includes(selectedModel) ? selectedModel : FREE_MODEL_POLICY.google[0];
+  const model = FREE_MODEL_POLICY.google.includes(selectedModel)
+    ? selectedModel
+    : defaultFreeModelFor("google", mode);
   const system = messages.find((message) => message.role === "system")?.content || "";
   const contents = messages.filter((message) => message.role !== "system").map((message) => ({
     role: message.role === "assistant" ? "model" : "user",
@@ -146,7 +167,7 @@ export async function generateReply({ text, selectedMode, selectedModel, languag
   if (mode === MODES.GUARD) return { ...(await runGuard({ text, language }, env)), mode };
   const messages = normalizeMessages({ text, context, mode, language });
   const preferred = selectedModel?.startsWith("@cf/") ? runWorkersAi
-    : selectedModel?.endsWith(":free") ? runOpenRouter
+    : isOpenRouterFreeModel(selectedModel) ? runOpenRouter
       : FREE_MODEL_POLICY.groq.includes(selectedModel) ? runGroq
         : FREE_MODEL_POLICY.google.includes(selectedModel) ? runGoogle
           : null;

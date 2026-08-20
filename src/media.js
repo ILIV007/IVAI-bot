@@ -41,7 +41,8 @@ export async function downloadTelegramFile(fileId, env) {
 export async function transcribeVoice({ fileId, languageHint }, env) {
   if (!env.AI?.run) throw new Error("Workers AI is not configured");
   const media = await downloadTelegramFile(fileId, env);
-  const budget = await reserveWorkersAiBudget(3, env);
+  // Reserve enough of the daily free budget for transcription plus a bounded response; refusal is safer than nearing the paid boundary.
+  const budget = await reserveWorkersAiBudget(600, env);
   if (!budget.allowed) throw new Error("Workers AI free quota guard blocked voice transcription");
   const model = FREE_MODEL_POLICY.workersAi.speech[0];
   const result = await env.AI.run(model, {
@@ -57,7 +58,8 @@ export async function transcribeVoice({ fileId, languageHint }, env) {
 export async function analyzePhoto({ fileId, caption = "", language = "en" }, env) {
   if (!env.AI?.run) throw new Error("Workers AI is not configured");
   const media = await downloadTelegramFile(fileId, env);
-  const budget = await reserveWorkersAiBudget(5, env);
+  // Image understanding is comparatively expensive, so it receives the largest fixed reservation.
+  const budget = await reserveWorkersAiBudget(1000, env);
   if (!budget.allowed) throw new Error("Workers AI free quota guard blocked image analysis");
   const model = FREE_MODEL_POLICY.workersAi.vision[0];
   const prompt = caption || (language === "fa" ? "این تصویر را دقیق و کوتاه توضیح بده." : "Describe this image accurately and concisely.");

@@ -4,7 +4,8 @@ import worker from "../src/index.js";
 import { generateReply } from "../src/ai.js";
 import { processSecretaryReminderBatch } from "../src/secretary.js";
 import { processReengagementBatch } from "../src/reengagement.js";
-import { APP, LANGUAGE_OPTIONS, MODES, modeOutputLimit } from "../src/config.js";
+import { APP, defaultFreeModelFor, FREE_MODEL_POLICY, LANGUAGE_OPTIONS, MODES, modeOutputLimit } from "../src/config.js";
+import { defaultFreeModels, refreshFreeModelCatalog } from "../src/catalog.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
 import { feedbackKeyboard, languageKeyboard, modeKeyboard, modeLabel, modelPickerKeyboard, responseMeta, shortModelLabel, splitText, thinkingText } from "../src/telegram.js";
 
@@ -138,8 +139,18 @@ test("uses D1 atomic guards for dedupe and quotas when available", async () => {
   assert.equal((await allowUsage({ scope: "text", id: 42, limit: 2 }, env)).allowed, true);
   assert.equal((await allowUsage({ scope: "text", id: 42, limit: 2 }, env)).remaining, 0);
   assert.equal((await allowUsage({ scope: "text", id: 42, limit: 2 }, env)).allowed, false);
-  assert.equal((await reserveWorkersAiBudget(9000, env)).allowed, true);
+  assert.equal((await reserveWorkersAiBudget(APP.systemDailyWorkersAiBudget, env)).allowed, true);
   assert.equal((await reserveWorkersAiBudget(1, env)).allowed, false);
+});
+
+test("keeps Worker AI below the published free allocation and excludes paid-only models", () => {
+  assert.equal(APP.systemDailyWorkersAiBudget, 8000);
+  assert.ok(APP.systemDailyWorkersAiBudget < 10_000);
+  assert.ok(!FREE_MODEL_POLICY.workersAi.text.includes("@cf/zai-org/glm-5.2"));
+  assert.ok(!FREE_MODEL_POLICY.groq.includes("llama-3.1-8b-instant"));
+  assert.equal(defaultFreeModelFor("workers-ai", MODES.FAST), "@cf/zai-org/glm-4.7-flash");
+  assert.equal(defaultFreeModelFor("groq", MODES.DEEP), "openai/gpt-oss-120b");
+  assert.equal(defaultFreeModelFor("google", MODES.FAST), "gemini-3.5-flash-lite");
 });
 
 test("runs Guard Mode through Llama Guard with exactly one classifier call", async () => {
@@ -179,8 +190,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3 release version", () => {
-  assert.equal(APP.version, "3.3.0");
+test("declares the official v3.3.1 release version", () => {
+  assert.equal(APP.version, "3.3.1");
 });
 
 test("keeps bounded free-tier output limits", () => {
@@ -379,6 +390,32 @@ test("rejects unsupported admin API methods instead of returning the public heal
   const response = await worker.fetch(new Request("https://worker.test/admin/session"), baseEnv());
   assert.equal(response.status, 405);
   assert.deepEqual(await response.json(), { ok: false, error: "method_not_allowed" });
+});
+
+test("accepts only verified zero-price OpenRouter models in a refreshed catalog", async () => {
+  const originalFetch = globalThis.fetch;
+  const env = baseEnv();
+  globalThis.fetch = async (url) => {
+    assert.match(String(url), /max_price=0/);
+    return new Response(JSON.stringify({ data: [
+      { id: "qwen/qwen3.5-foo:free", name: "Verified free", pricing: { prompt: "0", completion: "0", request: "0" }, architecture: { input_modalities: ["text"], output_modalities: ["text"] } },
+      { id: "paid/bait:free", name: "Non-zero completion", pricing: { prompt: "0", completion: "0.000001", request: "0" }, architecture: { input_modalities: ["text"], output_modalities: ["text"] } },
+      { id: "image/only:free", name: "Image only", pricing: { prompt: "0", completion: "0", request: "0" }, architecture: { input_modalities: ["image"], output_modalities: ["image"] } }
+    ] }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const refreshed = await refreshFreeModelCatalog(env);
+    assert.equal(refreshed.refreshed, true);
+    assert.ok(refreshed.models.some((model) => model.id === "qwen/qwen3.5-foo:free"));
+    assert.ok(!refreshed.models.some((model) => model.id === "paid/bait:free"));
+    assert.ok(!refreshed.models.some((model) => model.id === "image/only:free"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("uses the official OpenRouter Free Router as a safe automatic fallback", () => {
+  assert.ok(defaultFreeModels().some((model) => model.id === "openrouter/free"));
 });
 
 test("prefers the selected free Workers AI model before fallback", async () => {

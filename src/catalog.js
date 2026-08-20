@@ -1,6 +1,6 @@
 import { FREE_MODEL_POLICY } from "./config.js";
 
-const CATALOG_KEY = "catalog:openrouter:free:v1";
+const CATALOG_KEY = "catalog:openrouter:free:v2";
 const CATALOG_TTL_SECONDS = 6 * 60 * 60;
 const REFRESH_COOLDOWN_SECONDS = 15 * 60;
 const MAX_OPENROUTER_MODELS = 48;
@@ -8,8 +8,28 @@ const MAX_OPENROUTER_MODELS = 48;
 function categoryFor(model) {
   const value = `${model.id} ${model.name || ""}`.toLowerCase();
   if (/coder|code|devstral|qwen.*coder/.test(value)) return "code";
-  if (/reason|thinking|70b|80b|32b|deep|gemma-4/.test(value)) return "deep";
+  if (/reason|thinking|120b|70b|32b|27b|deep|gpt.?oss|glm-4\.7|gemma-4/.test(value)) return "deep";
   return "fast";
+}
+
+function isZeroPrice(value) {
+  return value === 0 || value === "0" || value === "0.0" || value === "0.000000";
+}
+
+function supportsTextChat(model) {
+  const architecture = model?.architecture || {};
+  const input = architecture.input_modalities;
+  const output = architecture.output_modalities;
+  const acceptsText = !Array.isArray(input) || input.includes("text");
+  const returnsText = !Array.isArray(output) || output.includes("text");
+  return acceptsText && returnsText;
+}
+
+function isVerifiedOpenRouterFreeModel(model) {
+  if (!model?.id || !String(model.id).endsWith(":free") || !supportsTextChat(model)) return false;
+  const pricing = model.pricing;
+  if (!pricing || !isZeroPrice(pricing.prompt) || !isZeroPrice(pricing.completion) || !isZeroPrice(pricing.request)) return false;
+  return ["image", "internal_reasoning", "web_search", "input_cache_read", "input_cache_write"].every((field) => pricing[field] == null || isZeroPrice(pricing[field]));
 }
 
 function normalize(model, provider = "openrouter") {
@@ -39,8 +59,8 @@ export function defaultFreeModels() {
   return mergeCatalog(FREE_MODEL_POLICY.openRouter.map((id) => ({ id, name: id })));
 }
 
-export function isSelectableFreeModel(modelId) {
-  return defaultFreeModels().some((model) => model.id === modelId) || String(modelId || "").endsWith(":free");
+export function isSelectableFreeModel(modelId, catalog = defaultFreeModels()) {
+  return catalog.some((model) => model.id === modelId);
 }
 
 export async function getFreeModelCatalog(env) {
@@ -61,11 +81,11 @@ export async function refreshFreeModelCatalog(env) {
 
   const headers = { accept: "application/json" };
   if (env.OPENROUTER_API_KEY) headers.authorization = `Bearer ${env.OPENROUTER_API_KEY}`;
-  const response = await fetch("https://openrouter.ai/api/v1/models", { headers });
+  const response = await fetch("https://openrouter.ai/api/v1/models?output_modalities=text&max_price=0&max_output_price=0&sort=intelligence-high-to-low", { headers });
   if (!response.ok) throw new Error(`OpenRouter catalog request failed: ${response.status}`);
   const payload = await response.json();
   const models = (payload?.data || [])
-    .filter((model) => typeof model?.id === "string" && model.id.endsWith(":free"))
+    .filter(isVerifiedOpenRouterFreeModel)
     .map((model) => normalize(model, "openrouter"))
     .filter((model, index, all) => all.findIndex((entry) => entry.id === model.id) === index)
     .sort((left, right) => left.name.localeCompare(right.name))
@@ -80,7 +100,7 @@ export async function refreshFreeModelCatalog(env) {
 export async function selectCatalogModel(index, env) {
   const catalog = await getFreeModelCatalog(env);
   const model = catalog[Number(index) - 1];
-  return model && isSelectableFreeModel(model.id) ? model : null;
+  return model && isSelectableFreeModel(model.id, catalog) ? model : null;
 }
 
 export function renderModelList(models, language = "en", page = 0, size = 8) {
