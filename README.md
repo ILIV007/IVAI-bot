@@ -1,6 +1,6 @@
-# IVAI Bot v33 — Free-Tier, Secure Telegram AI Assistant
+# IVAI Bot v3.3 — Free-Tier, Secure Telegram AI Assistant
 
-> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v33 foundation keeps the familiar v32 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while adding webhook security, a free-only model policy, D1 data, admin controls, responsive Mini App groundwork, multimodal adapters, and inline feedback.
+> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3 foundation keeps the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while adding webhook security, a free-only model policy, D1 data, admin controls, responsive Mini App groundwork, multimodal adapters, and inline feedback.
 
 ## Product principles
 
@@ -14,7 +14,7 @@
 
 ## Current foundation
 
-| Area | Included in v33 foundation |
+| Area | Included in v3.3 foundation |
 |---|---|
 | Core commands | `/start`, `/menu`, `/help`, `/auto`, `/fast`, `/deep`, `/code`, `/prompt`, `/guest`, `/guard`, `/secretary`, `/management`, `/lang`, `/debug`, `/reset` |
 | Model controls | `/models`, `/refreshmodels`, `/pick <number>`, `/model off` with a cached free-only OpenRouter catalog |
@@ -92,4 +92,4 @@ npm test
 
 ## Reference implementation review
 
-The supplied `multi-bot` archive was reviewed as an implementation reference. Its safe file-size checks, mode routing, worker error boundary, and Workers AI response normalization informed v33. Its missing webhook validation, unrestricted KV-only architecture, and direct hard-coded model selection were not adopted. See `../ivai_analysis/Multi_Bot_Reference_Assessment_FA.md` in the task deliverables for the full comparison.
+The supplied `multi-bot` archive was reviewed as an implementation reference. Its safe file-size checks, mode routing, worker error boundary, and Workers AI response normalization informed v3.3. Its missing webhook validation, unrestricted KV-only architecture, and direct hard-coded model selection were not adopted. See `../ivai_analysis/Multi_Bot_Reference_Assessment_FA.md` in the task deliverables for the full comparison.

@@ -1,4 +1,4 @@
-# IVAI v33 Deployment Checklist
+# IVAI v3.3 Deployment Checklist
 
 This checklist is intentionally value-free. Use Cloudflare Worker Secrets for every credential and do not commit `.dev.vars`.
 

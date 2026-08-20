@@ -1,5 +1,5 @@
 // ==========================================
-// IVAI Bot v32 — Per-User Dynamic Models, Clean UI, Space Theme
+// IVAI Bot v3.2 — Per-User Dynamic Models, Clean UI, Space Theme
 // ==========================================
 
 const CONFIG = {
@@ -72,7 +72,7 @@ const STRINGS = {
     emergency_suffix: "_(⚠️ حالت اضطراری)_",
     groq_suffix: "_(🔴 پاسخ از Groq)_",
     google_suffix: "_(🟢 پاسخ از Google AI Studio)_",
-    debug_title: "🔧 دیباگ v32",
+    debug_title: "🔧 دیباگ v3.2",
     debug_user: "کاربر",
     debug_mode: "حالت",
     debug_requests: "درخواست‌ها",
@@ -124,7 +124,7 @@ const STRINGS = {
     emergency_suffix: "_(⚠️ Emergency)_",
     groq_suffix: "_(🔴 Served via Groq backup)_",
     google_suffix: "_(🟢 Served via Google AI Studio)_",
-    debug_title: "🔧 Debug v32",
+    debug_title: "🔧 Debug v3.2",
     debug_user: "User",
     debug_mode: "Mode",
     debug_requests: "Requests",
@@ -549,7 +549,7 @@ export default {
     }
 
     if (request.method !== "POST") {
-      return new Response("🪐 IVAI v32 — Space Edition", { status: 200 });
+      return new Response("🪐 IVAI v3.2 — Space Edition", { status: 200 });
     }
 
     try {
@@ -1377,7 +1377,7 @@ async function callOpenRouterAPI(messages, model, apiKey) {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
         "HTTP-Referer": "https://t.me/IVAIBot",
-        "X-Title": "IVAI-v32"
+        "X-Title": "IVAI-v3.2"
       },
       body: JSON.stringify(payload),
       signal: controller.signal

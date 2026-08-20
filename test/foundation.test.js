@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import worker from "../src/index.js";
-import { MODES, modeOutputLimit } from "../src/config.js";
+import { APP, MODES, modeOutputLimit } from "../src/config.js";
 import { hasValidWebhookSecret, parseAdminIds } from "../src/security.js";
 import { extendedModeKeyboard, feedbackKeyboard, modeKeyboard, modeLabel, responseMeta, shortModelLabel, splitText } from "../src/telegram.js";
 
@@ -41,6 +41,10 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.length > 1);
   assert.equal(parts.join(" ").replaceAll(/\s+/g, " ").trim(), source.trim());
   assert.ok(parts.every((part) => part.length <= 1000));
+});
+
+test("declares the official v3.3 release version", () => {
+  assert.equal(APP.version, "3.3.0");
 });
 
 test("keeps bounded free-tier output limits", () => {
