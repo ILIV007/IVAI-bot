@@ -109,6 +109,8 @@ test("renders concise linked response metadata without per-message action button
   assert.equal(shortModelLabel("openai/gpt-oss-20b:free"), "GPT-OSS 20B");
   const meta = responseMeta({ model: "@cf/zai-org/glm-4.7-flash", mode: "deep" });
   assert.match(meta, /https:\/\/t\.me\/IVAI_Llm_bot/);
+  assert.match(meta, />IVAI<\/a>/);
+  assert.doesNotMatch(meta, />@IVAI_Llm_bot<\/a>/);
   assert.match(meta, /GLM 4\.7 Flash/);
   assert.doesNotMatch(meta, /@cf\/zai-org/);
 });

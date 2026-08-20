@@ -163,7 +163,7 @@ export function shortModelLabel(model = "") {
 
 export function responseMeta({ model, mode, language = "en" }) {
   const detail = mode ? ` · ${escapeHtml(modeLabel(mode, language))}` : "";
-  return `<blockquote>🪐 <a href="https://t.me/IVAI_Llm_bot">@IVAI_Llm_bot</a> · ${escapeHtml(shortModelLabel(model))}${detail}</blockquote>`;
+  return `<blockquote>🪐 <a href="https://t.me/IVAI_Llm_bot">IVAI</a> · ${escapeHtml(shortModelLabel(model))}${detail}</blockquote>`;
 }
 
 export function modeLabel(mode, language = "en") {
