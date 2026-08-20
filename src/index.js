@@ -11,11 +11,15 @@ function json(body, status = 200) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (request.method === "GET" && url.pathname === "/admin") {
-      return new Response(renderAdminPage(), { status: 200, headers: { "content-type": "text/html; charset=UTF-8", "cache-control": "no-store" } });
+    if (url.pathname === "/admin") {
+      if (request.method === "GET") {
+        return new Response(renderAdminPage(), { status: 200, headers: { "content-type": "text/html; charset=UTF-8", "cache-control": "no-store" } });
+      }
+      return json({ ok: false, error: "method_not_allowed" }, 405);
     }
-    if (request.method === "POST" && url.pathname.startsWith("/admin/")) {
-      return handleAdminRequest(request, env);
+    if (url.pathname.startsWith("/admin/")) {
+      if (request.method === "POST") return handleAdminRequest(request, env);
+      return json({ ok: false, error: "method_not_allowed" }, 405);
     }
     if (request.method === "GET") {
       return new Response("IVAI Worker is ready.", { status: 200 });

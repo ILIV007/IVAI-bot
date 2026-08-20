@@ -271,3 +271,9 @@ test("delivers a long AI response in complete follow-up messages instead of trun
     globalThis.fetch = originalFetch;
   }
 });
+
+test("rejects unsupported admin API methods instead of returning the public health response", async () => {
+  const response = await worker.fetch(new Request("https://worker.test/admin/session"), baseEnv());
+  assert.equal(response.status, 405);
+  assert.deepEqual(await response.json(), { ok: false, error: "method_not_allowed" });
+});
