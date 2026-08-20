@@ -2,13 +2,43 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import worker from "../src/index.js";
 import { APP, MODES, modeOutputLimit } from "../src/config.js";
-import { hasValidWebhookSecret, parseAdminIds } from "../src/security.js";
+import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
 import { extendedModeKeyboard, feedbackKeyboard, modeKeyboard, modeLabel, responseMeta, shortModelLabel, splitText } from "../src/telegram.js";
 
 class KV {
   constructor() { this.values = new Map(); }
   async get(key) { return this.values.get(key) || null; }
   async put(key, value) { this.values.set(key, value); }
+}
+
+class GuardD1 {
+  constructor() {
+    this.updates = new Set();
+    this.counters = new Map();
+  }
+
+  prepare(sql) {
+    return {
+      bind: (...params) => ({
+        run: async () => {
+          if (!sql.includes("processed_updates")) return { meta: { changes: 0 } };
+          const id = String(params[0]);
+          if (this.updates.has(id)) return { meta: { changes: 0 } };
+          this.updates.add(id);
+          return { meta: { changes: 1 } };
+        },
+        first: async () => {
+          if (!sql.includes("runtime_counters")) return null;
+          const [scope, id, bucket, units, _expiresAt, limit] = params;
+          const key = `${scope}:${id}:${bucket}`;
+          const next = Number(this.counters.get(key) || 0) + Number(units);
+          if (next > Number(limit)) return null;
+          this.counters.set(key, next);
+          return { value: next };
+        }
+      })
+    };
+  }
 }
 
 function baseEnv() {
@@ -23,6 +53,17 @@ function baseEnv() {
 test("rejects a webhook request without the secret header", async () => {
   const response = await worker.fetch(new Request("https://worker.test/", { method: "POST", body: "{}" }), baseEnv());
   assert.equal(response.status, 401);
+});
+
+test("uses D1 atomic guards for dedupe and quotas when available", async () => {
+  const env = { ...baseEnv(), IVAI_DB: new GuardD1() };
+  assert.equal(await claimUpdate(1001, env), true);
+  assert.equal(await claimUpdate(1001, env), false);
+  assert.equal((await allowUsage({ scope: "text", id: 42, limit: 2 }, env)).allowed, true);
+  assert.equal((await allowUsage({ scope: "text", id: 42, limit: 2 }, env)).remaining, 0);
+  assert.equal((await allowUsage({ scope: "text", id: 42, limit: 2 }, env)).allowed, false);
+  assert.equal((await reserveWorkersAiBudget(9000, env)).allowed, true);
+  assert.equal((await reserveWorkersAiBudget(1, env)).allowed, false);
 });
 
 test("accepts an exact webhook secret and rejects length variants", () => {
@@ -194,6 +235,38 @@ test("uses one Workers AI call and edits a progress message into the final answe
     assert.equal(calls.filter((call) => /sendChatAction$/.test(call.url)).length, 1);
     assert.equal(calls.filter((call) => /sendMessage$/.test(call.url)).length, 1);
     assert.equal(calls.filter((call) => /editMessageText$/.test(call.url)).length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("delivers a long AI response in complete follow-up messages instead of truncating the progress edit", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    const method = String(url).split("/").at(-1);
+    const result = method === "sendMessage" ? { message_id: 300 + calls.length } : method === "editMessageText" ? { message_id: 300 } : true;
+    return new Response(JSON.stringify({ ok: true, result }), { status: 200 });
+  };
+  try {
+    const env = { ...baseEnv(), AI: { async run() { return { response: "L".repeat(4_300) }; } } };
+    const update = {
+      update_id: 903,
+      message: { message_id: 13, chat: { id: 42, type: "private" }, from: { id: 126679582, first_name: "Owner" }, text: "Give me a very long answer" }
+    };
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+      body: JSON.stringify(update)
+    }), env);
+    assert.equal(response.status, 200);
+    const edit = calls.find((call) => /editMessageText$/.test(call.url));
+    assert.match(edit.body.text, /full response is sent below/i);
+    const delivered = calls.filter((call) => /sendMessage$/.test(call.url) && !/thinking/.test(call.body.text));
+    assert.ok(delivered.length >= 2);
+    assert.ok(delivered.some((call) => !Object.hasOwn(call.body, "parse_mode")));
+    assert.ok(delivered.every((call) => call.body.text.length <= 4096));
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -10,7 +10,7 @@ This checklist is intentionally value-free. Use Cloudflare Worker Secrets for ev
 | KV binding | Binding name is `IVAI_KV`. |
 | D1 binding | Binding name is `IVAI_DB`; the database is `ivai_db`. |
 | Workers AI | Binding name is `AI`. |
-| D1 schema | Apply `db/0001_initial_schema.sql` before allowing the bot to receive user traffic. |
+| D1 schema | Apply `db/0001_initial_schema.sql` and then `db/0002_runtime_guards.sql` before allowing the bot to receive user traffic. |
 | Schedule | Add a conservative cron only after broadcast delivery is validated; the scheduled handler processes a small batch. |
 
 ## 2. Register Worker Secrets

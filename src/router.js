@@ -275,8 +275,20 @@ async function processText(message, env) {
       await saveGuestMemory(key, [...context, { role: "user", content: text }, { role: "assistant", content: result.text }], env);
     }
     const finalText = `${renderAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: result.mode, language })}`;
-    if (progress?.message_id) await editMessage(env, { chatId, messageId: progress.message_id, text: finalText });
-    else await sendMessage(env, { chatId, text: finalText, replyTo: message.message_id });
+    if (finalText.length <= APP.maxTelegramText) {
+      if (progress?.message_id) await editMessage(env, { chatId, messageId: progress.message_id, text: finalText });
+      else await sendMessage(env, { chatId, text: finalText, replyTo: message.message_id });
+      return;
+    }
+    if (progress?.message_id) {
+      await editMessage(env, {
+        chatId,
+        messageId: progress.message_id,
+        text: language === "fa" ? "<i>پاسخ طولانی است و در پیام‌های زیر ارسال شد.</i>" : "<i>The full response is sent below.</i>"
+      });
+    }
+    await sendMessage(env, { chatId, text: result.text, replyTo: message.message_id, parseMode: null });
+    await sendMessage(env, { chatId, text: responseMeta({ model: result.model, mode: result.mode, language }) });
   } catch (error) {
     const code = safeError(error);
     const failureText = responseText(language, code === "RATE_LIMIT" ? "busy" : "temporary");

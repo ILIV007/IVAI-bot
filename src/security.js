@@ -3,8 +3,38 @@ import { APP, ROLE } from "./config.js";
 function constantTimeEqual(left, right) {
   if (typeof left !== "string" || typeof right !== "string" || left.length !== right.length) return false;
   let mismatch = 0;
-  for (let i = 0; i < left.length; i += 1) mismatch |= left.charCodeAt(i) ^ right.charCodeAt(i);
+  for (let index = 0; index < left.length; index += 1) mismatch |= left.charCodeAt(index) ^ right.charCodeAt(index);
   return mismatch === 0;
+}
+
+function expiryIso(seconds) {
+  return new Date(Date.now() + seconds * 1000).toISOString();
+}
+
+function logRuntimeGuardFallback(operation, error) {
+  console.warn(JSON.stringify({ event: "runtime_guard_d1_fallback", operation, error: String(error?.message || "unknown") }));
+}
+
+async function incrementRuntimeCounter({ scope, id, bucket, units, limit, ttlSeconds }, env) {
+  if (units > limit) return null;
+  if (!env.IVAI_DB) return undefined;
+  try {
+    const row = await env.IVAI_DB
+      .prepare(`INSERT INTO runtime_counters (scope, subject_id, bucket, value, expires_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(scope, subject_id, bucket) DO UPDATE SET
+          value = runtime_counters.value + excluded.value,
+          expires_at = excluded.expires_at,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE runtime_counters.value + excluded.value <= ?
+        RETURNING value`)
+      .bind(scope, String(id), String(bucket), units, expiryIso(ttlSeconds), limit)
+      .first();
+    return row ? Number(row.value) : null;
+  } catch (error) {
+    logRuntimeGuardFallback("counter", error);
+    return undefined;
+  }
 }
 
 export function hasValidWebhookSecret(request, env) {
@@ -42,7 +72,19 @@ export function canBroadcast(role) {
 }
 
 export async function claimUpdate(updateId, env) {
-  if (!env.IVAI_KV || !updateId) return true;
+  if (!updateId) return true;
+  if (env.IVAI_DB) {
+    try {
+      const result = await env.IVAI_DB
+        .prepare("INSERT OR IGNORE INTO processed_updates (telegram_update_id, expires_at) VALUES (?, ?)")
+        .bind(String(updateId), expiryIso(APP.updateDedupeTtlSeconds))
+        .run();
+      return Number(result.meta?.changes || 0) > 0;
+    } catch (error) {
+      logRuntimeGuardFallback("dedupe", error);
+    }
+  }
+  if (!env.IVAI_KV) return true;
   const key = `dedupe:update:${updateId}`;
   const existing = await env.IVAI_KV.get(key);
   if (existing) return false;
@@ -51,8 +93,11 @@ export async function claimUpdate(updateId, env) {
 }
 
 export async function allowUsage({ scope, id, limit, windowSeconds = 3600 }, env) {
-  if (!env.IVAI_KV || !id) return { allowed: true, remaining: limit };
+  if (!id) return { allowed: true, remaining: limit };
   const bucket = Math.floor(Date.now() / (windowSeconds * 1000));
+  const next = await incrementRuntimeCounter({ scope: `rate:${scope}`, id, bucket, units: 1, limit, ttlSeconds: windowSeconds + 60 }, env);
+  if (next !== undefined) return next === null ? { allowed: false, remaining: 0 } : { allowed: true, remaining: Math.max(0, limit - next) };
+  if (!env.IVAI_KV) return { allowed: true, remaining: limit };
   const key = `rate:${scope}:${id}:${bucket}`;
   const current = Number(await env.IVAI_KV.get(key) || 0);
   if (current >= limit) return { allowed: false, remaining: 0 };
@@ -61,13 +106,36 @@ export async function allowUsage({ scope, id, limit, windowSeconds = 3600 }, env
 }
 
 export async function reserveWorkersAiBudget(units, env) {
-  if (!env.IVAI_KV) return { allowed: true, remaining: APP.systemDailyWorkersAiBudget };
   const date = new Date().toISOString().slice(0, 10);
+  const next = await incrementRuntimeCounter({
+    scope: "quota:workers-ai",
+    id: "system",
+    bucket: date,
+    units,
+    limit: APP.systemDailyWorkersAiBudget,
+    ttlSeconds: 2 * 24 * 60 * 60
+  }, env);
+  if (next !== undefined) return next === null
+    ? { allowed: false, remaining: 0 }
+    : { allowed: true, remaining: Math.max(0, APP.systemDailyWorkersAiBudget - next) };
+  if (!env.IVAI_KV) return { allowed: true, remaining: APP.systemDailyWorkersAiBudget };
   const key = `quota:workers-ai:${date}`;
   const current = Number(await env.IVAI_KV.get(key) || 0);
   if (current + units > APP.systemDailyWorkersAiBudget) return { allowed: false, remaining: Math.max(0, APP.systemDailyWorkersAiBudget - current) };
   await env.IVAI_KV.put(key, String(current + units), { expirationTtl: 2 * 24 * 60 * 60 });
   return { allowed: true, remaining: APP.systemDailyWorkersAiBudget - current - units };
+}
+
+export async function cleanupRuntimeGuards(env) {
+  if (!env.IVAI_DB) return;
+  try {
+    await Promise.all([
+      env.IVAI_DB.prepare("DELETE FROM processed_updates WHERE expires_at < CURRENT_TIMESTAMP").run(),
+      env.IVAI_DB.prepare("DELETE FROM runtime_counters WHERE expires_at < CURRENT_TIMESTAMP").run()
+    ]);
+  } catch (error) {
+    console.warn(JSON.stringify({ event: "runtime_guard_cleanup_failed", error: String(error?.message || "unknown") }));
+  }
 }
 
 export function safeError(error) {

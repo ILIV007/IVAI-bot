@@ -87,14 +87,14 @@ export async function sendTyping(env, chatId) {
   return telegram(env, "sendChatAction", { chat_id: chatId, action: "typing" });
 }
 
-export async function sendMessage(env, { chatId, text, replyTo, keyboard, disablePreview = true }) {
+export async function sendMessage(env, { chatId, text, replyTo, keyboard, disablePreview = true, parseMode = "HTML" }) {
   const parts = splitText(text, APP.maxTelegramText);
   let finalMessage;
   for (let index = 0; index < parts.length; index += 1) {
     finalMessage = await telegram(env, "sendMessage", {
       chat_id: chatId,
       text: parts[index],
-      parse_mode: "HTML",
+      parse_mode: parseMode || undefined,
       disable_web_page_preview: disablePreview,
       reply_parameters: index === 0 && replyTo ? { message_id: replyTo } : undefined,
       reply_markup: index === parts.length - 1 ? keyboard : undefined

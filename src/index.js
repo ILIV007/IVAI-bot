@@ -1,4 +1,4 @@
-import { hasValidWebhookSecret, claimUpdate } from "./security.js";
+import { cleanupRuntimeGuards, hasValidWebhookSecret, claimUpdate } from "./security.js";
 import { handleUpdate } from "./router.js";
 import { processBroadcastBatch, seedBroadcastDeliveries } from "./broadcast.js";
 import { handleAdminRequest } from "./admin.js";
@@ -38,6 +38,7 @@ export default {
 
   async scheduled(_controller, env, ctx) {
     const job = (async () => {
+      await cleanupRuntimeGuards(env);
       const campaigns = await env.IVAI_DB
         ?.prepare("SELECT id FROM broadcast_campaigns WHERE status IN ('confirmed','queued','sending') ORDER BY updated_at ASC LIMIT 1")
         .all();

@@ -41,7 +41,8 @@ src/
 ├── admin-page.js     # Responsive English-first Mini App UI
 └── telegram.js       # Telegram API, keyboards, safe rendering
 
-db/0001_initial_schema.sql  # D1 schema
+db/0001_initial_schema.sql  # D1 base schema
+db/0002_runtime_guards.sql  # Atomic dedupe and quota guards
 test/foundation.test.js      # Node test suite
 wrangler.jsonc               # Binding-only Worker configuration
 ```
@@ -80,7 +81,7 @@ npm test
 
 ## Deployment sequence
 
-1. Apply `db/0001_initial_schema.sql` to the empty D1 production database.
+1. Apply `db/0001_initial_schema.sql` and then `db/0002_runtime_guards.sql` to the production D1 database.
 2. Attach `IVAI_KV`, `IVAI_DB`, and `AI` bindings to `ivai-bot`.
 3. Register actual values as Worker Secrets.
 4. Deploy the Worker.

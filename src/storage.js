@@ -119,16 +119,17 @@ export async function getAdminOperationalStats(env) {
     workersAiBudgetRemaining: null
   };
   if (!env.IVAI_DB) return fallback;
-  const [totalUsers, activeUsers7d, activeUsers30d, activeChats30d, feedback7d, pendingBroadcasts] = await Promise.all([
+  const date = new Date().toISOString().slice(0, 10);
+  const [totalUsers, activeUsers7d, activeUsers30d, activeChats30d, feedback7d, pendingBroadcasts, workersAiCounter] = await Promise.all([
     env.IVAI_DB.prepare("SELECT COUNT(*) AS count FROM users").first(),
     env.IVAI_DB.prepare("SELECT COUNT(*) AS count FROM users WHERE last_seen_at >= datetime('now', '-7 days')").first(),
     env.IVAI_DB.prepare("SELECT COUNT(*) AS count FROM users WHERE last_seen_at >= datetime('now', '-30 days')").first(),
     env.IVAI_DB.prepare("SELECT COUNT(*) AS count FROM chats WHERE last_seen_at >= datetime('now', '-30 days')").first(),
     env.IVAI_DB.prepare("SELECT COUNT(*) AS count FROM feedback WHERE created_at >= datetime('now', '-7 days')").first(),
-    env.IVAI_DB.prepare("SELECT COUNT(*) AS count FROM broadcast_campaigns WHERE status IN ('draft','confirmed','queued','sending')").first()
+    env.IVAI_DB.prepare("SELECT COUNT(*) AS count FROM broadcast_campaigns WHERE status IN ('draft','confirmed','queued','sending')").first(),
+    env.IVAI_DB.prepare("SELECT value FROM runtime_counters WHERE scope='quota:workers-ai' AND subject_id='system' AND bucket=? LIMIT 1").bind(date).first()
   ]);
-  const date = new Date().toISOString().slice(0, 10);
-  const workersAiUsed = Number(await env.IVAI_KV?.get(`quota:workers-ai:${date}`) || 0);
+  const workersAiUsed = Number(workersAiCounter?.value || 0);
   return {
     totalUsers: Number(totalUsers?.count || 0),
     activeUsers7d: Number(activeUsers7d?.count || 0),

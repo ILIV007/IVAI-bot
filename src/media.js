@@ -1,16 +1,27 @@
-import { APP, FREE_MODEL_POLICY } from "./config.js";
+import { FREE_MODEL_POLICY } from "./config.js";
 import { reserveWorkersAiBudget } from "./security.js";
 
 const TELEGRAM_FILE_BASE = "https://api.telegram.org/file";
 const MAX_MEDIA_BYTES = 8 * 1024 * 1024;
+const NETWORK_TIMEOUT_MS = 15_000;
+
+async function fetchWithTimeout(url, init = {}, timeoutMs = NETWORK_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function telegramApi(env, method, body) {
-  const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
+  const response = await fetchWithTimeout(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body)
   });
-  const payload = await response.json();
+  const payload = await response.json().catch(() => ({}));
   if (!response.ok || !payload.ok) throw new Error(`Telegram ${method} failed`);
   return payload.result;
 }
@@ -18,8 +29,9 @@ async function telegramApi(env, method, body) {
 export async function downloadTelegramFile(fileId, env) {
   if (!env.TELEGRAM_BOT_TOKEN) throw new Error("Telegram token is not configured");
   const metadata = await telegramApi(env, "getFile", { file_id: fileId });
+  if (!metadata?.file_path) throw new Error("Telegram file metadata is incomplete");
   if (Number(metadata.file_size || 0) > MAX_MEDIA_BYTES) throw new Error("Media is too large for the free-tier policy");
-  const response = await fetch(`${TELEGRAM_FILE_BASE}/bot${env.TELEGRAM_BOT_TOKEN}/${metadata.file_path}`);
+  const response = await fetchWithTimeout(`${TELEGRAM_FILE_BASE}/bot${env.TELEGRAM_BOT_TOKEN}/${metadata.file_path}`);
   if (!response.ok) throw new Error("Telegram file download failed");
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (bytes.byteLength > MAX_MEDIA_BYTES) throw new Error("Media is too large for the free-tier policy");
@@ -28,9 +40,9 @@ export async function downloadTelegramFile(fileId, env) {
 
 export async function transcribeVoice({ fileId, languageHint }, env) {
   if (!env.AI?.run) throw new Error("Workers AI is not configured");
+  const media = await downloadTelegramFile(fileId, env);
   const budget = await reserveWorkersAiBudget(3, env);
   if (!budget.allowed) throw new Error("Workers AI free quota guard blocked voice transcription");
-  const media = await downloadTelegramFile(fileId, env);
   const model = FREE_MODEL_POLICY.workersAi.speech[0];
   const result = await env.AI.run(model, {
     audio: [...media.bytes],
@@ -44,9 +56,9 @@ export async function transcribeVoice({ fileId, languageHint }, env) {
 
 export async function analyzePhoto({ fileId, caption = "", language = "en" }, env) {
   if (!env.AI?.run) throw new Error("Workers AI is not configured");
+  const media = await downloadTelegramFile(fileId, env);
   const budget = await reserveWorkersAiBudget(5, env);
   if (!budget.allowed) throw new Error("Workers AI free quota guard blocked image analysis");
-  const media = await downloadTelegramFile(fileId, env);
   const model = FREE_MODEL_POLICY.workersAi.vision[0];
   const prompt = caption || (language === "fa" ? "این تصویر را دقیق و کوتاه توضیح بده." : "Describe this image accurately and concisely.");
   const dataUrl = `data:${media.mimeType};base64,${bytesToBase64(media.bytes)}`;
