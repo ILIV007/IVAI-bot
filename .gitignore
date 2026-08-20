@@ -1,0 +1,9 @@
+node_modules/
+.dev.vars
+.wrangler/
+.env
+.env.*
+!.dev.vars.example
+coverage/
+.deploy/
+.tmp-*.json

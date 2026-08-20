@@ -1,0 +1,28 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ivai-bot",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-19",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 0.1
+  },
+  "kv_namespaces": [
+    {
+      "binding": "IVAI_KV",
+      "id": "c2fdb3cec4344f138a41dec5049f47c4"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "IVAI_DB",
+      "database_name": "ivai_db",
+      "database_id": "4c2d61e8-2bbc-4586-8330-89b092397606"
+    }
+  ],
+  "ai": {
+    "binding": "AI"
+  }
+}
