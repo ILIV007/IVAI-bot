@@ -16,7 +16,7 @@
 
 | Area | Included in v3.3 foundation |
 |---|---|
-| Core commands | `/start`, `/menu`, `/help`, `/auto`, `/fast`, `/deep`, `/guard`, `/lang`, `/debug`, `/reset` |
+| Core commands | `/start`, `/menu`, `/help`, `/auto`, `/fast`, `/deep`, `/guard`, `/lang`, `/notify on|off`, `/debug`, `/reset` |
 | Secretary | `/task title`, `/task in 30m | title`, `/task <ISO-8601-with-offset> | title`, `/tasks`, `/done <id>`, `/cancel <id>`; reminders are delivered in a small free cron batch |
 | Model controls | `/models`, `/refreshmodels`, `/pick <number>`, `/model off` with a unified free-only picker across configured providers |
 | Memory controls | `/memory on`, `/memory off`, `/memory show`, `/memory clear` |
@@ -25,6 +25,8 @@
 | Multimodal | Voice transcription and image understanding adapters through Workers AI, guarded by file and quota limits |
 | Admin | Owner/admin roles, Telegram-native admin controls, reviewable broadcast drafts, audit logging, responsive `/admin` Mini App shell, and server-side `initData` validation |
 | Context routing | Thread/topic, direct-message topic, and business-connection context are preserved for typing, draft, text and media replies |
+| Re-engagement | A consent-controlled, at-most-once-per-15-days check-in for inactive users; five sequential deliveries per scheduled run, no AI call and `/notify on|off` control |
+| Languages | English-first, Persian-second, plus Arabic, Spanish, Turkish, Russian, Portuguese (Brazil), Indonesian, Hindi, French and German via `/lang` |
 | Security | Telegram webhook secret validation, update deduplication, no Secret in source control, user-level rate limits, and daily Workers AI budget guard |
 
 ## Project layout
@@ -40,6 +42,7 @@ src/
 ├── storage.js        # D1/KV persistence
 ├── broadcast.js      # Draft/confirm/queue/batch delivery flow
 ├── secretary.js      # Task reminder claim and delivery flow
+├── reengagement.js   # Consent-controlled inactive-user check-ins
 ├── admin.js          # Validated Mini App admin API
 ├── admin-page.js     # Responsive English-first Mini App UI
 └── telegram.js       # Telegram API, rich drafts, keyboards, context-aware safe rendering
@@ -47,6 +50,7 @@ src/
 db/0001_initial_schema.sql  # D1 base schema
 db/0002_runtime_guards.sql  # Atomic dedupe and quota guards
 db/0003_secretary_reminders.sql # Task reminder delivery state and indexes
+db/0004_reengagement.sql # Consent and delivery state for inactivity check-ins
 test/foundation.test.js      # Node test suite
 wrangler.jsonc               # Binding-only Worker configuration
 ```
@@ -85,13 +89,13 @@ npm test
 
 ## Deployment sequence
 
-1. Apply `db/0001_initial_schema.sql`, `db/0002_runtime_guards.sql`, and then `db/0003_secretary_reminders.sql` to the production D1 database.
+1. Apply `db/0001_initial_schema.sql`, `db/0002_runtime_guards.sql`, `db/0003_secretary_reminders.sql`, and then `db/0004_reengagement.sql` to the production D1 database.
 2. Attach `IVAI_KV`, `IVAI_DB`, and `AI` bindings to `ivai-bot`.
 3. Register actual values as Worker Secrets.
 4. Deploy the Worker.
 5. Set the Telegram webhook with a random `secret_token` that matches `TELEGRAM_WEBHOOK_SECRET`; subscribe only to needed update types.
 6. Enable Inline Mode in BotFather and point the Mini App button at `/admin` only after deployment.
-7. Validate `/start`, `/help`, model picker, private Rich Draft/fallback, text, inline query, Guest reply, reaction feedback, Business/Thread context, role checks, broadcast preview, and `/task in 30m | reminder test` on a staging chat before production use. Cron reminders are batch-delivered within roughly ten minutes of their due time.
+7. Validate `/start`, `/help`, language picker, model picker, private Rich Draft/fallback, text, inline query, Guest reply, reaction feedback, Business/Thread context, role checks, broadcast preview, `/task in 30m | reminder test`, and `/notify off` on a staging chat before production use. Cron reminders and inactive-user check-ins are batch-delivered within roughly ten minutes of eligibility.
 8. After the code is live, refresh the Telegram webhook with `guest_message` and `message_reaction` in `allowed_updates`; enable Guest Mode and Inline Mode in BotFather. See `docs/TELEGRAM_FEATURE_MATRIX_FA.md`.
 
 > The Worker must remain on the free-only policy. If a provider changes access terms or a model is no longer eligible, remove it from the allowlist rather than silently moving to a paid model.

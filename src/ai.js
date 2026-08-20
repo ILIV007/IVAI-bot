@@ -1,4 +1,4 @@
-import { APP, FREE_MODEL_POLICY, MODES, modeOutputLimit, getBrand } from "./config.js";
+import { APP, FREE_MODEL_POLICY, getBrand, getLanguageOption, MODES, modeOutputLimit } from "./config.js";
 import { reserveWorkersAiBudget } from "./security.js";
 
 function detectMode(text, selectedMode) {
@@ -11,7 +11,8 @@ function detectMode(text, selectedMode) {
 
 function systemInstruction(mode, language) {
   const brand = getBrand();
-  const languageInstruction = language === "fa" ? "Respond in Persian unless the user explicitly requests another language." : "Respond in the user's language.";
+  const selectedLanguage = getLanguageOption(language);
+  const languageInstruction = `Respond in ${selectedLanguage.label} unless the user explicitly requests another language. Keep UI-facing labels concise and natural for ${selectedLanguage.native}.`;
   const modeInstruction = {
     [MODES.FAST]: "Give a concise and accurate answer. Do not add unnecessary sections.",
     [MODES.DEEP]: "Give a structured, carefully reasoned answer, but avoid hidden chain-of-thought. State concise reasoning and conclusions.",

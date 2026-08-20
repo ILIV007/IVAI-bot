@@ -1,4 +1,4 @@
-import { APP, MODES, USER_FACING_MODES } from "./config.js";
+import { APP, MODES, SUPPORTED_LANGUAGE_CODES, USER_FACING_MODES } from "./config.js";
 import { generateReply } from "./ai.js";
 import { getFreeModelCatalog, refreshFreeModelCatalog, renderModelList, selectCatalogModel } from "./catalog.js";
 import { analyzePhoto, transcribeVoice } from "./media.js";
@@ -13,11 +13,13 @@ import {
   getAdminOperationalStats,
   getUserDebugStats,
   getUserSettings,
+  getReengagementPreference,
   listSecretaryTasks,
   markBroadcastConfirmed,
   recordFeedback,
   saveGuestMemory,
   setMemoryEnabled,
+  setReengagementPreference,
   setSelectedModel,
   setUserLanguage,
   setUserMode,
@@ -25,7 +27,7 @@ import {
   upsertUser,
   writeAdminAudit
 } from "./storage.js";
-import { adminKeyboard, answerCallback, editMessage, escapeHtml, modelPickerKeyboard, modeKeyboard, modeLabel, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendTyping, settingsKeyboard, startThinkingAnimation, telegram, thinkingText, welcomeText } from "./telegram.js";
+import { adminKeyboard, answerCallback, editMessage, escapeHtml, languageKeyboard, languageMenuText, modelPickerKeyboard, modeKeyboard, modeLabel, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendTyping, settingsKeyboard, startThinkingAnimation, telegram, thinkingText, welcomeText } from "./telegram.js";
 
 const COMMAND_MODE = Object.freeze({
   "/auto": MODES.AUTO,
@@ -41,7 +43,14 @@ const COMMAND_MODE = Object.freeze({
 });
 
 function languageFromMessage(message) {
-  return /[\u0600-\u06ff]/.test(message?.text || message?.caption || "") ? "fa" : "en";
+  const text = String(message?.text || message?.caption || "");
+  if (/[\u0600-\u06ff]/.test(text)) return /[\u0600-\u06ff]/.test(text) && /[\u0621-\u064a]/.test(text) && !/[\u067e\u0686\u0698\u06af]/.test(text) ? "ar" : "fa";
+  if (/[\u0400-\u04ff]/.test(text)) return "ru";
+  if (/[\u0900-\u097f]/.test(text)) return "hi";
+  const code = String(message?.from?.language_code || "").replace("_", "-");
+  const exact = [...SUPPORTED_LANGUAGE_CODES].find((value) => value.toLowerCase() === code.toLowerCase());
+  const base = code.split("-")[0].toLowerCase();
+  return exact || (SUPPORTED_LANGUAGE_CODES.has(base) ? base : "en");
 }
 
 function userMessage(update) {
@@ -108,9 +117,9 @@ function responseText(language, key) {
 
 function helpText(language) {
   if (language === "fa") {
-    return `<b>راهنمای IVAI</b>\n\n<b>شروع سریع</b>\nیک پیام بفرستید؛ حالت <code>/auto</code> بهترین مسیر رایگان را انتخاب می‌کند.\n\n<b>سه حالت اصلی</b>\n<code>/auto</code> — انتخاب خودکار\n<code>/fast</code> — پاسخ کوتاه و سریع\n<code>/deep</code> — پاسخ ساختاریافته و دقیق\n\n<b>انتخاب مدل رایگان</b>\n<code>/models</code> یا دکمهٔ «انتخاب مدل»؛ مدل انتخابی اولویت دارد و در خطا fallback رایگان فعال می‌ماند.\n<code>/model off</code> — بازگشت به Auto\n\n<b>ابزارها</b>\n<code>/guard</code> — بررسی ایمنی یک‌مرحله‌ای\n<code>/task عنوان</code> · <code>/task in 30m | عنوان</code> · <code>/tasks</code>\n<code>/memory on|off|show|clear</code>\n<code>/lang</code> · <code>/debug</code> · <code>/reset</code>\n\n<b>نکته</b>\nهمهٔ مسیرهای مدل فقط free-only هستند.`;
+    return `<b>راهنمای IVAI</b>\n\n<b>شروع سریع</b>\nیک پیام بفرستید؛ حالت <code>/auto</code> بهترین مسیر رایگان را انتخاب می‌کند.\n\n<b>سه حالت اصلی</b>\n<code>/auto</code> — انتخاب خودکار\n<code>/fast</code> — پاسخ کوتاه و سریع\n<code>/deep</code> — پاسخ ساختاریافته و دقیق\n\n<b>انتخاب مدل رایگان</b>\n<code>/models</code> یا دکمهٔ «انتخاب مدل»؛ مدل انتخابی اولویت دارد و در خطا fallback رایگان فعال می‌ماند.\n<code>/model off</code> — بازگشت به Auto\n\n<b>ابزارها</b>\n<code>/guard</code> — بررسی ایمنی یک‌مرحله‌ای\n<code>/task عنوان</code> · <code>/task in 30m | عنوان</code> · <code>/tasks</code>\n<code>/memory on|off|show|clear</code>\n<code>/lang</code> · <code>/notify on|off</code> · <code>/debug</code> · <code>/reset</code>\n\n<b>نکته</b>\nهمهٔ مسیرهای مدل فقط free-only هستند.`;
   }
-  return `<b>IVAI Help</b>\n\n<b>Quick start</b>\nSend a message. <code>/auto</code> chooses the best available free route.\n\n<b>Three main modes</b>\n<code>/auto</code> — automatic routing\n<code>/fast</code> — concise, quick answers\n<code>/deep</code> — structured, careful answers\n\n<b>Choose a free AI model</b>\nUse <code>/models</code> or the “Pick model” button. A chosen model is preferred, while free fallback remains available on failure.\n<code>/model off</code> — return to Auto\n\n<b>Tools</b>\n<code>/guard</code> — one-call safety check\n<code>/task title</code> · <code>/task in 30m | title</code> · <code>/tasks</code>\n<code>/memory on|off|show|clear</code>\n<code>/lang</code> · <code>/debug</code> · <code>/reset</code>\n\n<b>Policy</b>\nEvery model route is free-only.`;
+  return `<b>IVAI Help</b>\n\n<b>Quick start</b>\nSend a message. <code>/auto</code> chooses the best available free route.\n\n<b>Three main modes</b>\n<code>/auto</code> — automatic routing\n<code>/fast</code> — concise, quick answers\n<code>/deep</code> — structured, careful answers\n\n<b>Choose a free AI model</b>\nUse <code>/models</code> or the “Pick model” button. A chosen model is preferred, while free fallback remains available on failure.\n<code>/model off</code> — return to Auto\n\n<b>Tools</b>\n<code>/guard</code> — one-call safety check\n<code>/task title</code> · <code>/task in 30m | title</code> · <code>/tasks</code>\n<code>/memory on|off|show|clear</code>\n<code>/lang</code> · <code>/notify on|off</code> · <code>/debug</code> · <code>/reset</code>\n\n<b>Policy</b>\nEvery model route is free-only.`;
 }
 
 function renderAiText(text) {
@@ -177,6 +186,20 @@ function secretaryTaskText(tasks, language) {
   }).join("\n\n")}`;
 }
 
+function reengagementText(language, enabled) {
+  if (language === "fa") return enabled ? "<b>🔔 یادآوری‌های IVAI روشن است</b>\n\nاگر ۱۵ روز غیرفعال باشید، حداکثر یک پیام دوستانه دریافت می‌کنید." : "<b>🔕 یادآوری‌های IVAI متوقف است</b>\n\nهر زمان خواستید با <code>/notify on</code> دوباره فعالش کنید.";
+  if (language === "ar") return enabled ? "<b>🔔 تذكيرات IVAI مفعّلة</b>\n\nقد تتلقى رسالة ودية واحدة فقط بعد 15 يومًا من عدم النشاط." : "<b>🔕 تم إيقاف تذكيرات IVAI</b>\n\nيمكنك تفعيلها لاحقًا عبر <code>/notify on</code>.";
+  return enabled ? "<b>🔔 IVAI reminders are on</b>\n\nAfter 15 inactive days, you may receive at most one friendly check-in." : "<b>🔕 IVAI reminders are paused</b>\n\nYou can turn them back on anytime with <code>/notify on</code>.";
+}
+
+function reengagementKeyboard(language, enabled) {
+  return { inline_keyboard: [[{
+    text: enabled ? (language === "fa" ? "توقف یادآوری‌ها" : "Pause reminders") : (language === "fa" ? "فعال‌کردن یادآوری‌ها" : "Enable reminders"),
+    callback_data: enabled ? "notify:off" : "notify:on",
+    style: enabled ? "danger" : "success"
+  }]] };
+}
+
 function secretaryTaskKeyboard(tasks, language) {
   const rows = tasks.slice(0, 8).map((task) => [
     { text: `${language === "fa" ? "✓ انجام" : "✓ Done"}: ${String(task.title).slice(0, 20)}`, callback_data: `task:done:${task.id}`, style: "success" },
@@ -227,10 +250,17 @@ async function handleCommand(message, env, language) {
   if (command === "/lang") {
     await sendMessage(env, {
       chatId,
-      text: "<b>Language / زبان</b>",
-      keyboard: { inline_keyboard: [[{ text: "English", callback_data: "lang:en", style: "primary" }, { text: "فارسی", callback_data: "lang:fa", style: "success" }], [{ text: "← Menu", callback_data: "menu:main" }]] },
+      text: languageMenuText(language),
+      keyboard: languageKeyboard(language),
       replyTo: message.message_id
     });
+    return true;
+  }
+  if (command === "/notify") {
+    const action = String(args[0] || "show").toLowerCase();
+    if (action === "on" || action === "off") await setReengagementPreference(userId, action === "on", env);
+    const preference = await getReengagementPreference(userId, env);
+    await sendMessage(env, { chatId, text: reengagementText(language, preference.enabled), keyboard: reengagementKeyboard(language, preference.enabled), replyTo: message.message_id });
     return true;
   }
   if (command === "/models" || (command === "/model" && !argumentText)) {
@@ -556,6 +586,12 @@ async function processCallback(query, env) {
   const messageId = query.message?.message_id;
   if (!chatId || !messageId) return;
 
+  if (data === "notify:on" || data === "notify:off") {
+    const enabled = data === "notify:on";
+    await setReengagementPreference(userId, enabled, env);
+    await editMessage(env, { chatId, messageId, text: reengagementText(language, enabled), keyboard: reengagementKeyboard(language, enabled) });
+    return;
+  }
   if (data.startsWith("task:")) {
     const [, action, taskId] = data.split(":");
     if (!["done", "cancel"].includes(action) || !taskId) return;
@@ -633,7 +669,7 @@ async function processCallback(query, env) {
     return;
   }
   if (data === "menu:language") {
-    await editMessage(env, { chatId, messageId, text: "<b>Language / زبان</b>", keyboard: { inline_keyboard: [[{ text: "English", callback_data: "lang:en", style: "primary" }, { text: "فارسی", callback_data: "lang:fa", style: "success" }], [{ text: "← Menu", callback_data: "menu:main" }]] } });
+    await editMessage(env, { chatId, messageId, text: languageMenuText(language), keyboard: languageKeyboard(language) });
     return;
   }
 
@@ -661,11 +697,16 @@ async function processCallback(query, env) {
     await sendMessage(env, { chatId, text: `${responseText(language, "saved")} <b>${escapeHtml(modeLabel(mode, language))}</b>` });
     return;
   }
-  if (data.startsWith("lang:")) {
-    const selected = data.slice(5);
-    if (!["en", "fa"].includes(selected)) return;
+  if (data.startsWith("lang:page:")) {
+    const page = Number(data.slice("lang:page:".length));
+    await editMessage(env, { chatId, messageId, text: languageMenuText(language), keyboard: languageKeyboard(language, Number.isFinite(page) ? page : 0) });
+    return;
+  }
+  if (data.startsWith("lang:set:") || data === "lang:en" || data === "lang:fa") {
+    const selected = data.startsWith("lang:set:") ? data.slice("lang:set:".length) : data.slice(5);
+    if (!SUPPORTED_LANGUAGE_CODES.has(selected)) return;
     await setUserLanguage(userId, selected, env);
-    await editMessage(env, { chatId, messageId, text: selected === "fa" ? "✓ زبان فارسی فعال شد." : "✓ English is now active.", keyboard: modeKeyboard(selected) });
+    await editMessage(env, { chatId, messageId, text: selected === "fa" ? "✓ زبان فارسی فعال شد." : selected === "ar" ? "✓ تم تفعيل العربية." : `✓ ${escapeHtml(selected)} is now active.`, keyboard: modeKeyboard(selected) });
     return;
   }
   if (data === "settings:open") {

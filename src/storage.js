@@ -245,3 +245,61 @@ export async function markSecretaryReminderFailed({ id, attempts, error }, env) 
   await env.IVAI_DB.prepare(`UPDATE tasks SET reminder_status=?, reminder_lease_until=NULL, reminder_last_error=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`)
     .bind(status, String(error || "Telegram delivery failed").slice(0, 500), id).run();
 }
+
+export async function getReengagementPreference(userId, env) {
+  if (!env.IVAI_DB || !userId) return { enabled: true };
+  const row = await env.IVAI_DB.prepare("SELECT enabled, last_sent_at AS lastSentAt FROM user_reengagement WHERE telegram_user_id=?").bind(String(userId)).first();
+  return row ? { enabled: Boolean(row.enabled), lastSentAt: row.lastSentAt || null } : { enabled: true, lastSentAt: null };
+}
+
+export async function setReengagementPreference(userId, enabled, env) {
+  if (!env.IVAI_DB || !userId) return false;
+  await env.IVAI_DB.prepare(`INSERT INTO user_reengagement (telegram_user_id, enabled, delivery_state, updated_at)
+    VALUES (?, ?, 'idle', CURRENT_TIMESTAMP)
+    ON CONFLICT(telegram_user_id) DO UPDATE SET enabled=excluded.enabled,
+      delivery_state=CASE WHEN excluded.enabled=1 THEN 'idle' ELSE user_reengagement.delivery_state END,
+      lease_until=NULL, updated_at=CURRENT_TIMESTAMP`).bind(String(userId), enabled ? 1 : 0).run();
+  return true;
+}
+
+export async function claimReengagementUsers(env, { limit = 5, now = new Date().toISOString(), inactiveDays = 15, resendDays = 15, leaseSeconds = 15 * 60 } = {}) {
+  if (!env.IVAI_DB) return [];
+  const inactiveBefore = new Date(Date.parse(now) - inactiveDays * 24 * 60 * 60 * 1000).toISOString();
+  const resendBefore = new Date(Date.parse(now) - resendDays * 24 * 60 * 60 * 1000).toISOString();
+  const retryBefore = new Date(Date.parse(now) - 24 * 60 * 60 * 1000).toISOString();
+  const candidates = await env.IVAI_DB.prepare(`SELECT u.telegram_user_id AS userId, u.language
+    FROM users u
+    LEFT JOIN user_reengagement r ON r.telegram_user_id=u.telegram_user_id
+    WHERE datetime(u.last_seen_at) <= datetime(?)
+      AND COALESCE(r.enabled, 1)=1
+      AND (r.last_sent_at IS NULL OR datetime(r.last_sent_at) <= datetime(?))
+      AND (r.delivery_state IS NULL OR r.delivery_state IN ('idle','sent') OR (r.delivery_state='failed' AND datetime(r.last_attempt_at) <= datetime(?)))
+      AND (r.lease_until IS NULL OR datetime(r.lease_until) <= datetime(?))
+    ORDER BY u.last_seen_at ASC LIMIT ?`).bind(inactiveBefore, resendBefore, retryBefore, now, limit).all();
+  const leaseUntil = new Date(Date.parse(now) + leaseSeconds * 1000).toISOString();
+  const claimed = [];
+  for (const candidate of candidates?.results || []) {
+    await env.IVAI_DB.prepare(`INSERT INTO user_reengagement (telegram_user_id, enabled, delivery_state, last_attempt_at, lease_until, updated_at)
+      VALUES (?, 1, 'sending', ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(telegram_user_id) DO UPDATE SET delivery_state='sending', last_attempt_at=excluded.last_attempt_at,
+        lease_until=excluded.lease_until, updated_at=CURRENT_TIMESTAMP
+      WHERE user_reengagement.enabled=1 AND (user_reengagement.lease_until IS NULL OR datetime(user_reengagement.lease_until) <= datetime(?))
+        AND (user_reengagement.last_sent_at IS NULL OR datetime(user_reengagement.last_sent_at) <= datetime(?))
+        AND (user_reengagement.delivery_state IN ('idle','sent') OR (user_reengagement.delivery_state='failed' AND datetime(user_reengagement.last_attempt_at) <= datetime(?)))`)
+      .bind(String(candidate.userId), now, leaseUntil, now, resendBefore, retryBefore).run();
+    const claimedRow = await env.IVAI_DB.prepare("SELECT delivery_state AS state, lease_until AS leaseUntil FROM user_reengagement WHERE telegram_user_id=?").bind(String(candidate.userId)).first();
+    if (claimedRow?.state === "sending" && claimedRow.leaseUntil === leaseUntil) claimed.push(candidate);
+  }
+  return claimed;
+}
+
+export async function markReengagementSent(userId, env) {
+  if (!env.IVAI_DB || !userId) return;
+  await env.IVAI_DB.prepare("UPDATE user_reengagement SET delivery_state='sent', last_sent_at=CURRENT_TIMESTAMP, lease_until=NULL, last_error=NULL, updated_at=CURRENT_TIMESTAMP WHERE telegram_user_id=?").bind(String(userId)).run();
+}
+
+export async function markReengagementFailure({ userId, error, blocked = false }, env) {
+  if (!env.IVAI_DB || !userId) return;
+  await env.IVAI_DB.prepare("UPDATE user_reengagement SET delivery_state=?, lease_until=NULL, last_error=?, updated_at=CURRENT_TIMESTAMP WHERE telegram_user_id=?")
+    .bind(blocked ? "blocked" : "failed", String(error || "Telegram delivery failed").slice(0, 500), String(userId)).run();
+}

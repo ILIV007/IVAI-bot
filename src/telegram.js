@@ -1,4 +1,4 @@
-import { APP, MODES } from "./config.js";
+import { APP, getLanguageOption, LANGUAGE_OPTIONS, MODES } from "./config.js";
 
 const API = "https://api.telegram.org";
 
@@ -62,6 +62,33 @@ export function modelPickerKeyboard(models, { page = 0, selectedModel, language 
     button(language === "fa" ? "← منو" : "← Menu", "menu:main")
   ]);
   return { inline_keyboard: rows };
+}
+
+export function languageKeyboard(selectedCode = "en", page = 0, pageSize = 6) {
+  const maxPage = Math.max(0, Math.ceil(LANGUAGE_OPTIONS.length / pageSize) - 1);
+  const safePage = Math.max(0, Math.min(page, maxPage));
+  const start = safePage * pageSize;
+  const options = LANGUAGE_OPTIONS.slice(start, start + pageSize);
+  const rows = [];
+  for (let index = 0; index < options.length; index += 2) {
+    rows.push(options.slice(index, index + 2).map((option) => button(
+      `${option.code === selectedCode ? "✓ " : ""}${option.native}`,
+      `lang:set:${option.code}`,
+      option.code === selectedCode ? "success" : undefined
+    )));
+  }
+  const nav = [];
+  if (safePage > 0) nav.push(button("◀", `lang:page:${safePage - 1}`));
+  nav.push(button(`${safePage + 1}/${maxPage + 1}`, "lang:noop"));
+  if (safePage < maxPage) nav.push(button("▶", `lang:page:${safePage + 1}`));
+  rows.push(nav);
+  rows.push([button("← Menu", "menu:main")]);
+  return { inline_keyboard: rows };
+}
+
+export function languageMenuText(language = "en") {
+  const selected = getLanguageOption(language);
+  return language === "fa" ? `<b>🌐 زبان</b>\n\nزبان فعلی: <b>${escapeHtml(selected.native)}</b>` : `<b>🌐 Language</b>\n\nCurrent language: <b>${escapeHtml(selected.native)}</b>`;
 }
 
 export function settingsKeyboard(language = "en", memoryEnabled = false) {

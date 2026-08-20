@@ -4,6 +4,7 @@ import { processBroadcastBatch, seedBroadcastDeliveries } from "./broadcast.js";
 import { handleAdminRequest } from "./admin.js";
 import { renderAdminPage } from "./admin-page.js";
 import { processSecretaryReminderBatch } from "./secretary.js";
+import { processReengagementBatch } from "./reengagement.js";
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json; charset=UTF-8" } });
@@ -52,6 +53,7 @@ export default {
         await processBroadcastBatch(campaign.id, env);
       }
       await processSecretaryReminderBatch(env, { limit: 4 });
+      await processReengagementBatch(env, { limit: 5 });
     })();
     ctx.waitUntil(job);
   }

@@ -3,9 +3,10 @@ import test from "node:test";
 import worker from "../src/index.js";
 import { generateReply } from "../src/ai.js";
 import { processSecretaryReminderBatch } from "../src/secretary.js";
-import { APP, MODES, modeOutputLimit } from "../src/config.js";
+import { processReengagementBatch } from "../src/reengagement.js";
+import { APP, LANGUAGE_OPTIONS, MODES, modeOutputLimit } from "../src/config.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
-import { feedbackKeyboard, modeKeyboard, modeLabel, modelPickerKeyboard, responseMeta, shortModelLabel, splitText, thinkingText } from "../src/telegram.js";
+import { feedbackKeyboard, languageKeyboard, modeKeyboard, modeLabel, modelPickerKeyboard, responseMeta, shortModelLabel, splitText, thinkingText } from "../src/telegram.js";
 
 class KV {
   constructor() { this.values = new Map(); }
@@ -75,6 +76,41 @@ class ReminderD1 {
             return { meta: { changes: row ? 1 : 0 } };
           }
           return { meta: { changes: task ? 1 : 0 } };
+        }
+      })
+    };
+  }
+}
+
+class ReengagementD1 {
+  constructor() {
+    this.rows = [{ userId: "501", language: "es", state: "idle", leaseUntil: null }];
+  }
+
+  prepare(sql) {
+    return {
+      bind: (...params) => ({
+        all: async () => sql.includes("LEFT JOIN user_reengagement")
+          ? { results: this.rows.filter((row) => row.state === "idle").map((row) => ({ userId: row.userId, language: row.language })) }
+          : { results: [] },
+        run: async () => {
+          if (sql.includes("INSERT INTO user_reengagement")) {
+            const row = this.rows.find((entry) => entry.userId === String(params[0]));
+            if (!row || row.state !== "idle") return { meta: { changes: 0 } };
+            row.state = "sending"; row.leaseUntil = params[2];
+            return { meta: { changes: 1 } };
+          }
+          if (sql.includes("delivery_state='sent'")) {
+            const row = this.rows.find((entry) => entry.userId === String(params[0]));
+            if (row) { row.state = "sent"; row.leaseUntil = null; }
+            return { meta: { changes: row ? 1 : 0 } };
+          }
+          return { meta: { changes: 0 } };
+        },
+        first: async () => {
+          if (!sql.includes("SELECT delivery_state")) return null;
+          const row = this.rows.find((entry) => entry.userId === String(params[0]));
+          return row ? { state: row.state, leaseUntil: row.leaseUntil } : null;
         }
       })
     };
@@ -469,6 +505,36 @@ test("falls back to standard progress and final text if Rich Draft is unavailabl
     assert.equal(calls.filter((call) => /sendRichMessage$/.test(call.url)).length, 0);
     assert.equal(calls.filter((call) => /sendMessage$/.test(call.url)).length, 1);
     assert.equal(calls.filter((call) => /editMessageText$/.test(call.url)).length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("offers the selected practical language set through a paginated language picker", () => {
+  assert.ok(LANGUAGE_OPTIONS.some((language) => language.code === "ar"));
+  assert.ok(LANGUAGE_OPTIONS.some((language) => language.code === "pt-BR"));
+  assert.ok(LANGUAGE_OPTIONS.some((language) => language.code === "hi"));
+  const picker = languageKeyboard("es", 0).inline_keyboard.flat();
+  assert.ok(picker.some((button) => button.callback_data === "lang:set:es" && button.style === "success"));
+  assert.ok(picker.some((button) => button.callback_data === "lang:page:1"));
+});
+
+test("sends one localized re-engagement message after an atomic claim", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 771 } }), { status: 200 });
+  };
+  try {
+    const env = { ...baseEnv(), IVAI_DB: new ReengagementD1() };
+    const first = await processReengagementBatch(env, { now: "2026-08-20T12:00:00.000Z" });
+    const second = await processReengagementBatch(env, { now: "2026-08-20T12:10:00.000Z" });
+    assert.deepEqual(first, { claimed: 1, sent: 1, failed: 0, blocked: 0 });
+    assert.deepEqual(second, { claimed: 0, sent: 0, failed: 0, blocked: 0 });
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].body.text, /IVAI sigue aquí/);
+    assert.equal(calls[0].body.reply_markup.inline_keyboard[0][1].callback_data, "notify:off");
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -52,6 +52,26 @@ export const USER_FACING_MODES = new Set([
   MODES.THREAD
 ]);
 
+export const LANGUAGE_OPTIONS = Object.freeze([
+  { code: "en", label: "English", native: "English", rtl: false },
+  { code: "fa", label: "Persian", native: "فارسی", rtl: true },
+  { code: "ar", label: "Arabic", native: "العربية", rtl: true },
+  { code: "es", label: "Spanish", native: "Español", rtl: false },
+  { code: "tr", label: "Turkish", native: "Türkçe", rtl: false },
+  { code: "ru", label: "Russian", native: "Русский", rtl: false },
+  { code: "pt-BR", label: "Portuguese (Brazil)", native: "Português", rtl: false },
+  { code: "id", label: "Indonesian", native: "Bahasa Indonesia", rtl: false },
+  { code: "hi", label: "Hindi", native: "हिन्दी", rtl: false },
+  { code: "fr", label: "French", native: "Français", rtl: false },
+  { code: "de", label: "German", native: "Deutsch", rtl: false }
+]);
+
+export const SUPPORTED_LANGUAGE_CODES = new Set(LANGUAGE_OPTIONS.map((language) => language.code));
+
+export function getLanguageOption(code = "en") {
+  return LANGUAGE_OPTIONS.find((language) => language.code === code) || LANGUAGE_OPTIONS[0];
+}
+
 export const ROLE = Object.freeze({
   OWNER: "owner",
   ADMIN: "admin",
