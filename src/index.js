@@ -41,7 +41,8 @@ export default {
     }
     if (url.pathname === "/admin") {
       if (request.method === "GET") {
-        return new Response(renderAdminPage(), { status: 200, headers: { "content-type": "text/html; charset=UTF-8", "cache-control": "no-store" } });
+        const nonce = terminalNonce();
+        return new Response(renderAdminPage(nonce), { status: 200, headers: terminalHeaders(nonce) });
       }
       return json({ ok: false, error: "method_not_allowed" }, 405);
     }

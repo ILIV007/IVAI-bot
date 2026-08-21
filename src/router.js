@@ -174,9 +174,9 @@ function helpText(language) {
 }
 
 function newConversationText(language) {
-  if (language === "fa") return "<b>✓ گفتگوی جدید آماده است</b>\n\nSession این گفتگو پاک شد. زبان، مدل، حالت پاسخ و تنظیم حافظه بدون تغییر ماندند.";
-  if (language === "ar") return "<b>✓ المحادثة الجديدة جاهزة</b>\n\nتمت إعادة Session هذه المحادثة فقط. بقيت اللغة والنموذج ووضع الرد وإعداد الذاكرة دون تغيير.";
-  return "<b>✓ New chat ready</b>\n\nOnly this conversation Session was reset. Your language, model, response mode and memory setting are unchanged.";
+  if (language === "fa") return "<b>🪐 گفتگوی تازه آماده است!</b>\n\ncontext گفتگوی قبلی پاک شد؛ زبان، مدل، حالت پاسخ و تنظیم حافظه‌ات دقیقاً همان‌طور که بوده‌اند باقی مانده‌اند. از کجا شروع کنیم؟";
+  if (language === "ar") return "<b>🪐 محادثة جديدة جاهزة!</b>\n\nتمت إزالة سياق المحادثة السابقة، بينما بقيت اللغة والنموذج ووضع الرد وإعداد الذاكرة كما هي. من أين نبدأ؟";
+  return "<b>🪐 Fresh chat, ready to go!</b>\n\nYour previous chat context is cleared, while your language, model, response mode and memory setting stay exactly as you left them. What would you like to explore?";
 }
 
 function renderAiText(text) {

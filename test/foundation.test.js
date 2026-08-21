@@ -225,8 +225,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.20 release version", () => {
-  assert.equal(APP.version, "3.3.20");
+test("declares the official v3.3.21 release version", () => {
+  assert.equal(APP.version, "3.3.21");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -313,6 +313,7 @@ test("renders focused Start copy and a descriptive Menu with live settings and l
   assert.match(menu, /Memory:<\/b> <code>On<\/code>/);
   assert.match(menu, /Control guide/);
   assert.match(menu, /Code<\/b> for programming work/);
+  assert.match(menu, /<code>\/new<\/code> starts a fresh chat and clears only this conversation/);
   assert.doesNotMatch(menu, /Color guide/);
   const languages = languageKeyboard("en").inline_keyboard.flat().map((button) => button.text).join(" ");
   assert.match(languages, /🇬🇧 English/);
@@ -556,12 +557,16 @@ test("opens IVAI Terminal through a private-chat Web App button without invoking
   }
 });
 
-test("serves an English-first responsive admin page", async () => {
+test("serves an English-first responsive admin page with strict Mini App headers", async () => {
   const response = await worker.fetch(new Request("https://worker.test/admin"), baseEnv());
   const html = await response.text();
   assert.equal(response.status, 200);
   assert.match(html, /lang="en"/);
   assert.match(html, /Secure, free-tier operations/);
+  assert.match(html, /<script nonce="[a-f0-9]{32}"/);
+  assert.match(html, /<style nonce="[a-f0-9]{32}"/);
+  assert.match(response.headers.get("content-security-policy"), /connect-src 'self'/);
+  assert.equal(response.headers.get("cache-control"), "no-store");
 });
 
 test("rejects an admin API request without validated Telegram Mini App data", async () => {
@@ -1374,7 +1379,8 @@ test("preserves persistent preferences when /new resets only the conversation Se
     }), env);
     assert.equal(response.status, 200);
     const reply = calls.find((call) => /sendMessage$/.test(call.url));
-    assert.match(reply.body.text, /گفتگوی جدید آماده است/);
+    assert.match(reply.body.text, /گفتگوی تازه آماده است/);
+    assert.match(reply.body.text, /از کجا شروع کنیم؟/);
     assert.equal(await getConversationSession(scope, env), null);
     assert.deepEqual(await getUserSettings(user.id, env), {
       language: "fa",

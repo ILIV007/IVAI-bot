@@ -2,6 +2,22 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.21] - 2026-08-21
+
+### Changed
+
+- Preserved both official Telegram links in the README introduction: [@IVAI_Llm_bot](https://t.me/IVAI_Llm_bot) and [@ILIVIR3](https://t.me/ILIVIR3).
+- Added one concise `/new` explanation at the end of `/menu` in English, Persian and Arabic. The command’s confirmation is now more inviting while explicitly confirming that language, model, response mode and Memory settings remain unchanged.
+- Kept the linked `IVAI` word in response metadata exactly as before; Telegram client controls its inline-link decoration and the Bot API provides no styling control to remove underline without removing the link.
+
+### Security
+
+- Hardened the `/admin` Mini App with a fresh CSP nonce for its Telegram bridge script, style and inline bootstrap. It now receives the same strict no-store, same-origin connection and Telegram frame-ancestor protections as IVAI Terminal.
+
+### Tests
+
+- Added coverage for Admin CSP nonce and strict Mini App headers. The validation suite contains 65 passing tests.
+
 ## [3.3.20] - 2026-08-21
 
 ### Added

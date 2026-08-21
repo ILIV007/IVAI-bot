@@ -1,10 +1,11 @@
-# IVAI Bot v3.3.20 — Free-Tier, Secure Telegram AI Assistant
+# IVAI Bot v3.3.21 — Free-Tier, Secure Telegram AI Assistant
 
 [![Continuous Integration](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.20 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while hardening independent D1 settings persistence.
+> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.21 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while hardening independent D1 settings persistence.
 >
 > **Use IVAI on Telegram:** [@IVAI_Llm_bot](https://t.me/IVAI_Llm_bot)
+> **Channel on Telegram:** [@ILIVIR3](https://t.me/ILIVIR3)
 
 ## Product principles
 
@@ -132,7 +133,7 @@ npm test
 | [Production check notes (FA)](docs/PRODUCTION_CHECK_NOTES_2026-08-21.md) | Read-only production endpoint, Terminal recovery and API-surface verification for v3.3.10. |
 | [Repository automation sources](docs/REPOSITORY_AUTOMATION_SOURCES_2026-08-21.md) | Official sources behind pnpm CI and Dependabot hygiene. |
 | [Telegram rich formatting research](docs/TELEGRAM_RICH_FORMATTING_RESEARCH_2026-08-21.md) | Official rich-message, HTML and quote-formatting research behind v3.3.11. |
-| [Changelog](CHANGELOG.md) | Release-level changes through v3.3.20. |
+| [Changelog](CHANGELOG.md) | Release-level changes through v3.3.21. |
 | [Contributing](CONTRIBUTING.md) | Free-only, privacy, testing, and migration rules for contributors. |
 | [Security policy](SECURITY.md) | Private reporting process for vulnerabilities and exposed credentials. |
 
