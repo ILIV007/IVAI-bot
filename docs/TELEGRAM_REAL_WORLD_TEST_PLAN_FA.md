@@ -1,11 +1,11 @@
 # برنامهٔ تست واقعی Telegram و IVAI Terminal
 
-**نسخهٔ هدف:** v3.3.6  
+**نسخهٔ هدف:** v3.3.26
 **هدف:** تأیید ارسال پیام، احراز هویت Mini App، مسیرهای start/menu، رنگ و ترتیب inline controls، quota رایگان و رفتار خطا در محیط واقعی Telegram.
 
 ## آزمون‌های خودکار انجام‌شده
 
-در هر اجرای `npm run validate`، کنترل syntax و suite مبتنی بر Node هم‌زمان اجرا می‌شود. در نسخهٔ v3.3.6 تعداد **38 تست** شامل webhook، D1/KV، provider fallback، Terminal API، حریم خصوصی memory، start/menu، مدل picker، Secretary، re-engagement و Telegram context با موفقیت اجرا شده‌اند.
+در هر اجرای `pnpm run validate`، کنترل syntax و suite مبتنی بر Node هم‌زمان اجرا می‌شود. در نسخهٔ v3.3.26 تعداد **76 تست** شامل webhook، D1/KV، provider fallback، Terminal API، حریم خصوصی memory، start/menu، مدل picker، Secretary، re-engagement، Rich Message، lease اتمی broadcast و Telegram context با موفقیت اجرا شده‌اند.
 
 | حوزه | سناریوی خودکار | نتیجهٔ مورد انتظار |
 |---|---|---|
@@ -17,8 +17,11 @@
 | Memory | `/memory clear` و `/reset` | حافظهٔ چت و Terminal با هم حذف می‌شوند |
 | `/start` | پیام onboarding و launch button خصوصی | Web App button و callback کنترل‌ها وجود دارد |
 | `/menu` | dashboard کنترل جدا | متن controls و mode buttons نمایش داده می‌شوند |
-| Inline colors | Auto/Deep آبی، Fast/model/terminal سبز، reset/cancel قرمز | ترتیب و style payload در keyboard درست است |
+| Inline colors | همهٔ modeها آبی، Terminal سبز، Pick model و فیلترهای مدل قرمز هستند | ترتیب و style payload در keyboard درست است |
 | Free-only | model catalog و fallback | مدل پولی پذیرفته یا نمایش داده نمی‌شود |
+| Rich Message | table کوچک، `/details`، footnote و math در Deep/Code | خروجی مدل escape می‌شود و در خطای Rich، fallback قابل‌مشاهده باقی می‌ماند |
+| Broadcast concurrency | دو batch هم‌پوشان برای یک recipient | D1 فقط یک lease claim می‌دهد و ارسال تکراری رخ نمی‌دهد |
+| Mini App auth | `initData` معتبر اما بیش از ۶۰ ثانیه future-dated | `401`؛ clock skew کوتاه و expiry عادی حفظ می‌شود |
 
 ## پیش‌نیاز تست واقعی
 
@@ -56,7 +59,7 @@ Terminal را از مرورگر عادی باز کنید یا URL را خارج 
 
 ### سناریوی D — mode، model و رنگ‌ها
 
-در `/menu`، ترتیب باید این باشد: ردیف modeها، ردیف model/language، سپس Terminal در private chat، سپس help/settings. Auto و Deep به‌عنوان مسیرهای اصلی آبی، Fast و Pick model و Terminal سبز، و Reset یا Cancel قرمز هستند. یک mode را انتخاب کنید، سپس `/debug` را بزنید تا mode ذخیره‌شده را ببینید. سپس `/model off` یا Auto را انتخاب کنید و بازگشت به auto را تأیید کنید.
+در `/menu`، ابتدا Auto در یک ردیف آبی و سپس Fast، Deep و Code در یک ردیف آبی دیده می‌شوند. Terminal در private chat سبز است؛ Pick model قرمز است و Help/Settings/Language در ردیف پایانی قرار دارند. در picker مدل، دکمه‌های provider آبی و فیلترهای All/Fast/Deep/Code قرمز هستند. یک mode را انتخاب کنید، سپس `/debug` را بزنید تا mode ذخیره‌شده را ببینید. سپس `/model off` یا Auto را انتخاب کنید و بازگشت به auto را تأیید کنید.
 
 ### سناریوی E — memory و privacy
 
@@ -65,6 +68,10 @@ Terminal را از مرورگر عادی باز کنید یا URL را خارج 
 ### سناریوی F — fallback رایگان
 
 در `/models` یک مدل رایگان انتخاب کنید، یک prompt کوتاه بفرستید و metadata پاسخ را بررسی کنید. اگر provider انتخاب‌شده موقتاً در دسترس نبود، پاسخ یا retry friendly دریافت می‌شود یا fallback ترتیبی رایگان استفاده می‌شود. هیچ payment، Telegram Stars یا provider پولی نباید نمایش داده شود.
+
+## کنترل‌های بیرونیِ لازم
+
+برخی صحت‌سنجی‌ها فقط از داخل حساب مالک بات قابل انجام‌اند و عمداً به CI یا endpoint عمومی سپرده نشده‌اند. در BotFather، URL اصلی Mini App/Menu Button باید `https://ivai-bot.ivai-bot.workers.dev/app` باشد، Inline Mode و Guest Mode باید فعال باشند، و webhook باید updateهای `guest_message` و `message_reaction` را در کنار updateهای پایه دریافت کند. برای ثبت feedback واکنشی، بات باید در گروه مربوطه administrator باشد. این موارد هیچ وابستگی به Premium یا پرداخت ندارند.
 
 ## ثبت نتیجه
 
