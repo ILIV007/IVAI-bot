@@ -23,6 +23,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set up pinned pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.21.0
+          run_install: false
+
       - name: Set up Node.js and pnpm cache
         uses: actions/setup-node@v4
         with:
@@ -30,9 +36,6 @@ jobs:
           check-latest: true
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
-
-      - name: Enable the pinned pnpm version
-        run: corepack enable
 
       - name: Install locked dependencies
         run: pnpm install --frozen-lockfile

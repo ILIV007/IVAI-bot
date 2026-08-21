@@ -8,6 +8,7 @@ import { processReengagementBatch } from "../src/reengagement.js";
 import { APP, defaultFreeModelFor, FREE_MODEL_POLICY, LANGUAGE_OPTIONS, MODES, modeOutputLimit } from "../src/config.js";
 import { defaultFreeModels, refreshFreeModelCatalog } from "../src/catalog.js";
 import { getAdminOperationalStats } from "../src/storage.js";
+import { getRequiredChannelMembership } from "../src/membership.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
 import { feedbackKeyboard, languageKeyboard, modeKeyboard, modeLabel, modelPickerKeyboard, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, startKeyboard, terminalKeyboard, thinkingText } from "../src/telegram.js";
 
@@ -301,6 +302,23 @@ test("handles a valid start update and sends Telegram output", async () => {
   }
 });
 
+test("falls back to the canonical channel username only when numeric membership lookup fails", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    calls.push(body);
+    if (body.chat_id === APP.requiredChannelId) return new Response(JSON.stringify({ ok: false, description: "Bad Request: chat not found" }), { status: 400 });
+    return new Response(JSON.stringify({ ok: true, result: { status: "member" } }), { status: 200 });
+  };
+  try {
+    const membership = await getRequiredChannelMembership(77, { ...baseEnv(), REQUIRED_CHANNEL_ENFORCED: "true" });
+    assert.equal(membership.allowed, true);
+    assert.equal(membership.checkedChannel, "@ILIVIR3");
+    assert.deepEqual(calls.map((call) => call.chat_id), [APP.requiredChannelId, "@ILIVIR3"]);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
 test("blocks a non-member before bot commands and presents the correct join flow", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
@@ -317,6 +335,26 @@ test("blocks a non-member before bot commands and presents the correct join flow
     assert.equal(calls[0].body.chat_id, APP.requiredChannelId);
     assert.match(calls[1].body.text, /Membership in @ILIVIR3 is required/);
     assert.equal(calls[1].body.reply_markup.inline_keyboard[0][0].url, APP.requiredChannelUrl);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("lets a confirmed channel member enter without any join prompt", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    if (String(url).endsWith("/getChatMember")) return new Response(JSON.stringify({ ok: true, result: { status: "member" } }), { status: 200 });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 79 } }), { status: 200 });
+  };
+  try {
+    const update = { update_id: 211, message: { message_id: 22, chat: { id: 43, type: "private" }, from: { id: 126679582, first_name: "Member" }, text: "/start" } };
+    const response = await worker.fetch(new Request("https://worker.test/", { method: "POST", headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" }, body: JSON.stringify(update) }), { ...baseEnv(), REQUIRED_CHANNEL_ENFORCED: "true" });
+    assert.equal(response.status, 200);
+    assert.match(calls[0].url, /getChatMember$/);
+    const reply = calls.find((call) => /sendMessage$/.test(call.url));
+    assert.match(reply.body.text, /Welcome to IVAI/);
+    assert.doesNotMatch(reply.body.text, /Membership in @ILIVIR3 is required/);
+    assert.equal(reply.body.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === "menu:main"), true);
   } finally { globalThis.fetch = originalFetch; }
 });
 

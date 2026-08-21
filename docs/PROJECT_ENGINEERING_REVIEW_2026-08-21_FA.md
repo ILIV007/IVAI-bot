@@ -12,7 +12,7 @@
 | Webhook و idempotency | سالم | secret header به‌صورت دقیق بررسی می‌شود؛ update claim هنگام failure آزاد می‌گردد تا Telegram retry را سرکوب نکند. |
 | AI و free-only policy | سالم | Workers AI، OpenRouter `:free`، Groq و Google AI Studio فقط از allowlist استفاده می‌کنند؛ fallback ترتیبی است، نه parallel race. |
 | سهمیه و مصرف | سالم | budget محافظه‌کارانهٔ Workers AI، limit کاربر و ورودی/خروجی bounded حفظ شده‌اند؛ هیچ health-check پرمصرف دوره‌ای وجود ندارد. |
-| عضویت اجباری | سالم با پیش‌نیاز عملیاتی | membership در متن، رسانه، callback، inline، guest و API Terminal بررسی می‌شود؛ bot باید administrator کانال `@ILIVIR3` باقی بماند. |
+| عضویت اجباری | اصلاح و سالم با پیش‌نیاز عملیاتی | membership در متن، رسانه، callback، inline، guest و API Terminal بررسی می‌شود؛ fallback امن ID به username افزوده شد و user دارای status `member` مستقیم وارد می‌شود؛ bot باید administrator کانال `@ILIVIR3` باقی بماند. |
 | Mini App و Admin | سالم | initData سمت سرور اعتبارسنجی می‌شود، API بدون نشست رد می‌شود، CSP و same-origin controls برقرارند؛ bootstrap Terminal در v3.3.8 قبلاً رفع شده است. |
 | Secretary و re-engagement | سالم | claim/lease اتمی، retry محدود و ارسال ترتیبی دارند؛ چرخهٔ بازگشت پس از ۱۵ روز consent-controlled است. |
 | Broadcast | **رفع شد** | snapshot مخاطب، ادامهٔ seeding در حالت `sending` و retry محدود برای خطاهای موقت اکنون برقرار است. |
@@ -36,6 +36,10 @@
 مسیر قدیمی callback می‌توانست `JSON.parse` را روی مقدار خراب KV اجرا کند و score نامعتبر را به downvote تبدیل کند. همچنین token به user/chat وابسته بررسی نمی‌شد و پس از استفاده هم حذف نمی‌شد.
 
 **اصلاح v3.3.9:** parsing fail-safe، allowlist امتیاز `up/down`، تطبیق user و chat، و حذف token پس از ثبت بازخورد اضافه شد. دو شاخهٔ callback غیرقابل‌دسترسی و writer بدون استفاده نیز حذف شدند.
+
+### 2.3 false-negative عضویت کانال در production
+
+برای کاهش وابستگی غیرضروری به یک representation از chat، بررسی canonical ابتدا با ID عددی و تنها در صورت خطای API با username رسمی `@ILIVIR3` دوباره انجام می‌شود. پاسخ موفق Telegram با status `member`، `administrator`، `creator`/`owner` یا restricted-member قطعی است و user بدون پیام Join/Recheck از مسیر معمول بات عبور می‌کند. اگر هر دو lookup خطا بدهند، طراحی همچنان fail-closed می‌ماند؛ در این حالت bot باید administrator کانال باشد و ID/username کانال باید دقیقاً به همان کانال اشاره کنند.
 
 ## 3. معماری و کنترل‌های منطقی
 
@@ -61,7 +65,7 @@ Broadcast و یادآوری‌ها sequential و batch-bounded هستند. ای�
 | کنترل | نتیجه |
 |---|---|
 | `pnpm install --frozen-lockfile` | موفق؛ lockfile قابل‌تکرار است |
-| `pnpm run validate` | **45/45 passed** |
+| `pnpm run validate` | **47/47 passed** |
 | `pnpm audit --audit-level=high` | هیچ آسیب‌پذیری شناخته‌شده‌ای یافت نشد |
 | `git diff --check` | موفق؛ بدون خطای whitespace |
 | Integrity Git | `git fsck --no-dangling` موفق |

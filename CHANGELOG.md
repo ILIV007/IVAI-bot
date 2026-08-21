@@ -10,18 +10,19 @@ All notable changes to IVAI Bot are documented in this file. The project follows
 - Added a stable campaign snapshot boundary: users created after confirmation are excluded from that in-flight campaign, while repeated cron runs idempotently seed the remaining confirmed audience.
 - Added bounded retry behavior for transient broadcast delivery failures: blocked chats are final immediately; other failures retry up to three total delivery attempts before becoming terminal failures.
 - Hardened legacy feedback callbacks against malformed KV content, invalid scores, cross-user or cross-chat replay, and replay of an already-consumed token.
+- Added a fail-closed fallback from the canonical numeric channel ID to `@ILIVIR3` only when Telegram rejects the numeric lookup. A verified `member` response now always proceeds directly without Join/Recheck UI.
 - Removed duplicate unreachable callback branches and unused feedback-token writer code from the Telegram router.
 
 ### Changed
 
-- Modernized CI around the pinned pnpm version, a frozen lockfile install, pnpm-store cache, full regression validation and high-severity dependency audit.
+- Modernized CI around the pinned pnpm version, a frozen lockfile install, pnpm-store cache, full regression validation and high-severity dependency audit. CI now installs pnpm before resolving the pnpm cache.
 - Enabled Dependabot alerts and automated security fixes, added npm/pnpm dependency updates alongside GitHub Actions updates, and strengthened `main` protection with required checks, code-owner review, stale-review dismissal, linear history and resolved conversations.
 - Moved the preserved v3.2 single-file reference into `legacy/` so the modular `src/index.js` production entrypoint is unambiguous.
 
 ### Tests
 
 - Added broadcast regression coverage for recipient pagination, confirmation-time snapshot boundaries, transient retry recovery and terminal failure after three attempts.
-- Added Secretary retry-boundary coverage and expanded the suite to 45 passing tests.
+- Added Secretary retry-boundary coverage, member/no-join and numeric-ID/username membership fallback coverage, and expanded the suite to 47 passing tests.
 
 ## [3.3.8] - 2026-08-21
 
