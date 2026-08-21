@@ -226,8 +226,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.23 release version", () => {
-  assert.equal(APP.version, "3.3.23");
+test("declares the official v3.3.24 release version", () => {
+  assert.equal(APP.version, "3.3.24");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -1556,6 +1556,54 @@ test("keeps the standard HTML fallback free of Rich-only structural tags", async
     assert.ok(final);
     assert.doesNotMatch(final.body.text, /<pre>|<ul>|<hr\/>/);
     assert.equal(final.body.parse_mode, "HTML");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("renders only small well-formed tables and opt-in visible details in Rich HTML", () => {
+  const source = [
+    "| Metric | Value |",
+    "| --- | ---: |",
+    "| Safe | **42** |",
+    "| HTML | <script>alert(1)</script> |",
+    "",
+    ":::details Supporting notes",
+    "Visible **context** only.",
+    ":::enddetails"
+  ].join("\n");
+  const rich = renderRichAiText(source, { allowDetails: true });
+  assert.match(rich, /<table><thead><tr><th>Metric<\/th><th>Value<\/th><\/tr><\/thead><tbody><tr><td>Safe<\/td><td><b>42<\/b><\/td><\/tr>/);
+  assert.match(rich, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.match(rich, /<details><summary>Supporting notes<\/summary><p>Visible <b>context<\/b> only\.<\/p><\/details>/);
+  assert.doesNotMatch(rich, /<script>/);
+  const noDetails = renderRichAiText(source);
+  assert.doesNotMatch(noDetails, /<details>/);
+  assert.match(renderStandardAiText(source), /<b>Supporting notes<\/b>/);
+
+  const oversized = ["| A | B |", "| --- | --- |", ...Array.from({ length: 13 }, (_, index) => `| ${index} | ${index} |`)].join("\n");
+  assert.doesNotMatch(renderRichAiText(oversized), /<table>/);
+});
+
+test("renders an opt-in /details response as a visible details block in the final Rich Message", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ ok: true, result: true }), { status: 200 });
+  };
+  try {
+    const answer = "Main answer.\n\n:::details Extra context\nVisible clarification only.\n:::enddetails";
+    const env = { ...baseEnv(), AI: { async run(_model, payload) { return { response: answer, seenPrompt: payload }; } } };
+    const update = { update_id: 2401, message: { message_id: 204, chat: { id: 42, type: "private" }, from: { id: 10 }, text: "/details explain the answer" } };
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+      body: JSON.stringify(update)
+    }), env);
+    assert.equal(response.status, 200);
+    const final = calls.find((call) => /sendRichMessage$/.test(call.url));
+    assert.match(final.body.rich_message.html, /<details><summary>Extra context<\/summary><p>Visible clarification only\.<\/p><\/details>/);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -2,6 +2,22 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.24] - 2026-08-21
+
+### Added
+
+- Added native Rich Message tables for only small, well-formed Markdown tables: at most six columns and twelve body rows. Oversized or malformed table candidates remain ordinary safe text instead of becoming partial Rich tables.
+- Added the explicit `/details <prompt>` command. It permits a response to include a visibly user-facing, collapsible `<details>` supplement while retaining the normal answer first.
+
+### Safety
+
+- `/details` never requests or renders hidden reasoning, chain-of-thought, private analysis, policies or instructions. Only a short, visible supplement wrapped in the documented marker pair can become a collapsible block.
+- The normal HTML fallback strips details markers into an ordinary bold heading and visible body, preventing a Rich API failure from hiding response content.
+
+### Tests
+
+- Added table dimensions, malformed/oversized fallback, visible-details opt-in, injection and end-to-end `/details` coverage. The validation suite contains 72 passing tests.
+
 ## [3.3.23] - 2026-08-21
 
 ### Added

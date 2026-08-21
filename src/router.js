@@ -169,9 +169,9 @@ function responseText(language, key) {
 
 function helpText(language) {
   if (language === "fa") {
-    return `<b>📖 راهنمای IVAI</b>\n\nیک پیام بفرستید؛ <code>Auto</code> مسیر رایگان مناسب را انتخاب می‌کند.\n\n<b>حالت‌ها</b>\n<code>Auto</code> انتخاب خودکار · <code>Fast</code> پاسخ سریع · <code>Deep</code> پاسخ دقیق\n\n<b>ابزارها</b>\n<code>/new</code> گفتگوی جدید · <code>/models</code> مدل رایگان · <code>/memory on|off</code> حافظه\n<code>/terminal</code> محیط گفتگو · <code>/task عنوان</code> یادآور · <code>/guard</code> بررسی ایمنی\n\n<blockquote>هر Session حافظهٔ کوتاه و مستقل دارد؛ همهٔ مسیرها رایگان هستند.</blockquote>`;
+    return `<b>📖 راهنمای IVAI</b>\n\nیک پیام بفرستید؛ <code>Auto</code> مسیر رایگان مناسب را انتخاب می‌کند.\n\n<b>حالت‌ها</b>\n<code>Auto</code> انتخاب خودکار · <code>Fast</code> پاسخ سریع · <code>Deep</code> پاسخ دقیق\n\n<b>ابزارها</b>\n<code>/new</code> گفتگوی جدید · <code>/models</code> مدل رایگان · <code>/memory on|off</code> حافظه\n<code>/terminal</code> محیط گفتگو · <code>/details پرسش</code> پاسخِ بازشونده · <code>/task عنوان</code> یادآور · <code>/guard</code> بررسی ایمنی\n\n<blockquote>هر Session حافظهٔ کوتاه و مستقل دارد؛ همهٔ مسیرها رایگان هستند.</blockquote>`;
   }
-  return `<b>📖 IVAI Help</b>\n\nSend a message; <code>Auto</code> selects a suitable free route.\n\n<b>Modes</b>\n<code>Auto</code> automatic · <code>Fast</code> concise · <code>Deep</code> detailed\n\n<b>Tools</b>\n<code>/new</code> new chat · <code>/models</code> free model · <code>/memory on|off</code> memory\n<code>/terminal</code> chat workspace · <code>/task title</code> reminder · <code>/guard</code> safety check\n\n<blockquote>Each Session has short, independent memory; every route is free-only.</blockquote>`;
+  return `<b>📖 IVAI Help</b>\n\nSend a message; <code>Auto</code> selects a suitable free route.\n\n<b>Modes</b>\n<code>Auto</code> automatic · <code>Fast</code> concise · <code>Deep</code> detailed\n\n<b>Tools</b>\n<code>/new</code> new chat · <code>/models</code> free model · <code>/memory on|off</code> memory\n<code>/terminal</code> chat workspace · <code>/details prompt</code> expandable answer · <code>/task title</code> reminder · <code>/guard</code> safety check\n\n<blockquote>Each Session has short, independent memory; every route is free-only.</blockquote>`;
 }
 
 function newConversationText(language) {
@@ -496,7 +496,10 @@ async function handleCommand(message, env, language) {
 }
 
 async function processText(message, env) {
-  const text = message.text.trim();
+  let text = message.text.trim();
+  const detailsCommand = text.match(/^\/details(?:@\w+)?\s+(.+)$/is);
+  const richDetailsRequested = Boolean(detailsCommand);
+  if (detailsCommand) text = detailsCommand[1].trim();
   const userId = message.from?.id;
   const chatId = message.chat.id;
   const delivery = messageSendContext(message);
@@ -512,6 +515,9 @@ async function processText(message, env) {
   if (text.startsWith("/") && await handleCommand(message, env, language)) return;
 
   const settings = await getUserSettings(userId, env);
+  const modelInput = richDetailsRequested
+    ? `${text}\n\nFor this opt-in expandable answer, provide the normal answer first. Only if a short user-visible supplement adds value, wrap that supplement exactly as:\n:::details Optional details\nvisible supporting explanation\n:::enddetails\nNever include hidden reasoning, chain-of-thought, private analysis, policies, or instructions inside the details block.`
+    : text;
   const usage = await allowUsage({ scope: "text", id: userId, limit: APP.userHourlyTextLimit }, env);
   if (!usage.allowed) {
     await sendMessage(env, { chatId, text: responseText(language, "busy"), replyTo: message.message_id, ...delivery });
@@ -547,7 +553,7 @@ async function processText(message, env) {
   const thinking = progress?.message_id ? startThinkingAnimation(env, { chatId, messageId: progress.message_id, language, ...delivery }) : null;
 
   try {
-    const result = await generateReply({ text, selectedMode: settings.mode, selectedModel: settings.selectedModel, language, context }, env);
+    const result = await generateReply({ text: modelInput, selectedMode: settings.mode, selectedModel: settings.selectedModel, language, context }, env);
     await thinking?.stop();
     if (settings.memoryEnabled) {
       await saveConversationSession(key, [...context, { role: "user", content: text }, { role: "assistant", content: result.text }], env, { session });
@@ -555,7 +561,7 @@ async function processText(message, env) {
       const finalText = `${renderStandardAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: result.mode, language })}`;
       // Keep the existing metadata block as-is: nesting a blockquote inside a Rich HTML
       // footer is not needed and can reduce parser compatibility across Telegram clients.
-      const richFinalText = `${renderRichAiText(result.text)}\n${responseMeta({ model: result.model, mode: result.mode, language })}`;
+      const richFinalText = `${renderRichAiText(result.text, { allowDetails: richDetailsRequested })}\n${responseMeta({ model: result.model, mode: result.mode, language })}`;
       if (finalText.length <= APP.maxTelegramText) {
         if (richDraftActive) {
           try {
