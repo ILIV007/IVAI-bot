@@ -2,6 +2,17 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.8] - 2026-08-21
+
+### Fixed
+
+- Fixed a production-blocking syntax error in IVAI Terminal's generated inline bootstrap. The defect held the Mini App in `CONNECTING` and prevented all session, join/reconnect, and chat UI behavior from starting.
+- Added a regression test that compiles the fully rendered Terminal bootstrap, catching template-literal escaping errors that a source-only JavaScript syntax check cannot detect.
+
+### Verified
+
+- Reviewed public Terminal security headers, unauthenticated API rejection, method controls, recovery UX, and dependency audit status.
+
 ## [3.3.7] - 2026-08-21
 
 ### Added
@@ -113,6 +124,7 @@ All notable changes to IVAI Bot are documented in this file. The project follows
 
 - Baseline IVAI bot experience on which the v3.3 modular modernization is built.
 
+[3.3.8]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.7...v3.3.8
 [3.3.7]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.6...v3.3.7
 [3.3.6]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.5...v3.3.6
 [3.3.5]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.4...v3.3.5

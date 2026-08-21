@@ -223,8 +223,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.7 release version", () => {
-  assert.equal(APP.version, "3.3.7");
+test("declares the official v3.3.8 release version", () => {
+  assert.equal(APP.version, "3.3.8");
 });
 
 test("keeps bounded free-tier output limits", () => {
@@ -435,6 +435,16 @@ test("serves a lightweight IVAI Terminal shell with strict same-origin security 
   assert.match(html, /Open IVAI Terminal from inside Telegram/);
   assert.match(response.headers.get("content-security-policy"), /connect-src 'self'/);
   assert.equal(response.headers.get("cache-control"), "no-store");
+});
+
+test("emits parseable Terminal bootstrap JavaScript after template rendering", async () => {
+  const response = await worker.fetch(new Request("https://worker.test/app"), baseEnv());
+  const html = await response.text();
+  const scripts = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
+  const bootstrap = scripts.at(-1);
+  assert.ok(bootstrap);
+  assert.doesNotThrow(() => new Function(bootstrap));
+  assert.match(bootstrap, /replace\('@cf\/'/);
 });
 
 test("rejects unauthenticated Terminal API requests", async () => {
