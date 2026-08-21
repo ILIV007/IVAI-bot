@@ -123,6 +123,7 @@ npm test
 | [Required channel access](docs/REQUIRED_CHANNEL_ACCESS_FA.md) | Required channel policy, bot administrator prerequisite, join/recheck flow and acceptance checks. |
 | [Terminal engineering review (FA)](docs/TERMINAL_ENGINEERING_REVIEW_2026-08-21_FA.md) | Root cause, v3.3.8 hotfix, security review, quality checks and final Telegram acceptance scenario. |
 | [Full project engineering review (FA)](docs/PROJECT_ENGINEERING_REVIEW_2026-08-21_FA.md) | v3.3.9 code, queue, security, test, CI and GitHub review with remaining real-world acceptance checks. |
+| [Production check notes (FA)](docs/PRODUCTION_CHECK_NOTES_2026-08-21.md) | Read-only production endpoint, Terminal recovery and API-surface verification for v3.3.10. |
 | [Repository automation sources](docs/REPOSITORY_AUTOMATION_SOURCES_2026-08-21.md) | Official sources behind pnpm CI and Dependabot hygiene. |
 | [Changelog](CHANGELOG.md) | Release-level changes through v3.3.10. |
 | [Contributing](CONTRIBUTING.md) | Free-only, privacy, testing, and migration rules for contributors. |
