@@ -2,6 +2,22 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.25] - 2026-08-21
+
+### Added
+
+- Added deterministic Rich Message footnotes for up to eight short, visible `[^id]: note` definitions. Accepted markers link only to IVAI-generated in-message references; missing or invalid definitions remain safe ordinary text.
+- Added native Telegram LaTeX rendering for valid inline `$...$`, `$$...$$` and fenced `math` blocks only in Deep and Code responses. Formula processing is deterministic and does not create another AI request.
+
+### Safety
+
+- Math accepts bounded ASCII-LaTeX syntax and a small command allow-list only. Unsafe markup, unsupported commands, excessive input and malformed expressions remain escaped visible text.
+- Standard Telegram HTML fallback keeps formulas and footnotes visible without Rich-only tags. No hidden reasoning, source fabrication, arbitrary links or model-supplied HTML is introduced.
+
+### Tests
+
+- Added unit coverage for reference binding, native math, LaTeX injection/command rejection, size limits and standard fallback, plus an end-to-end Deep-mode Rich Message test. The validation suite contains 74 passing tests.
+
 ## [3.3.24] - 2026-08-21
 
 ### Added

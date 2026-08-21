@@ -226,8 +226,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.24 release version", () => {
-  assert.equal(APP.version, "3.3.24");
+test("declares the official v3.3.25 release version", () => {
+  assert.equal(APP.version, "3.3.25");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -1583,6 +1583,65 @@ test("renders only small well-formed tables and opt-in visible details in Rich H
 
   const oversized = ["| A | B |", "| --- | --- |", ...Array.from({ length: 13 }, (_, index) => `| ${index} | ${index} |`)].join("\n");
   assert.doesNotMatch(renderRichAiText(oversized), /<table>/);
+});
+
+test("renders bounded footnotes and allow-listed LaTeX only when Rich Math is enabled", () => {
+  const source = [
+    "Area is $\\pi r^2$[^units].",
+    "",
+    "$$",
+    "E = mc^2",
+    "$$",
+    "",
+    "```math",
+    "\\frac{a}{b} = c",
+    "```",
+    "",
+    "[^units]: Values use SI units."
+  ].join("\n");
+  const defaultRich = renderRichAiText(source);
+  assert.doesNotMatch(defaultRich, /<tg-math/);
+  assert.match(defaultRich, /<a href="#ivai-fn-units">\[units\]<\/a>/);
+  assert.match(defaultRich, /<tg-reference name="ivai-fn-units">\[units\] Values use SI units\.<\/tg-reference>/);
+
+  const rich = renderRichAiText(source, { allowMath: true });
+  assert.match(rich, /<tg-math>\\pi r\^2<\/tg-math>/);
+  assert.match(rich, /<tg-math-block>E = mc\^2<\/tg-math-block>/);
+  assert.match(rich, /<tg-math-block>\\frac\{a\}\{b\} = c<\/tg-math-block>/);
+  assert.doesNotMatch(rich, /\[\^units\]:/);
+
+  const unsafe = renderRichAiText("Unsafe $\\href{https://evil.example}{x}$ and $<script>$", { allowMath: true });
+  assert.doesNotMatch(unsafe, /<tg-math>/);
+  assert.doesNotMatch(unsafe, /<script>/);
+  assert.match(unsafe, /&lt;script&gt;/);
+
+  const oversized = renderRichAiText(`$$${"x".repeat(1201)}$$`, { allowMath: true });
+  assert.doesNotMatch(oversized, /<tg-math-block>/);
+  assert.match(renderStandardAiText(source), /Area is \$\\pi r\^2\$\[units\]\./);
+});
+
+test("sends native math in a Rich final response only after Deep mode is selected", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  let aiCalls = 0;
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ ok: true, result: true }), { status: 200 });
+  };
+  try {
+    const env = { ...baseEnv(), AI: { async run(_model, payload) { aiCalls += 1; assert.match(payload.messages[0].content, /fenced `math` block/); return { response: "The area is $\\pi r^2$.\n\n```math\nA = \\pi r^2\n```" }; } } };
+    const headers = { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" };
+    const deepUpdate = { update_id: 2402, message: { message_id: 205, chat: { id: 42, type: "private" }, from: { id: 11 }, text: "/deep" } };
+    const promptUpdate = { update_id: 2403, message: { message_id: 206, chat: { id: 42, type: "private" }, from: { id: 11 }, text: "Explain a circle area formula" } };
+    assert.equal((await worker.fetch(new Request("https://worker.test/", { method: "POST", headers, body: JSON.stringify(deepUpdate) }), env)).status, 200);
+    assert.equal((await worker.fetch(new Request("https://worker.test/", { method: "POST", headers, body: JSON.stringify(promptUpdate) }), env)).status, 200);
+    assert.equal(aiCalls, 1);
+    const final = calls.filter((call) => /sendRichMessage$/.test(call.url)).at(-1);
+    assert.match(final.body.rich_message.html, /<tg-math>\\pi r\^2<\/tg-math>/);
+    assert.match(final.body.rich_message.html, /<tg-math-block>A = \\pi r\^2<\/tg-math-block>/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("renders an opt-in /details response as a visible details block in the final Rich Message", async () => {

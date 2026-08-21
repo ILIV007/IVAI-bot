@@ -23,7 +23,10 @@ function systemInstruction(mode, language) {
     [MODES.MANAGEMENT]: "Assist with community management using concise, transparent, actionable guidance.",
     [MODES.THREAD]: "Treat this conversation or Telegram topic as a focused work thread. Keep context scoped to the thread, summarize decisions briefly, and end with the next useful action when appropriate."
   }[mode] || "Give a helpful, accurate response.";
-  return `${brand.name} is a ${brand.voice} assistant. ${brand.rule} ${modeInstruction} ${languageInstruction}`;
+  const richFormattingInstruction = [MODES.DEEP, MODES.CODE].includes(mode)
+    ? "When a mathematical expression improves clarity, use `$...$` for a short inline formula or a fenced `math` block for a short display formula. Use visible `[^note]: text` footnotes only for genuinely provided or clearly qualified notes; never invent sources, citations, hidden reasoning, policies, or internal instructions."
+    : "Do not rely on rich mathematical or footnote syntax; keep the response broadly compatible.";
+  return `${brand.name} is a ${brand.voice} assistant. ${brand.rule} ${modeInstruction} ${richFormattingInstruction} ${languageInstruction}`;
 }
 
 function workersAiReserveUnits(mode) {

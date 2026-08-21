@@ -561,7 +561,7 @@ async function processText(message, env) {
       const finalText = `${renderStandardAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: result.mode, language })}`;
       // Keep the existing metadata block as-is: nesting a blockquote inside a Rich HTML
       // footer is not needed and can reduce parser compatibility across Telegram clients.
-      const richFinalText = `${renderRichAiText(result.text, { allowDetails: richDetailsRequested })}\n${responseMeta({ model: result.model, mode: result.mode, language })}`;
+      const richFinalText = `${renderRichAiText(result.text, { allowDetails: richDetailsRequested, allowMath: [MODES.DEEP, MODES.CODE].includes(result.mode) })}\n${responseMeta({ model: result.model, mode: result.mode, language })}`;
       if (finalText.length <= APP.maxTelegramText) {
         if (richDraftActive) {
           try {

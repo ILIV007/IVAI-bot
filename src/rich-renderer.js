@@ -1,5 +1,18 @@
 const TABLE_MAX_COLUMNS = 6;
 const TABLE_MAX_BODY_ROWS = 12;
+const FOOTNOTE_MAX_DEFINITIONS = 8;
+const FOOTNOTE_MAX_TEXT = 480;
+const INLINE_MATH_MAX_CHARACTERS = 240;
+const BLOCK_MATH_MAX_CHARACTERS = 1200;
+const BLOCK_MATH_MAX_LINES = 16;
+const FOOTNOTE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/;
+const SAFE_LATEX_PATTERN = /^[0-9A-Za-z\s+*/^_=().,;:|{}\[\]\\-]+$/;
+const SAFE_LATEX_COMMANDS = new Set([
+  "alpha", "beta", "gamma", "delta", "epsilon", "theta", "lambda", "mu", "pi", "rho", "sigma", "tau", "phi", "psi", "omega",
+  "Gamma", "Delta", "Theta", "Lambda", "Pi", "Sigma", "Phi", "Psi", "Omega",
+  "frac", "sqrt", "sum", "prod", "int", "lim", "log", "ln", "sin", "cos", "tan", "exp", "max", "min", "left", "right",
+  "cdot", "times", "pm", "mp", "le", "ge", "neq", "approx", "infty", "partial", "nabla", "overline", "underline", "mathbf", "mathrm", "text"
+]);
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -10,10 +23,60 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
-function renderInlineEscaped(escaped) {
-  return escaped
+function isSafeFootnoteId(id) {
+  return FOOTNOTE_ID_PATTERN.test(String(id || ""));
+}
+
+function isSafeLatex(value, { block = false } = {}) {
+  const source = String(value || "");
+  const maxLength = block ? BLOCK_MATH_MAX_CHARACTERS : INLINE_MATH_MAX_CHARACTERS;
+  const maxLines = block ? BLOCK_MATH_MAX_LINES : 1;
+  const commands = [...source.matchAll(/\\([A-Za-z]+)/g)].map((match) => match[1]);
+  return source.length > 0
+    && source.length <= maxLength
+    && source.split("\n").length <= maxLines
+    && SAFE_LATEX_PATTERN.test(source)
+    && commands.every((command) => SAFE_LATEX_COMMANDS.has(command));
+}
+
+function extractFootnoteDefinitions(lines) {
+  const footnotes = new Map();
+  const content = [];
+  let inFence = false;
+
+  for (const line of lines) {
+    if (/^```\s*[^\s`]*\s*$/.test(line)) {
+      inFence = !inFence;
+      content.push(line);
+      continue;
+    }
+    const definition = !inFence && line.match(/^\[\^([A-Za-z0-9][A-Za-z0-9_-]{0,31})\]:\s+(.+)$/);
+    if (definition && footnotes.size < FOOTNOTE_MAX_DEFINITIONS && !footnotes.has(definition[1]) && definition[2].length <= FOOTNOTE_MAX_TEXT) {
+      footnotes.set(definition[1], definition[2]);
+      continue;
+    }
+    content.push(line);
+  }
+
+  return { lines: content, footnotes };
+}
+
+function renderInlineEscaped(escaped, { footnotes, allowMath }) {
+  const renderFootnote = (_match, id) => {
+    if (!footnotes.has(id)) return `[^${id}]`;
+    return `<a href="#ivai-fn-${id}">[${id}]</a>`;
+  };
+  const renderMath = (match, expression) => (isSafeLatex(expression) ? `<tg-math>${expression}</tg-math>` : match);
+
+  let rendered = escaped.replace(/\[\^([A-Za-z0-9][A-Za-z0-9_-]{0,31})\]/g, renderFootnote);
+  if (allowMath) rendered = rendered.replace(/(?<!\\)\$([^$\n]{1,240})\$/g, renderMath);
+  return rendered
     .replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>")
     .replace(/`([^`\n]+)`/g, "<code>$1</code>");
+}
+
+function renderInline(value, options) {
+  return renderInlineEscaped(escapeHtml(value), options);
 }
 
 function safeCodeLanguage(rawLanguage) {
@@ -32,7 +95,7 @@ function isTableDivider(cells) {
   return Array.isArray(cells) && cells.length >= 2 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
 }
 
-function collectSmallTable(lines, startIndex) {
+function collectSmallTable(lines, startIndex, inlineOptions) {
   const header = parseTableRow(lines[startIndex]);
   const divider = parseTableRow(lines[startIndex + 1]);
   if (!header || !divider || header.length !== divider.length || !isTableDivider(divider)) return null;
@@ -47,8 +110,8 @@ function collectSmallTable(lines, startIndex) {
     index += 1;
   }
   if (!rows.length || rows.length > TABLE_MAX_BODY_ROWS) return null;
-  const head = `<thead><tr>${header.map((cell) => `<th>${renderInlineEscaped(escapeHtml(cell))}</th>`).join("")}</tr></thead>`;
-  const body = `<tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${renderInlineEscaped(escapeHtml(cell))}</td>`).join("")}</tr>`).join("")}</tbody>`;
+  const head = `<thead><tr>${header.map((cell) => `<th>${renderInline(cell, inlineOptions)}</th>`).join("")}</tr></thead>`;
+  const body = `<tbody>${rows.map((row) => `<tr>${row.map((cell) => `<td>${renderInline(cell, inlineOptions)}</td>`).join("")}</tr>`).join("")}</tbody>`;
   return { html: `<table>${head}${body}</table>`, endIndex: index - 1 };
 }
 
@@ -58,6 +121,7 @@ function collectSmallTable(lines, startIndex) {
  */
 export function renderStandardAiText(text) {
   return escapeHtml(text)
+    .replace(/\[\^([A-Za-z0-9][A-Za-z0-9_-]{0,31})\]/g, "[$1]")
     .replace(/^:::\s*details\s+(.+)$/gim, "<b>$1</b>")
     .replace(/^:::\s*enddetails\s*$/gim, "")
     .replace(/(?:^&gt; ?[^\n]*(?:\n|$))+/gm, (quote) => `<blockquote>${quote.trim().replace(/^&gt; ?/gm, "").replaceAll("\n", "<br>")}</blockquote>`)
@@ -66,12 +130,20 @@ export function renderStandardAiText(text) {
     .replace(/^#{1,3}\s+(.+)$/gm, "<b>$1</b>");
 }
 
-function renderRichAiTextInternal(text, { allowDetails, depth }) {
-  const lines = String(text ?? "").replaceAll("\r\n", "\n").split("\n");
+function renderFootnoteFooter(footnotes, inlineOptions) {
+  if (!footnotes.size) return "";
+  const references = [...footnotes.entries()].map(([id, text]) => (
+    `<tg-reference name="ivai-fn-${id}">[${id}] ${renderInline(text, inlineOptions)}</tg-reference>`
+  ));
+  return `<footer>${references.join("<br>")}</footer>`;
+}
+
+function renderRichLines(lines, { allowDetails, allowMath, depth, footnotes, includeFootnotes }) {
   const output = [];
   let paragraph = [];
   let list = null;
   let code = null;
+  const inlineOptions = { footnotes, allowMath };
 
   const flushParagraph = () => {
     if (!paragraph.length) return;
@@ -86,8 +158,13 @@ function renderRichAiTextInternal(text, { allowDetails, depth }) {
   const flushCode = () => {
     if (!code) return;
     const language = safeCodeLanguage(code.language);
-    const className = language ? ` class="language-${language}"` : "";
-    output.push(`<pre><code${className}>${escapeHtml(code.lines.join("\n"))}</code></pre>`);
+    const source = code.lines.join("\n");
+    if (allowMath && language === "math" && isSafeLatex(source, { block: true })) {
+      output.push(`<tg-math-block>${source}</tg-math-block>`);
+    } else {
+      const className = language ? ` class="language-${language}"` : "";
+      output.push(`<pre><code${className}>${escapeHtml(source)}</code></pre>`);
+    }
     code = null;
   };
   const flushStructures = () => {
@@ -109,19 +186,37 @@ function renderRichAiTextInternal(text, { allowDetails, depth }) {
       continue;
     }
 
+    if (allowMath && line === "$$") {
+      const endIndex = lines.findIndex((candidate, candidateIndex) => candidateIndex > index && candidate === "$$");
+      if (endIndex > index + 1) {
+        const expression = lines.slice(index + 1, endIndex).join("\n");
+        if (isSafeLatex(expression, { block: true })) {
+          flushStructures();
+          output.push(`<tg-math-block>${expression}</tg-math-block>`);
+          index = endIndex;
+          continue;
+        }
+      }
+    }
+    const singleLineMath = allowMath && line.match(/^\$\$([^$\n]{1,1200})\$\$$/);
+    if (singleLineMath && isSafeLatex(singleLineMath[1], { block: true })) {
+      flushStructures();
+      output.push(`<tg-math-block>${singleLineMath[1]}</tg-math-block>`);
+      continue;
+    }
+
     const details = allowDetails && depth === 0 && line.match(/^:::\s*details\s+(.+)$/i);
     if (details) {
       const endIndex = lines.findIndex((candidate, candidateIndex) => candidateIndex > index && /^:::\s*enddetails\s*$/i.test(candidate));
       if (endIndex > index + 1) {
         flushStructures();
-        const body = lines.slice(index + 1, endIndex).join("\n");
-        output.push(`<details><summary>${renderInlineEscaped(escapeHtml(details[1]))}</summary>${renderRichAiTextInternal(body, { allowDetails: false, depth: depth + 1 })}</details>`);
+        output.push(`<details><summary>${renderInline(details[1], inlineOptions)}</summary>${renderRichLines(lines.slice(index + 1, endIndex), { allowDetails: false, allowMath, depth: depth + 1, footnotes, includeFootnotes: false })}</details>`);
         index = endIndex;
         continue;
       }
     }
 
-    const table = collectSmallTable(lines, index);
+    const table = collectSmallTable(lines, index, inlineOptions);
     if (table) {
       flushStructures();
       output.push(table.html);
@@ -132,10 +227,10 @@ function renderRichAiTextInternal(text, { allowDetails, depth }) {
     const quote = line.match(/^> ?(.*)$/);
     if (quote) {
       flushStructures();
-      const quoteLines = [renderInlineEscaped(escapeHtml(quote[1]))];
+      const quoteLines = [renderInline(quote[1], inlineOptions)];
       while (index + 1 < lines.length && /^> ?/.test(lines[index + 1])) {
         index += 1;
-        quoteLines.push(renderInlineEscaped(escapeHtml(lines[index].replace(/^> ?/, ""))));
+        quoteLines.push(renderInline(lines[index].replace(/^> ?/, ""), inlineOptions));
       }
       output.push(`<blockquote>${quoteLines.join("<br>")}</blockquote>`);
       continue;
@@ -153,7 +248,7 @@ function renderRichAiTextInternal(text, { allowDetails, depth }) {
       }
       const item = task ? task[2] : (ordered ? ordered[1] : unordered[1]);
       const checkbox = task ? `<input type="checkbox"${/[xX]/.test(task[1]) ? " checked" : ""}> ` : "";
-      list.items.push(`${checkbox}${renderInlineEscaped(escapeHtml(item))}`);
+      list.items.push(`${checkbox}${renderInline(item, inlineOptions)}`);
       continue;
     }
 
@@ -166,7 +261,7 @@ function renderRichAiTextInternal(text, { allowDetails, depth }) {
     const heading = line.match(/^(#{1,3})\s+(.+)$/);
     if (heading) {
       flushStructures();
-      output.push(`<h${heading[1].length}>${renderInlineEscaped(escapeHtml(heading[2]))}</h${heading[1].length}>`);
+      output.push(`<h${heading[1].length}>${renderInline(heading[2], inlineOptions)}</h${heading[1].length}>`);
       continue;
     }
 
@@ -174,22 +269,25 @@ function renderRichAiTextInternal(text, { allowDetails, depth }) {
       flushStructures();
       continue;
     }
-    paragraph.push(renderInlineEscaped(escapeHtml(line)));
+    paragraph.push(renderInline(line, inlineOptions));
   }
 
   if (code) {
     // An unclosed fence remains visible as literal text in the safe fallback style.
-    paragraph.push(renderInlineEscaped(escapeHtml(`\`\`\`${code.language ? code.language : ""}`)));
-    paragraph.push(...code.lines.map((line) => renderInlineEscaped(escapeHtml(line))));
+    paragraph.push(renderInline(`\`\`\`${code.language ? code.language : ""}`, inlineOptions));
+    paragraph.push(...code.lines.map((line) => renderInline(line, inlineOptions)));
   }
   flushStructures();
-  return output.join("\n");
+  if (includeFootnotes) output.push(renderFootnoteFooter(footnotes, inlineOptions));
+  return output.filter(Boolean).join("\n");
 }
 
 /**
  * Deterministically converts a deliberately small Markdown subset to Rich HTML.
- * Details blocks are interpreted only for an explicit caller opt-in.
+ * Details, footnotes and formulas are interpreted only for explicit caller opt-in.
  */
-export function renderRichAiText(text, { allowDetails = false } = {}) {
-  return renderRichAiTextInternal(text, { allowDetails, depth: 0 });
+export function renderRichAiText(text, { allowDetails = false, allowMath = false } = {}) {
+  const sourceLines = String(text ?? "").replaceAll("\r\n", "\n").split("\n");
+  const { lines, footnotes } = extractFootnoteDefinitions(sourceLines);
+  return renderRichLines(lines, { allowDetails, allowMath, depth: 0, footnotes, includeFootnotes: true });
 }
