@@ -331,6 +331,10 @@ test("renders concise linked response metadata without per-message action button
   assert.doesNotMatch(meta, />@IVAI_Llm_bot<\/a>/);
   assert.match(meta, /GLM 4\.7 Flash/);
   assert.doesNotMatch(meta, /@cf\/zai-org/);
+  const persianMeta = responseMeta({ model: "@cf/zai-org/glm-4.7-flash", mode: "fast", language: "fa" });
+  const arabicMeta = responseMeta({ model: "@cf/zai-org/glm-4.7-flash", mode: "fast", language: "ar" });
+  assert.match(persianMeta, /<blockquote>\u2066🪐 <a href="https:\/\/t\.me\/IVAI_Llm_bot">IVAI<\/a> · GLM 4\.7 Flash · سریع\u2069<\/blockquote>/);
+  assert.match(arabicMeta, /<blockquote>\u2066🪐 <a href="https:\/\/t\.me\/IVAI_Llm_bot">IVAI<\/a> · GLM 4\.7 Flash · Fast\u2069<\/blockquote>/);
 });
 
 test("handles a valid start update and sends Telegram output", async () => {

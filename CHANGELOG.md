@@ -9,6 +9,7 @@ All notable changes to IVAI Bot are documented in this file. The project follows
 - Preserved both official Telegram links in the README introduction: [@IVAI_Llm_bot](https://t.me/IVAI_Llm_bot) and [@ILIVIR3](https://t.me/ILIVIR3).
 - Added one concise `/new` explanation at the end of `/menu` in English, Persian and Arabic. The command’s confirmation is now more inviting while explicitly confirming that language, model, response mode and Memory settings remain unchanged.
 - Kept the linked `IVAI` word in response metadata exactly as before; Telegram client controls its inline-link decoration and the Bot API provides no styling control to remove underline without removing the link.
+- Isolated the compact IVAI/model/mode footer in Persian and Arabic with Unicode bidi controls, preventing right-to-left message layout from reversing the metadata sequence.
 
 ### Security
 

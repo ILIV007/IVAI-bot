@@ -459,7 +459,12 @@ export function shortModelLabel(model = "") {
 
 export function responseMeta({ model, mode, language = "en" }) {
   const detail = mode ? ` · ${escapeHtml(modeLabel(mode, language))}` : "";
-  return `<blockquote>🪐 <a href="https://t.me/IVAI_Llm_bot">IVAI</a> · ${escapeHtml(shortModelLabel(model))}${detail}</blockquote>`;
+  // Rich messages use is_rtl for Persian and Arabic. Isolate the compact metadata
+  // run so Telegram's bidi renderer does not reverse the IVAI/model/mode sequence.
+  const isolate = language === "fa" || language === "ar";
+  const prefix = isolate ? "\u2066" : ""; // Left-to-right isolate
+  const suffix = isolate ? "\u2069" : ""; // Pop directional isolate
+  return `<blockquote>${prefix}🪐 <a href="https://t.me/IVAI_Llm_bot">IVAI</a> · ${escapeHtml(shortModelLabel(model))}${detail}${suffix}</blockquote>`;
 }
 
 export function modeLabel(mode, language = "en") {
