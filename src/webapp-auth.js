@@ -20,7 +20,7 @@ function toHex(bytes) {
  * Validates Telegram WebApp initData on the server. Never authorize with
  * initDataUnsafe because it is controlled by the browser environment.
  */
-export async function verifyTelegramInitData(initData, botToken, { maxAgeSeconds = 60 * 60 } = {}) {
+export async function verifyTelegramInitData(initData, botToken, { maxAgeSeconds = 60 * 60, maxFutureSkewSeconds = 60 } = {}) {
   if (!initData || !botToken) return null;
   const values = new URLSearchParams(initData);
   const actualHash = values.get("hash");
@@ -28,7 +28,10 @@ export async function verifyTelegramInitData(initData, botToken, { maxAgeSeconds
   values.delete("hash");
 
   const authDate = Number(values.get("auth_date") || 0);
-  if (!authDate || Math.abs(Date.now() / 1000 - authDate) > maxAgeSeconds) return null;
+  const nowSeconds = Date.now() / 1000;
+  // A valid signature is not sufficient if its auth_date is excessively future-dated.
+  // Permit only a short clock-skew window, then enforce the normal one-hour expiry.
+  if (!authDate || authDate > nowSeconds + maxFutureSkewSeconds || nowSeconds - authDate > maxAgeSeconds) return null;
 
   const dataCheckString = [...values.entries()]
     .sort(([left], [right]) => left.localeCompare(right))

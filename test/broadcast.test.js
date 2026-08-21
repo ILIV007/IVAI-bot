@@ -39,9 +39,10 @@ class BroadcastD1 {
       return { results: rows.map((user) => ({ telegram_user_id: user.telegram_user_id })) };
     }
     if (sql.includes("SELECT id, telegram_user_id, attempts FROM broadcast_deliveries")) {
-      const [campaignId, limit] = params;
+      const [campaignId, now, limit] = params;
       const rows = [...this.deliveries.values()]
         .filter((delivery) => delivery.campaign_id === campaignId && delivery.status === "pending")
+        .filter((delivery) => !delivery.lease_until || delivery.lease_until <= now)
         .sort((left, right) => String(left.updated_at).localeCompare(String(right.updated_at)))
         .slice(0, Number(limit));
       return { results: rows };
@@ -55,6 +56,13 @@ class BroadcastD1 {
       const duplicate = [...this.deliveries.values()].some((delivery) => delivery.campaign_id === campaignId && delivery.telegram_user_id === userId);
       if (duplicate) return { meta: { changes: 0 } };
       this.deliveries.set(id, { id, campaign_id: campaignId, telegram_user_id: userId, status: "pending", attempts: 0, updated_at: new Date().toISOString() });
+      return { meta: { changes: 1 } };
+    }
+    if (sql.includes("UPDATE broadcast_deliveries SET claim_token=?")) {
+      const [claimToken, leaseUntil, id, campaignId, now] = params;
+      const delivery = this.deliveries.get(id);
+      if (!delivery || delivery.campaign_id !== campaignId || delivery.status !== "pending" || (delivery.lease_until && delivery.lease_until > now)) return { meta: { changes: 0 } };
+      Object.assign(delivery, { claim_token: claimToken, lease_until: leaseUntil, updated_at: now });
       return { meta: { changes: 1 } };
     }
     if (sql.includes("UPDATE broadcast_campaigns SET status = CASE")) {
@@ -73,16 +81,18 @@ class BroadcastD1 {
       return { meta: { changes: campaign ? 1 : 0 } };
     }
     if (sql.includes("UPDATE broadcast_deliveries SET status='sent'")) {
-      const [attempts, id] = params;
+      const [attempts, id, claimToken] = params;
       const delivery = this.deliveries.get(id);
-      if (delivery) Object.assign(delivery, { status: "sent", attempts, sent_at: new Date().toISOString(), updated_at: new Date().toISOString() });
-      return { meta: { changes: delivery ? 1 : 0 } };
+      if (!delivery || delivery.status !== "pending" || delivery.claim_token !== claimToken) return { meta: { changes: 0 } };
+      Object.assign(delivery, { status: "sent", attempts, claim_token: null, lease_until: null, sent_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+      return { meta: { changes: 1 } };
     }
     if (sql.includes("UPDATE broadcast_deliveries SET status=?, attempts=?")) {
-      const [status, attempts, lastError, id] = params;
+      const [status, attempts, lastError, id, claimToken] = params;
       const delivery = this.deliveries.get(id);
-      if (delivery) Object.assign(delivery, { status, attempts, last_error: lastError, updated_at: new Date().toISOString() });
-      return { meta: { changes: delivery ? 1 : 0 } };
+      if (!delivery || delivery.status !== "pending" || delivery.claim_token !== claimToken) return { meta: { changes: 0 } };
+      Object.assign(delivery, { status, attempts, last_error: lastError, claim_token: null, lease_until: null, updated_at: new Date().toISOString() });
+      return { meta: { changes: 1 } };
     }
     throw new Error(`Unhandled run query: ${sql}`);
   }
@@ -125,6 +135,7 @@ test("broadcast retries transient delivery failures and stops after the bounded 
     await processBroadcastBatch("campaign-2", env(db), 1);
     assert.equal(db.deliveries.get("delivery-1").status, "pending");
     assert.equal(db.deliveries.get("delivery-1").attempts, 1);
+    assert.equal(db.deliveries.get("delivery-1").claim_token, null);
 
     globalThis.fetch = async () => new Response(JSON.stringify({ ok: true, result: { message_id: 1 } }), { status: 200 });
     const recovered = await processBroadcastBatch("campaign-2", env(db), 1);
@@ -147,6 +158,33 @@ test("broadcast records a permanent failure after three transient attempts", asy
     await processBroadcastBatch("campaign-3", env(db), 1);
     assert.equal(db.deliveries.get("delivery-3").status, "failed");
     assert.equal(db.deliveries.get("delivery-3").attempts, 3);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("overlapping broadcast batches claim a recipient once and never double-send", async () => {
+  const db = new BroadcastD1({
+    campaign: campaign("campaign-4", "queued"),
+    deliveries: [{ id: "delivery-4", campaign_id: "campaign-4", telegram_user_id: "user-4", status: "pending", attempts: 0, updated_at: "2026-08-21T10:00:00.000Z" }]
+  });
+  const originalFetch = globalThis.fetch;
+  let sends = 0;
+  globalThis.fetch = async () => {
+    sends += 1;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    return new Response(JSON.stringify({ ok: true, result: { message_id: sends } }), { status: 200 });
+  };
+  try {
+    const now = "2026-08-21T12:00:00.000Z";
+    const [first, second] = await Promise.all([
+      processBroadcastBatch("campaign-4", env(db), 1, { now }),
+      processBroadcastBatch("campaign-4", env(db), 1, { now })
+    ]);
+    assert.equal(first.sent + second.sent, 1);
+    assert.equal(sends, 1);
+    assert.equal(db.deliveries.get("delivery-4").status, "sent");
+    assert.equal(db.deliveries.get("delivery-4").attempts, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }

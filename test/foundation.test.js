@@ -134,8 +134,8 @@ function baseEnv() {
   };
 }
 
-function signedWebAppInitData(user = { id: 126679582, first_name: "Owner", language_code: "en" }) {
-  const values = new URLSearchParams({ auth_date: String(Math.floor(Date.now() / 1000)), user: JSON.stringify(user) });
+function signedWebAppInitData(user = { id: 126679582, first_name: "Owner", language_code: "en" }, { authDate = Math.floor(Date.now() / 1000) } = {}) {
+  const values = new URLSearchParams({ auth_date: String(authDate), user: JSON.stringify(user) });
   const dataCheckString = [...values.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([key, value]) => `${key}=${value}`).join("\n");
   const secret = createHmac("sha256", "WebAppData").update("test-token").digest();
   values.set("hash", createHmac("sha256", secret).update(dataCheckString).digest("hex"));
@@ -226,8 +226,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.25 release version", () => {
-  assert.equal(APP.version, "3.3.25");
+test("declares the official v3.3.26 release version", () => {
+  assert.equal(APP.version, "3.3.26");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -611,6 +611,17 @@ test("emits parseable Terminal bootstrap JavaScript after template rendering", a
 
 test("rejects unauthenticated Terminal API requests", async () => {
   const response = await worker.fetch(new Request("https://worker.test/app/session", { method: "POST", body: "{}" }), baseEnv());
+  assert.equal(response.status, 401);
+  assert.equal((await response.json()).code, "UNAUTHORIZED");
+});
+
+test("rejects a correctly signed Mini App initData value that is future-dated beyond clock skew", async () => {
+  const initData = signedWebAppInitData(undefined, { authDate: Math.floor(Date.now() / 1000) + 120 });
+  const response = await worker.fetch(new Request("https://worker.test/app/session", {
+    method: "POST",
+    headers: { "x-telegram-init-data": initData },
+    body: "{}"
+  }), baseEnv());
   assert.equal(response.status, 401);
   assert.equal((await response.json()).code, "UNAUTHORIZED");
 });

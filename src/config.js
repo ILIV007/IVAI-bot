@@ -1,6 +1,6 @@
 export const APP = Object.freeze({
   name: "IVAI",
-  version: "3.3.25",
+  version: "3.3.26",
   terminalAppUrl: "https://ivai-bot.ivai-bot.workers.dev/app",
   requiredChannelId: -1003162460662,
   requiredChannelUsername: "ILIVIR3",

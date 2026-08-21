@@ -1,8 +1,8 @@
-# IVAI Bot v3.3.25 — Free-Tier, Secure Telegram AI Assistant
+# IVAI Bot v3.3.26 — Free-Tier, Secure Telegram AI Assistant
 
 [![Continuous Integration](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.25 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while adding a deterministic, safe Rich Message formatter for bounded footnotes and mathematical expressions.
+> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.26 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while hardening broadcast delivery claims and Mini App session validation.
 >
 > **Use IVAI on Telegram:** [@IVAI_Llm_bot](https://t.me/IVAI_Llm_bot)
 > **Channel on Telegram:** [@ILIVIR3](https://t.me/ILIVIR3)
@@ -105,7 +105,7 @@ npm test
 
 ## Deployment sequence
 
-1. Apply `db/0001_initial_schema.sql`, `db/0002_runtime_guards.sql`, `db/0003_secretary_reminders.sql`, and then `db/0004_reengagement.sql` to the production D1 database.
+1. Apply `db/0001_initial_schema.sql`, `db/0002_runtime_guards.sql`, `db/0003_secretary_reminders.sql`, `db/0004_reengagement.sql`, and then `db/0005_broadcast_claims.sql` to the production D1 database.
 2. Attach `IVAI_KV`, `IVAI_DB`, and `AI` bindings to `ivai-bot`.
 3. Register actual values as Worker Secrets.
 4. Deploy the Worker.
@@ -133,7 +133,7 @@ npm test
 | [Production check notes (FA)](docs/PRODUCTION_CHECK_NOTES_2026-08-21.md) | Read-only production endpoint, Terminal recovery and API-surface verification for v3.3.10. |
 | [Repository automation sources](docs/REPOSITORY_AUTOMATION_SOURCES_2026-08-21.md) | Official sources behind pnpm CI and Dependabot hygiene. |
 | [Telegram rich formatting research](docs/TELEGRAM_RICH_FORMATTING_RESEARCH_2026-08-21.md) | Official rich-message, HTML and quote-formatting research behind v3.3.11. |
-| [Changelog](CHANGELOG.md) | Release-level changes through v3.3.25. |
+| [Changelog](CHANGELOG.md) | Release-level changes through v3.3.26. |
 | [Contributing](CONTRIBUTING.md) | Free-only, privacy, testing, and migration rules for contributors. |
 | [Security policy](SECURITY.md) | Private reporting process for vulnerabilities and exposed credentials. |
 

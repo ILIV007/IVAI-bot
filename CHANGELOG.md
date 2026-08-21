@@ -2,6 +2,18 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.26] - 2026-08-21
+
+### Fixed
+
+- Hardened broadcast delivery against overlapping scheduled Worker invocations. Each recipient is now conditionally claimed in D1 with a short lease before Telegram delivery, so concurrent jobs cannot select and send the same pending row twice.
+- Added `db/0005_broadcast_claims.sql`, which introduces claim-token and lease columns plus a claim index for the broadcast queue. A terminated invocation can recover after the lease expires without duplicating a still-owned send.
+- Rejected correctly signed but excessively future-dated Telegram Mini App `initData`. A short 60-second clock-skew allowance remains, while normal one-hour expiry handling is preserved.
+
+### Tests
+
+- Added an overlapping-broadcast regression simulation and signed future-timestamp Mini App rejection coverage. The validation suite contains 76 passing tests.
+
 ## [3.3.25] - 2026-08-21
 
 ### Added
