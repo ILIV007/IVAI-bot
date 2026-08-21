@@ -20,20 +20,22 @@ function providerIcon(provider) {
 
 export function modeKeyboard(language = "en", { includeTerminal = false } = {}) {
   const fa = language === "fa";
+  const ar = language === "ar";
   const rows = [
+    [button(fa ? "🔀 خودکار" : ar ? "🔀 تلقائي" : "🔀 Auto", "mode:auto", "primary")],
     [
-      button(fa ? "🔀 خودکار" : "🔀 Auto", "mode:auto", "primary"),
-      button(fa ? "⚡ سریع" : "⚡ Fast", "mode:fast", "primary"),
-      button(fa ? "🧠 عمیق" : "🧠 Deep", "mode:deep", "primary")
+      button(fa ? "⚡ سریع" : ar ? "⚡ سريع" : "⚡ Fast", "mode:fast", "primary"),
+      button(fa ? "🧠 عمیق" : ar ? "🧠 عميق" : "🧠 Deep", "mode:deep", "primary"),
+      button(fa ? "⌘ کد" : ar ? "⌘ برمجة" : "⌘ Code", "mode:code", "primary")
     ]
   ];
   if (includeTerminal) rows.push(terminalKeyboard(language).inline_keyboard[0]);
   rows.push(
-    [button(fa ? "🎛 انتخاب مدل" : "🎛 Pick model", "menu:models", "danger")],
+    [button(fa ? "🎛 انتخاب مدل" : ar ? "🎛 اختر النموذج" : "🎛 Pick model", "menu:models", "danger")],
     [
-      button(fa ? "📖 راهنما" : "📖 Help", "menu:help"),
-      button(fa ? "⚙️ تنظیمات" : "⚙️ Settings", "menu:settings"),
-      button(fa ? "🌐 زبان" : "🌐 Language", "menu:language")
+      button(fa ? "📖 راهنما" : ar ? "📖 مساعدة" : "📖 Help", "menu:help"),
+      button(fa ? "⚙️ تنظیمات" : ar ? "⚙️ الإعدادات" : "⚙️ Settings", "menu:settings"),
+      button(fa ? "🌐 زبان" : ar ? "🌐 اللغة" : "🌐 Language", "menu:language")
     ]
   );
   return { inline_keyboard: rows };
@@ -41,14 +43,15 @@ export function modeKeyboard(language = "en", { includeTerminal = false } = {}) 
 
 export function startKeyboard(language = "en", { includeTerminal = false } = {}) {
   const fa = language === "fa";
-  const terminalLabel = fa ? "⌘ سایت IVAI" : language === "ar" ? "⌘ موقع IVAI" : "⌘ IVAI Terminal";
+  const ar = language === "ar";
+  const terminalLabel = fa ? "⌘ سایت IVAI" : ar ? "⌘ موقع IVAI" : "⌘ IVAI Terminal";
   const terminal = includeTerminal
-    ? { text: terminalLabel, web_app: { url: APP.terminalAppUrl }, style: "danger" }
-    : { text: terminalLabel, url: APP.terminalAppUrl, style: "danger" };
+    ? { text: terminalLabel, web_app: { url: APP.terminalAppUrl }, style: "success" }
+    : { text: terminalLabel, url: APP.terminalAppUrl, style: "success" };
   return { inline_keyboard: [[
-    button(fa ? "🔀 خودکار" : "🔀 Auto", "mode:auto", "primary"),
-    button(fa ? "🌐 زبان" : "🌐 Language", "menu:language", "success"),
-    terminal
+    button(fa ? "📋 منو" : ar ? "📋 القائمة" : "📋 Menu", "menu:main", "primary"),
+    terminal,
+    button(fa ? "🌐 زبان" : ar ? "🌐 اللغة" : "🌐 Language", "menu:language", "danger")
   ]] };
 }
 
@@ -127,6 +130,28 @@ export function feedbackKeyboard() {
 export function terminalKeyboard(language = "en") {
   const label = language === "fa" ? "⌘ بازکردن IVAI Terminal" : language === "ar" ? "⌘ افتح IVAI Terminal" : "⌘ Open IVAI Terminal";
   return { inline_keyboard: [[{ text: label, web_app: { url: APP.terminalAppUrl }, style: "success" }]] };
+}
+
+const TERMINAL_MENU_BUTTON_KEY = "runtime:terminal-menu-button:v1";
+
+// Telegram exposes a persistent button beside the composer only after this Bot API setting.
+// The KV marker avoids spending an additional Bot API request on every private command.
+export async function ensureTerminalMenuButton(env) {
+  try {
+    if (await env.IVAI_KV?.get(TERMINAL_MENU_BUTTON_KEY)) return true;
+    await telegram(env, "setChatMenuButton", {
+      menu_button: {
+        type: "web_app",
+        text: "IVAI",
+        web_app: { url: APP.terminalAppUrl }
+      }
+    });
+    await env.IVAI_KV?.put(TERMINAL_MENU_BUTTON_KEY, "configured", { expirationTtl: 24 * 60 * 60 });
+    return true;
+  } catch (error) {
+    console.warn(JSON.stringify({ event: "terminal_menu_button_failure", error: String(error?.message || "unknown") }));
+    return false;
+  }
 }
 
 export function requiredMembershipText(language = "en", { checkFailed = false } = {}) {
@@ -302,17 +327,21 @@ export function splitText(text, maxLength) {
 
 export function welcomeText(language = "en") {
   if (language === "fa") {
-    return "<b>🪐 IVAI</b> — دستیار AI رایگان برای گفتگو، تحلیل، نوشتن و کد.\n\n• متن، عکس و voice\n• پاسخ‌های Auto، Fast و Deep\n• انتخاب مدل، حافظهٔ اختیاری و IVAI Terminal\n• Guard و یادآوری‌های رایگان\n\n<blockquote>فقط مسیرهای رایگان · یک فراخوانی AI برای هر درخواست</blockquote>\nیک پیام بفرستید تا شروع کنیم.";
+    return "<b>🪐 IVAI</b> — دستیار AI رایگان برای گفتگو، تحلیل، نوشتن و کد.\n\n• متن، عکس و voice\n• پاسخ‌های Auto، Fast، Deep و Code\n• انتخاب مدل، حافظهٔ اختیاری و IVAI Terminal\n• Guard و یادآوری‌های رایگان";
   }
-  return "<b>🪐 IVAI</b> — a free AI assistant for chat, analysis, writing and code.\n\n• Text, photo and voice prompts\n• Auto, Fast and Deep replies\n• Model picker, optional memory and IVAI Terminal\n• Guard checks and free reminders\n\n<blockquote>Free-only routes · one AI call per request</blockquote>\nSend a message to begin.";
+  if (language === "ar") {
+    return "<b>🪐 IVAI</b> — مساعد AI مجاني للدردشة والتحليل والكتابة والبرمجة.\n\n• رسائل نصية وصور وصوت\n• أوضاع Auto وFast وDeep وCode\n• اختيار النموذج والذاكرة الاختيارية وIVAI Terminal\n• فحوص Guard وتذكيرات مجانية";
+  }
+  return "<b>🪐 IVAI</b> — a free AI assistant for chat, analysis, writing and code.\n\n• Text, photo and voice prompts\n• Auto, Fast, Deep and Code replies\n• Model picker, optional memory and IVAI Terminal\n• Guard checks and free reminders";
 }
 
 export function menuText(language = "en", settings = {}) {
   const mode = escapeHtml(modeLabel(settings.mode || MODES.AUTO, language));
   const model = escapeHtml(settings.selectedModel ? shortModelLabel(settings.selectedModel) : "Auto");
-  const memory = settings.memoryEnabled ? (language === "fa" ? "روشن" : "On") : (language === "fa" ? "خاموش" : "Off");
-  if (language === "fa") return `<b>🎛 کنترل‌های IVAI</b>\n\n<b>حالت پاسخ:</b> <code>${mode}</code>\n<b>مدل:</b> <code>${model}</code>\n<b>حافظه:</b> <code>${memory}</code>\n\nبرای ادامه، یک کنترل را انتخاب کنید.`;
-  return `<b>🎛 IVAI controls</b>\n\n<b>Response mode:</b> <code>${mode}</code>\n<b>Model:</b> <code>${model}</code>\n<b>Memory:</b> <code>${memory}</code>\n\nChoose a control to continue.`;
+  const memory = settings.memoryEnabled ? (language === "fa" ? "روشن" : language === "ar" ? "مفعّلة" : "On") : (language === "fa" ? "خاموش" : language === "ar" ? "متوقفة" : "Off");
+  if (language === "fa") return `<b>🎛 منوی IVAI</b>\n\n<b>وضعیت شما</b>\n<b>حالت پاسخ:</b> <code>${mode}</code>\n<b>مدل:</b> <code>${model}</code>\n<b>حافظه:</b> <code>${memory}</code>\n\n<b>راهنمای کنترل‌ها</b>\n• <b>Auto</b> مسیر رایگان مناسب را انتخاب می‌کند.\n• <b>Fast</b> برای پاسخ سریع، <b>Deep</b> برای تحلیل دقیق و <b>Code</b> برای برنامه‌نویسی است.\n• <b>IVAI Terminal</b> فضای گفتگوی سبک درون Telegram است.\n• <b>Pick model</b> یک مدل رایگان را در اولویت می‌گذارد؛ fallback رایگان فعال می‌ماند.\n• <b>Settings</b> حافظه را مدیریت می‌کند و <b>Language</b> زبان پاسخ‌ها و رابط را تغییر می‌دهد.\n\nیک بخش را انتخاب کنید.`;
+  if (language === "ar") return `<b>🎛 قائمة IVAI</b>\n\n<b>حالتك</b>\n<b>وضع الرد:</b> <code>${mode}</code>\n<b>النموذج:</b> <code>${model}</code>\n<b>الذاكرة:</b> <code>${memory}</code>\n\n<b>دليل التحكم</b>\n• <b>Auto</b> يختار المسار المجاني المناسب.\n• <b>Fast</b> للرد السريع، و<b>Deep</b> للتحليل، و<b>Code</b> للبرمجة.\n• <b>IVAI Terminal</b> مساحة دردشة خفيفة داخل Telegram.\n• <b>Pick model</b> يعطي الأولوية لنموذج مجاني مع استمرار fallback المجاني.\n• <b>Settings</b> لإدارة الذاكرة و<b>Language</b> لتغيير لغة الواجهة والردود.\n\nاختر أحد الأقسام.`;
+  return `<b>🎛 IVAI menu</b>\n\n<b>Your status</b>\n<b>Response mode:</b> <code>${mode}</code>\n<b>Model:</b> <code>${model}</code>\n<b>Memory:</b> <code>${memory}</code>\n\n<b>Control guide</b>\n• <b>Auto</b> chooses the suitable free route.\n• <b>Fast</b> is for speed, <b>Deep</b> for deeper analysis, and <b>Code</b> for programming work.\n• <b>IVAI Terminal</b> is the lightweight chat workspace inside Telegram.\n• <b>Pick model</b> prioritizes one free model while the free fallback remains active.\n• <b>Settings</b> manages memory, while <b>Language</b> changes reply and interface language.\n\nChoose a section to continue.`;
 }
 
 export function shortModelLabel(model = "") {

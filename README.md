@@ -1,8 +1,8 @@
-# IVAI Bot v3.3.12 — Free-Tier, Secure Telegram AI Assistant
+# IVAI Bot v3.3.13 — Free-Tier, Secure Telegram AI Assistant
 
 [![Continuous Integration](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.12 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while adding webhook security, a source-verified free-only model policy, D1 data, admin controls, a responsive user-facing IVAI Terminal Mini App, multimodal adapters, inline feedback, safe HTML blockquotes and synchronized Terminal settings.
+> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.13 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while adding webhook security, a source-verified free-only model policy, D1 data, admin controls, a responsive user-facing IVAI Terminal Mini App, multimodal adapters, inline feedback, safe HTML blockquotes, a descriptive command menu and a persistent Terminal menu button.
 
 ## Product principles
 
@@ -18,18 +18,18 @@
 
 | Area | Included in v3.3 foundation |
 |---|---|
-| Core commands | `/start`, `/menu`, `/help`, `/terminal`, `/auto`, `/fast`, `/deep`, `/guard`, `/lang`, `/notify on|off`, `/debug`, `/reset` |
+| Core commands | `/start`, `/menu`, `/help`, `/terminal`, `/auto`, `/fast`, `/deep`, `/code`, `/guard`, `/lang`, `/notify on|off`, `/debug`, `/reset` |
 | Secretary | `/task title`, `/task in 30m | title`, `/task <ISO-8601-with-offset> | title`, `/tasks`, `/done <id>`, `/cancel <id>`; reminders are delivered in a small free cron batch |
 | Model controls | `/models`, `/refreshmodels`, `/pick <number>`, `/model off` with a unified free-only picker across configured providers |
 | Memory controls | `/memory on`, `/memory off`, `/memory show`, `/memory clear` |
 | Providers | Workers AI first, then the official OpenRouter Free Router and verified zero-price `:free` catalog entries, active Groq GPT-OSS/Qwen models, and Gemini Flash/Flash-Lite free-tier models as sequential fallbacks |
-| Telegram UX | Rich Draft + Rich Message fallback, colored inline buttons, message chunking, callback handling, Inline Mode, Guest AI replies, and reaction-based group feedback |
+| Telegram UX | Rich Draft + Rich Message fallback, colored inline buttons, a focused Start surface, a descriptive five-row Menu, message chunking, callback handling, Inline Mode, Guest AI replies, and reaction-based group feedback |
 | Multimodal | Voice transcription and image understanding adapters through Workers AI, guarded by file and quota limits |
 | Admin | Owner/admin roles, Telegram-native admin controls, reviewable broadcast drafts, audit logging, responsive `/admin` Mini App shell, and server-side `initData` validation |
-| IVAI Terminal | A polished navy/blue/jade user Mini App at `/app` with explicit secure-session, reconnect and timeout states; localized English/Persian/Arabic copy, a language-flag chip, compact selected-model state and safe DOM-based blockquote/bold/code rendering stay synchronized after each turn. It uses server-validated Telegram identity, a same-origin JSON API, one shared free AI path per turn, no polling and no permanent transcript by default. |
+| IVAI Terminal | A polished navy/blue/jade user Mini App at `/app` with explicit secure-session, reconnect and timeout states; localized English/Persian/Arabic copy, a language-flag chip, compact selected-model state and safe DOM-based blockquote/bold/code rendering stay synchronized after each turn. A cached `setChatMenuButton` configuration exposes it persistently beside the private-chat composer. It uses server-validated Telegram identity, a same-origin JSON API, one shared free AI path per turn, no polling and no permanent transcript by default. |
 | Context routing | Thread/topic, direct-message topic, and business-connection context are preserved for typing, draft, text and media replies |
 | Re-engagement | A consent-controlled, at-most-once-per-15-days check-in for inactive users; five sequential deliveries per scheduled run, no AI call and `/notify on|off` control |
-| Languages | English-first, Persian-second, plus Arabic, Spanish, Turkish, Russian, Portuguese (Brazil), Indonesian, Hindi, French and German via `/lang` |
+| Languages | English-first, Persian-second, plus Arabic, Spanish, Turkish, Russian, Portuguese (Brazil), Indonesian, Hindi, French and German via `/lang`; selection uses an atomic D1 upsert so it remains available after the required-channel Join callback. |
 | Access control | Required membership in [@ILIVIR3](https://t.me/ILIVIR3) is verified with Telegram `getChatMember` before bot, inline, guest, media, callback and IVAI Terminal AI access; non-members receive only Join and Check membership actions |
 | Security | Telegram webhook secret validation, retry-safe update deduplication, no Secret in source control, user-level rate limits, strict zero-price catalog admission, and a conservative 8,000-Neuron daily Workers AI budget guard that is reported consistently in admin metrics |
 

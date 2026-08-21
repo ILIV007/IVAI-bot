@@ -2,6 +2,24 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.13] - 2026-08-21
+
+### Changed
+
+- Simplified `/start` by removing the free-route and invitation footer. Its three controls are now Menu, IVAI Terminal and Language, with the Terminal button centered.
+- Expanded `/menu` from a status-only surface into a concise operating guide. It retains live mode, model and memory state while explaining Auto, Fast, Deep, Code, Terminal, model priority, memory and language controls.
+- Restored the Code response mode to the primary Menu. Auto now occupies its own first blue row; Fast, Deep and Code appear together in the following blue row; Terminal remains green, model selection remains red, and supporting controls remain neutral.
+- Configured Telegram's default private-chat Menu Button as the IVAI Terminal Mini App using a KV-cached `setChatMenuButton` call. Inline Terminal buttons remain available as an additional launch path.
+
+### Fixed
+
+- Replaced the language-only `UPDATE` with an atomic D1 upsert, so a selected language persists even when the user first arrives through the required-channel Join callback and has no existing user row.
+- Created the durable user record after a verified membership callback before subsequent menu actions are handled.
+
+### Tests
+
+- Added regression coverage for language upsert, Menu Button configuration, the centered Terminal Start button, the five-row response-mode hierarchy and the descriptive Menu. The suite contains 51 passing tests.
+
 ## [3.3.12] - 2026-08-21
 
 ### Changed
@@ -196,6 +214,7 @@ All notable changes to IVAI Bot are documented in this file. The project follows
 
 - Baseline IVAI bot experience on which the v3.3 modular modernization is built.
 
+[3.3.13]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.12...v3.3.13
 [3.3.12]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.11...v3.3.12
 [3.3.11]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.10...v3.3.11
 [3.3.10]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.9...v3.3.10

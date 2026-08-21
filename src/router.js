@@ -28,7 +28,7 @@ import {
   upsertUser,
   writeAdminAudit
 } from "./storage.js";
-import { adminKeyboard, answerCallback, editMessage, escapeHtml, languageKeyboard, languageMenuText, menuText, modelPickerKeyboard, modeKeyboard, modeLabel, requiredMembershipKeyboard, requiredMembershipText, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendTyping, settingsKeyboard, splitText, startKeyboard, startThinkingAnimation, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
+import { adminKeyboard, answerCallback, editMessage, ensureTerminalMenuButton, escapeHtml, languageKeyboard, languageMenuText, menuText, modelPickerKeyboard, modeKeyboard, modeLabel, requiredMembershipKeyboard, requiredMembershipText, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendTyping, settingsKeyboard, splitText, startKeyboard, startThinkingAnimation, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
 
 const COMMAND_MODE = Object.freeze({
   "/auto": MODES.AUTO,
@@ -484,6 +484,7 @@ async function processText(message, env) {
     return;
   }
   await upsertUser({ user: message.from, chat: message.chat, language }, env);
+  if (message.chat?.type === "private") await ensureTerminalMenuButton(env);
   if (text.startsWith("/") && await handleCommand(message, env, language)) return;
 
   const settings = await getUserSettings(userId, env);
@@ -687,6 +688,8 @@ async function processCallback(query, env) {
       await answerCallback(env, query.id, membershipCheckAlertText(language, { checkFailed: membership.reason === "CHECK_FAILED" }), { showAlert: true }).catch(() => {});
       return;
     }
+    await upsertUser({ user: query.from, chat: query.message.chat, language }, env);
+    if (query.message.chat?.type === "private") await ensureTerminalMenuButton(env);
     await answerCallback(env, query.id).catch(() => {});
     await editMessage(env, { chatId, messageId, text: membershipConfirmedText(language), keyboard: welcomeKeyboard(language, query.message) });
     return;
@@ -698,6 +701,8 @@ async function processCallback(query, env) {
     await editMessage(env, { chatId, messageId, text: requiredMembershipText(language, { checkFailed: membership.reason === "CHECK_FAILED" }), keyboard: requiredMembershipKeyboard(language) });
     return;
   }
+  await upsertUser({ user: query.from, chat: query.message.chat, language }, env);
+  if (query.message.chat?.type === "private") await ensureTerminalMenuButton(env);
 
   if (data === "notify:on" || data === "notify:off") {
     const enabled = data === "notify:on";

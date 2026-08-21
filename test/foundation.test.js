@@ -7,7 +7,7 @@ import { processSecretaryReminderBatch } from "../src/secretary.js";
 import { processReengagementBatch } from "../src/reengagement.js";
 import { APP, defaultFreeModelFor, FREE_MODEL_POLICY, LANGUAGE_OPTIONS, MODES, modeOutputLimit } from "../src/config.js";
 import { defaultFreeModels, refreshFreeModelCatalog } from "../src/catalog.js";
-import { getAdminOperationalStats } from "../src/storage.js";
+import { getAdminOperationalStats, setUserLanguage } from "../src/storage.js";
 import { getRequiredChannelMembership } from "../src/membership.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
 import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, startKeyboard, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
@@ -224,8 +224,28 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.12 release version", () => {
-  assert.equal(APP.version, "3.3.12");
+test("declares the official v3.3.13 release version", () => {
+  assert.equal(APP.version, "3.3.13");
+});
+
+test("upserts a language choice even when no user row exists yet", async () => {
+  let call;
+  const env = {
+    IVAI_DB: {
+      prepare(sql) {
+        return {
+          bind(...params) {
+            call = { sql, params };
+            return { run: async () => ({ meta: { changes: 1 } }) };
+          }
+        };
+      }
+    }
+  };
+  await setUserLanguage(77, "fa", env);
+  assert.match(call.sql, /INSERT INTO users/);
+  assert.match(call.sql, /ON CONFLICT\(telegram_user_id\) DO UPDATE SET language/);
+  assert.deepEqual(call.params, ["77", "fa"]);
 });
 
 test("keeps bounded free-tier output limits", () => {
@@ -234,22 +254,25 @@ test("keeps bounded free-tier output limits", () => {
   assert.ok(modeOutputLimit(MODES.THREAD) <= 900);
 });
 
-test("presents the compact Start and the requested four-row Menu hierarchy", () => {
+test("presents the requested Start controls and five-row Menu hierarchy", () => {
   const menu = modeKeyboard("en", { includeTerminal: true }).inline_keyboard;
-  assert.deepEqual(menu[0].map((button) => button.callback_data), ["mode:auto", "mode:fast", "mode:deep"]);
-  assert.ok(menu[0].every((button) => button.style === "primary"));
-  assert.equal(menu[1][0].web_app.url, APP.terminalAppUrl);
-  assert.equal(menu[1][0].style, "success");
-  assert.equal(menu[2][0].callback_data, "menu:models");
-  assert.equal(menu[2][0].style, "danger");
-  assert.deepEqual(menu[3].map((button) => button.callback_data), ["menu:help", "menu:settings", "menu:language"]);
+  assert.deepEqual(menu[0].map((button) => button.callback_data), ["mode:auto"]);
+  assert.equal(menu[0][0].style, "primary");
+  assert.deepEqual(menu[1].map((button) => button.callback_data), ["mode:fast", "mode:deep", "mode:code"]);
+  assert.ok(menu[1].every((button) => button.style === "primary"));
+  assert.equal(menu[2][0].web_app.url, APP.terminalAppUrl);
+  assert.equal(menu[2][0].style, "success");
+  assert.equal(menu[3][0].callback_data, "menu:models");
+  assert.equal(menu[3][0].style, "danger");
+  assert.deepEqual(menu[4].map((button) => button.callback_data), ["menu:help", "menu:settings", "menu:language"]);
 
   const start = startKeyboard("en", { includeTerminal: true }).inline_keyboard;
   assert.equal(start.length, 1);
-  assert.deepEqual(start[0].slice(0, 2).map((button) => button.callback_data), ["mode:auto", "menu:language"]);
+  assert.equal(start[0][0].callback_data, "menu:main");
   assert.equal(start[0][0].style, "primary");
+  assert.equal(start[0][1].web_app.url, APP.terminalAppUrl);
   assert.equal(start[0][1].style, "success");
-  assert.equal(start[0][2].web_app.url, APP.terminalAppUrl);
+  assert.equal(start[0][2].callback_data, "menu:language");
   assert.equal(start[0][2].style, "danger");
 
   const picker = modelPickerKeyboard([{ id: "@cf/zai-org/glm-4.7-flash", name: "GLM 4.7 Flash", provider: "workers-ai" }], { selectedModel: "@cf/zai-org/glm-4.7-flash" }).inline_keyboard.flat();
@@ -263,13 +286,15 @@ test("presents the compact Start and the requested four-row Menu hierarchy", () 
   assert.equal(requiredMembershipKeyboard("en").inline_keyboard[0][1].callback_data, "membership:check");
 });
 
-test("renders concise rich Start and Menu copy with live settings and language flags", () => {
-  assert.match(welcomeText("en"), /Free-only routes/);
-  assert.match(welcomeText("en"), /<blockquote>/);
+test("renders focused Start copy and a descriptive Menu with live settings and language flags", () => {
+  assert.match(welcomeText("en"), /Auto, Fast, Deep and Code replies/);
+  assert.doesNotMatch(welcomeText("en"), /Free-only routes|one AI call per request|Send a message to begin/);
   const menu = menuText("en", { mode: MODES.DEEP, selectedModel: "@cf/zai-org/glm-4.7-flash", memoryEnabled: true });
   assert.match(menu, /Response mode:<\/b> <code>Deep<\/code>/);
   assert.match(menu, /Model:<\/b> <code>GLM 4\.7 Flash<\/code>/);
   assert.match(menu, /Memory:<\/b> <code>On<\/code>/);
+  assert.match(menu, /Control guide/);
+  assert.match(menu, /Code<\/b> for programming work/);
   assert.doesNotMatch(menu, /Color guide/);
   const languages = languageKeyboard("en").inline_keyboard.flat().map((button) => button.text).join(" ");
   assert.match(languages, /🇬🇧 English/);
@@ -312,12 +337,14 @@ test("handles a valid start update and sends Telegram output", async () => {
       body: JSON.stringify(update)
     }), baseEnv());
     assert.equal(response.status, 200);
-    assert.equal(calls.length, 1);
-    assert.match(calls[0].url, /sendMessage$/);
-    assert.match(calls[0].body.text, /a free AI assistant for chat, analysis, writing and code/);
-    const startRow = calls[0].body.reply_markup.inline_keyboard[0];
-    assert.deepEqual(startRow.slice(0, 2).map((button) => button.callback_data), ["mode:auto", "menu:language"]);
-    assert.equal(startRow[2].web_app.url, APP.terminalAppUrl);
+    const menuButton = calls.find((call) => /setChatMenuButton$/.test(call.url));
+    assert.deepEqual(menuButton.body.menu_button, { type: "web_app", text: "IVAI", web_app: { url: APP.terminalAppUrl } });
+    const reply = calls.find((call) => /sendMessage$/.test(call.url));
+    assert.match(reply.body.text, /a free AI assistant for chat, analysis, writing and code/);
+    const startRow = reply.body.reply_markup.inline_keyboard[0];
+    assert.equal(startRow[0].callback_data, "menu:main");
+    assert.equal(startRow[1].web_app.url, APP.terminalAppUrl);
+    assert.equal(startRow[2].callback_data, "menu:language");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -415,7 +442,9 @@ test("lets a confirmed channel member enter without any join prompt", async () =
     const reply = calls.find((call) => /sendMessage$/.test(call.url));
     assert.match(reply.body.text, /a free AI assistant for chat, analysis, writing and code/);
     assert.doesNotMatch(reply.body.text, /Membership in @ILIVIR3 is required/);
-    assert.deepEqual(reply.body.reply_markup.inline_keyboard[0].slice(0, 2).map((button) => button.callback_data), ["mode:auto", "menu:language"]);
+    assert.equal(reply.body.reply_markup.inline_keyboard[0][0].callback_data, "menu:main");
+    assert.equal(reply.body.reply_markup.inline_keyboard[0][1].web_app.url, APP.terminalAppUrl);
+    assert.equal(reply.body.reply_markup.inline_keyboard[0][2].callback_data, "menu:language");
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -437,8 +466,9 @@ test("keeps /menu separate from the welcome flow", async () => {
       body: JSON.stringify(update)
     }), baseEnv());
     assert.equal(response.status, 200);
-    assert.match(calls[0].body.text, /IVAI controls/);
-    assert.equal(calls[0].body.reply_markup.inline_keyboard[0][0].callback_data, "mode:auto");
+    const reply = calls.find((call) => /sendMessage$/.test(call.url));
+    assert.match(reply.body.text, /IVAI menu/);
+    assert.equal(reply.body.reply_markup.inline_keyboard[0][0].callback_data, "mode:auto");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -500,9 +530,9 @@ test("opens IVAI Terminal through a private-chat Web App button without invoking
       body: JSON.stringify(update)
     }), baseEnv());
     assert.equal(response.status, 200);
-    assert.equal(calls.length, 1);
-    assert.match(calls[0].url, /sendMessage$/);
-    assert.equal(calls[0].body.reply_markup.inline_keyboard[0][0].web_app.url, APP.terminalAppUrl);
+    assert.ok(calls.some((call) => /setChatMenuButton$/.test(call.url)));
+    const reply = calls.find((call) => /sendMessage$/.test(call.url));
+    assert.equal(reply.body.reply_markup.inline_keyboard[0][0].web_app.url, APP.terminalAppUrl);
   } finally {
     globalThis.fetch = originalFetch;
   }

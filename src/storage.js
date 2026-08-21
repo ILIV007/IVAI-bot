@@ -65,7 +65,12 @@ export async function setSelectedModel(userId, modelId, env) {
 
 export async function setUserLanguage(userId, language, env) {
   if (!env.IVAI_DB || !userId) return;
-  await env.IVAI_DB.prepare("UPDATE users SET language=?, last_seen_at=CURRENT_TIMESTAMP WHERE telegram_user_id=?").bind(language, String(userId)).run();
+  await env.IVAI_DB
+    .prepare(`INSERT INTO users (telegram_user_id, language, last_seen_at)
+      VALUES (?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(telegram_user_id) DO UPDATE SET language=excluded.language, last_seen_at=CURRENT_TIMESTAMP`)
+    .bind(String(userId), language)
+    .run();
 }
 
 export async function setUserMode(userId, mode, env) {
