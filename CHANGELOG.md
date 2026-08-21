@@ -2,6 +2,23 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.14] - 2026-08-21
+
+### Changed
+
+- Rebuilt the free-model picker into a provider-aware control surface. Every model now carries its provider marker: 🟣 Cloudflare Workers AI, 🔵 OpenRouter Free, 🟠 Groq or 🟢 Google Gemini, plus a Fast, Deep or Code use-case marker.
+- Added first-class provider filters and Fast/Deep/Code filters. Pagination, selected-state highlighting and the active filter remain intact while users browse and select models.
+- Added a provider-and-use-case selection summary after every choice, including known context length where the catalog exposes it. The selected model is explicitly described as preferred rather than guaranteed; ordered free fallback remains active.
+- Expanded the conservative static allowlist with verified non-paid-only Workers AI options across GPT-OSS, Llama and Qwen families, plus Gemini 3.5 Flash. The existing dynamic OpenRouter admission rule continues to require zero pricing metadata for every exposed `:free` model.
+
+### Safety
+
+- Excluded Cloudflare models documented as paid-only, including GLM 5.2 and Kimi K2.6/K2.7 Code. The Worker continues to reserve below the published 10,000-Neuron daily free allocation and makes one successful provider call per request.
+
+### Tests
+
+- Added regression coverage for colored provider controls, provider filtering, advanced callback data, selected-model detail text and the expanded allowlist. The suite contains 51 passing tests.
+
 ## [3.3.13] - 2026-08-21
 
 ### Changed
@@ -214,6 +231,7 @@ All notable changes to IVAI Bot are documented in this file. The project follows
 
 - Baseline IVAI bot experience on which the v3.3 modular modernization is built.
 
+[3.3.14]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.13...v3.3.14
 [3.3.13]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.12...v3.3.13
 [3.3.12]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.11...v3.3.12
 [3.3.11]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.10...v3.3.11

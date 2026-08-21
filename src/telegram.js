@@ -14,8 +14,49 @@ function button(text, callbackData, style) {
   return { text, callback_data: callbackData, ...(style ? { style } : {}) };
 }
 
-function providerIcon(provider) {
+export function providerIcon(provider) {
   return { "workers-ai": "🟣", openrouter: "🔵", groq: "🟠", google: "🟢" }[provider] || "⚪";
+}
+
+export function providerLabel(provider, language = "en") {
+  const labels = {
+    "workers-ai": { en: "Cloudflare Workers AI", fa: "Cloudflare Workers AI", ar: "Cloudflare Workers AI" },
+    openrouter: { en: "OpenRouter Free", fa: "OpenRouter Free", ar: "OpenRouter Free" },
+    groq: { en: "Groq", fa: "Groq", ar: "Groq" },
+    google: { en: "Google Gemini", fa: "Google Gemini", ar: "Google Gemini" }
+  };
+  return labels[provider]?.[language] || labels[provider]?.en || "Unknown provider";
+}
+
+function modelScope(scope = "all") {
+  return ["all", "workers-ai", "openrouter", "groq", "google", "fast", "deep", "code"].includes(scope) ? scope : "all";
+}
+
+function modelMatchesScope(model, scope) {
+  const selected = modelScope(scope);
+  return selected === "all" || model.provider === selected || model.category === selected;
+}
+
+function categoryIcon(category) {
+  return { fast: "⚡", deep: "🧠", code: "⌘" }[category] || "✦";
+}
+
+export function modelCategoryLabel(category, language = "en") {
+  const labels = {
+    fast: { en: "Fast", fa: "سریع", ar: "سريع" },
+    deep: { en: "Deep", fa: "عمیق", ar: "عميق" },
+    code: { en: "Code", fa: "کد", ar: "برمجة" }
+  };
+  return labels[category]?.[language] || labels[category]?.en || "General";
+}
+
+function modelUseCase(category, language = "en") {
+  const labels = {
+    fast: { en: "quick chat and drafting", fa: "گفتگوی سریع و نگارش", ar: "الدردشة والكتابة السريعة" },
+    deep: { en: "analysis and reasoning", fa: "تحلیل و استدلال", ar: "التحليل والاستدلال" },
+    code: { en: "programming and debugging", fa: "برنامه‌نویسی و دیباگ", ar: "البرمجة وتصحيح الأخطاء" }
+  };
+  return labels[category]?.[language] || labels[category]?.en || "general work";
 }
 
 export function modeKeyboard(language = "en", { includeTerminal = false } = {}) {
@@ -55,29 +96,71 @@ export function startKeyboard(language = "en", { includeTerminal = false } = {})
   ]] };
 }
 
-export function modelPickerKeyboard(models, { page = 0, selectedModel, language = "en", pageSize = 6 } = {}) {
-  const safePage = Math.max(0, Math.min(page, Math.max(0, Math.ceil(models.length / pageSize) - 1)));
+export function modelPickerKeyboard(models, { page = 0, selectedModel, language = "en", pageSize = 6, scope = "all" } = {}) {
+  const activeScope = modelScope(scope);
+  const scopedModels = models.filter((model) => modelMatchesScope(model, activeScope));
+  const safePage = Math.max(0, Math.min(page, Math.max(0, Math.ceil(scopedModels.length / pageSize) - 1)));
   const start = safePage * pageSize;
-  const pageModels = models.slice(start, start + pageSize);
-  const rows = [];
+  const pageModels = scopedModels.slice(start, start + pageSize);
+  const scopedStyle = (value) => activeScope === value ? "success" : undefined;
+  const fa = language === "fa";
+  const ar = language === "ar";
+  const rows = [
+    [
+      button("🟣 CF", "model:view:workers-ai", scopedStyle("workers-ai")),
+      button("🔵 OpenRouter", "model:view:openrouter", scopedStyle("openrouter")),
+      button("🟠 Groq", "model:view:groq", scopedStyle("groq")),
+      button("🟢 Gemini", "model:view:google", scopedStyle("google"))
+    ],
+    [
+      button(fa ? "◉ همه" : ar ? "◉ الكل" : "◉ All", "model:view:all", scopedStyle("all")),
+      button(fa ? "⚡ سریع" : ar ? "⚡ سريع" : "⚡ Fast", "model:view:fast", scopedStyle("fast")),
+      button(fa ? "🧠 عمیق" : ar ? "🧠 عميق" : "🧠 Deep", "model:view:deep", scopedStyle("deep")),
+      button(fa ? "⌘ کد" : ar ? "⌘ برمجة" : "⌘ Code", "model:view:code", scopedStyle("code"))
+    ]
+  ];
   for (let index = 0; index < pageModels.length; index += 2) {
     rows.push(pageModels.slice(index, index + 2).map((model, offset) => {
       const absoluteIndex = start + index + offset;
       const selected = model.id === selectedModel;
-      return button(`${selected ? "✓ " : ""}${providerIcon(model.provider)} ${shortModelLabel(model.name)}`, `model:pick:${absoluteIndex}`, selected ? "success" : undefined);
+      const label = `${selected ? "✓ " : ""}${providerIcon(model.provider)} ${shortModelLabel(model.name)} ${categoryIcon(model.category)}`;
+      return button(label.slice(0, 64), `model:pick:${absoluteIndex}:${activeScope}:${safePage}`, selected ? "success" : undefined);
     }));
   }
   const nav = [];
-  if (safePage > 0) nav.push(button("◀", `model:page:${safePage - 1}`));
-  nav.push(button(`${safePage + 1}/${Math.max(1, Math.ceil(models.length / pageSize))}`, "model:noop"));
-  if (start + pageSize < models.length) nav.push(button("▶", `model:page:${safePage + 1}`));
+  if (safePage > 0) nav.push(button("◀", `model:page:${activeScope}:${safePage - 1}`));
+  nav.push(button(`${safePage + 1}/${Math.max(1, Math.ceil(scopedModels.length / pageSize))}`, "model:noop"));
+  if (start + pageSize < scopedModels.length) nav.push(button("▶", `model:page:${activeScope}:${safePage + 1}`));
   rows.push(nav);
   rows.push([
-    button(language === "fa" ? "🔀 Auto" : "🔀 Auto", "model:auto", "primary"),
-    button(language === "fa" ? "↻ به‌روزرسانی" : "↻ Refresh", "model:refresh"),
-    button(language === "fa" ? "← منو" : "← Menu", "menu:main")
+    button(fa ? "🔀 حالت خودکار" : ar ? "🔀 تلقائي" : "🔀 Auto route", `model:auto:${activeScope}`, "primary"),
+    button(fa ? "↻ تازه‌سازی" : ar ? "↻ تحديث" : "↻ Refresh", `model:refresh:${activeScope}`),
+    button(fa ? "← منو" : ar ? "← القائمة" : "← Menu", "menu:main")
   ]);
   return { inline_keyboard: rows };
+}
+
+export function modelPickerText(models, { selectedModel, language = "en", scope = "all" } = {}) {
+  const activeScope = modelScope(scope);
+  const scopedModels = models.filter((model) => modelMatchesScope(model, activeScope));
+  const selected = models.find((model) => model.id === selectedModel);
+  const current = selected ? `${providerIcon(selected.provider)} <code>${escapeHtml(shortModelLabel(selected.name))}</code>` : (language === "fa" ? "🔀 <code>Auto</code>" : language === "ar" ? "🔀 <code>تلقائي</code>" : "🔀 <code>Auto</code>");
+  const view = activeScope === "all" ? (language === "fa" ? "همهٔ مدل‌های رایگان" : language === "ar" ? "كل النماذج المجانية" : "all free models") : `${categoryIcon(activeScope)} ${escapeHtml(activeScope === "workers-ai" || activeScope === "openrouter" || activeScope === "groq" || activeScope === "google" ? providerLabel(activeScope, language) : modelCategoryLabel(activeScope, language))}`;
+  if (language === "fa") return `<b>🎛 انتخاب مدل AI رایگان</b>\n\n<b>مدل فعال:</b> ${current}\n<b>نمایش:</b> ${view} · <code>${scopedModels.length}</code> مدل\n\nرنگ هر emoji پروایدر را مشخص می‌کند: 🟣 Cloudflare · 🔵 OpenRouter · 🟠 Groq · 🟢 Gemini\n⚡ سریع، 🧠 تحلیلی و ⌘ کدنویسی را فیلتر می‌کنند. مدل انتخابی فقط در اولویت است؛ fallback رایگان همیشه فعال می‌ماند.`;
+  if (language === "ar") return `<b>🎛 اختيار نموذج AI مجاني</b>\n\n<b>النموذج النشط:</b> ${current}\n<b>العرض:</b> ${view} · <code>${scopedModels.length}</code> نموذج\n\nلون كل emoji يعرّف الموفر: 🟣 Cloudflare · 🔵 OpenRouter · 🟠 Groq · 🟢 Gemini\n⚡ للسرعة و🧠 للتحليل و⌘ للبرمجة. النموذج المختار له الأولوية فقط، ويبقى fallback المجاني نشطًا.`;
+  return `<b>🎛 Free AI model picker</b>\n\n<b>Active model:</b> ${current}\n<b>Viewing:</b> ${view} · <code>${scopedModels.length}</code> models\n\nEach colored provider emoji identifies the route: 🟣 Cloudflare · 🔵 OpenRouter · 🟠 Groq · 🟢 Gemini\nUse ⚡ for quick work, 🧠 for analysis, and ⌘ for code. A selected model is preferred only; the free fallback remains active.`;
+}
+
+export function modelSelectionText(model, language = "en") {
+  const name = escapeHtml(shortModelLabel(model.name || model.id));
+  const provider = escapeHtml(providerLabel(model.provider, language));
+  const category = escapeHtml(modelCategoryLabel(model.category, language));
+  const useCase = escapeHtml(modelUseCase(model.category, language));
+  const context = Number(model.contextLength) > 0 ? ` · <code>${Number(model.contextLength).toLocaleString()}</code>` : "";
+  const headline = `${providerIcon(model.provider)} <b>${name}</b>`;
+  if (language === "fa") return `<b>✓ مدل انتخاب شد</b>\n\n${headline}\n<b>پروایدر:</b> ${provider}\n<b>دسته:</b> <code>${category}</code> · ${useCase}${context}\n\nاین مدل در اولویت است و اگر موقتاً در دسترس نباشد، fallback رایگان به‌صورت خودکار ادامه می‌دهد.`;
+  if (language === "ar") return `<b>✓ تم اختيار النموذج</b>\n\n${headline}\n<b>الموفر:</b> ${provider}\n<b>الفئة:</b> <code>${category}</code> · ${useCase}${context}\n\nيأخذ هذا النموذج الأولوية. إذا لم يكن متاحًا مؤقتًا، يستمر fallback المجاني تلقائيًا.`;
+  return `<b>✓ Model selected</b>\n\n${headline}\n<b>Provider:</b> ${provider}\n<b>Best for:</b> <code>${category}</code> · ${useCase}${context}\n\nThis model is preferred. If it is temporarily unavailable, the free fallback continues automatically.`;
 }
 
 export function languageKeyboard(selectedCode = "en", page = 0, pageSize = 6) {
@@ -351,10 +434,20 @@ export function shortModelLabel(model = "") {
   if (value.includes("llama-4-scout")) return "Llama 4 Scout";
   if (value.includes("glm-4.7-flash")) return "GLM 4.7 Flash";
   if (value.includes("gemma-4")) return "Gemma 4";
+  if (value.includes("gpt-oss-120b")) return "GPT-OSS 120B";
   if (value.includes("gpt-oss-20b")) return "GPT-OSS 20B";
-  if (value.includes("llama-3.2-3b")) return "Llama 3.2";
-  if (value.includes("llama-3.1-8b")) return "Llama 3.1";
-  if (value.includes("gemini-2.5-flash-lite")) return "Gemini Flash Lite";
+  if (value.includes("granite-4.0-h-micro")) return "Granite 4 Micro";
+  if (value.includes("llama-4-scout")) return "Llama 4 Scout";
+  if (value.includes("llama-3.2-3b")) return "Llama 3.2 3B";
+  if (value.includes("llama-3.2-1b")) return "Llama 3.2 1B";
+  if (value.includes("llama-3.1-8b")) return "Llama 3.1 8B";
+  if (value.includes("qwen3-30b")) return "Qwen3 30B";
+  if (value.includes("gemini-3.7-flash")) return "Gemini 3.7 Flash";
+  if (value.includes("gemini-3.6-flash")) return "Gemini 3.6 Flash";
+  if (value.includes("gemini-3.5-flash-lite")) return "Gemini 3.5 Flash Lite";
+  if (value.includes("gemini-3.5-flash")) return "Gemini 3.5 Flash";
+  if (value.includes("gemini-3.1-flash-lite")) return "Gemini 3.1 Flash Lite";
+  if (value.includes("gemini-2.5-flash-lite")) return "Gemini 2.5 Flash Lite";
   const compact = String(model || "IVAI")
     .replace(/^@cf\//, "")
     .replace(/^[^/]+\//, "")

@@ -1,8 +1,8 @@
-# IVAI Bot v3.3.13 — Free-Tier, Secure Telegram AI Assistant
+# IVAI Bot v3.3.14 — Free-Tier, Secure Telegram AI Assistant
 
 [![Continuous Integration](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.13 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while adding webhook security, a source-verified free-only model policy, D1 data, admin controls, a responsive user-facing IVAI Terminal Mini App, multimodal adapters, inline feedback, safe HTML blockquotes, a descriptive command menu and a persistent Terminal menu button.
+> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.14 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while adding a source-verified free-only model policy, expanded Cloudflare/Gemini variety, a colored provider-aware model picker, and concise per-model selection guidance.
 
 ## Product principles
 
@@ -20,9 +20,9 @@
 |---|---|
 | Core commands | `/start`, `/menu`, `/help`, `/terminal`, `/auto`, `/fast`, `/deep`, `/code`, `/guard`, `/lang`, `/notify on|off`, `/debug`, `/reset` |
 | Secretary | `/task title`, `/task in 30m | title`, `/task <ISO-8601-with-offset> | title`, `/tasks`, `/done <id>`, `/cancel <id>`; reminders are delivered in a small free cron batch |
-| Model controls | `/models`, `/refreshmodels`, `/pick <number>`, `/model off` with a unified free-only picker across configured providers |
+| Model controls | `/models`, `/refreshmodels`, `/pick <number>`, `/model off` with a unified free-only picker. It offers 🟣 Cloudflare, 🔵 OpenRouter, 🟠 Groq and 🟢 Gemini filters, use-case filters for Fast/Deep/Code, preserved pagination, selected-state highlighting and provider/use-case details after selection. |
 | Memory controls | `/memory on`, `/memory off`, `/memory show`, `/memory clear` |
-| Providers | Workers AI first, then the official OpenRouter Free Router and verified zero-price `:free` catalog entries, active Groq GPT-OSS/Qwen models, and Gemini Flash/Flash-Lite free-tier models as sequential fallbacks |
+| Providers | A conservative Workers AI allowlist spanning GLM, Gemma, GPT-OSS, Granite, Llama and Qwen; the official OpenRouter Free Router plus dynamically verified zero-price `:free` entries; active Groq GPT-OSS/Qwen routes; and free-tier eligible Gemini Flash/Flash-Lite models. Every selected route still retains a sequential free fallback. |
 | Telegram UX | Rich Draft + Rich Message fallback, colored inline buttons, a focused Start surface, a descriptive five-row Menu, message chunking, callback handling, Inline Mode, Guest AI replies, and reaction-based group feedback |
 | Multimodal | Voice transcription and image understanding adapters through Workers AI, guarded by file and quota limits |
 | Admin | Owner/admin roles, Telegram-native admin controls, reviewable broadcast drafts, audit logging, responsive `/admin` Mini App shell, and server-side `initData` validation |

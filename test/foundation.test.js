@@ -10,7 +10,7 @@ import { defaultFreeModels, refreshFreeModelCatalog } from "../src/catalog.js";
 import { getAdminOperationalStats, setUserLanguage } from "../src/storage.js";
 import { getRequiredChannelMembership } from "../src/membership.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
-import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, startKeyboard, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
+import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelSelectionText, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, startKeyboard, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
 
 class KV {
   constructor() { this.values = new Map(); }
@@ -184,7 +184,7 @@ test("keeps Worker AI below the published free allocation and excludes paid-only
   assert.ok(!FREE_MODEL_POLICY.groq.includes("llama-3.1-8b-instant"));
   assert.equal(defaultFreeModelFor("workers-ai", MODES.FAST), "@cf/zai-org/glm-4.7-flash");
   assert.equal(defaultFreeModelFor("groq", MODES.DEEP), "openai/gpt-oss-120b");
-  assert.equal(defaultFreeModelFor("google", MODES.FAST), "gemini-3.5-flash-lite");
+  assert.equal(defaultFreeModelFor("google", MODES.FAST), "gemini-3.5-flash");
 });
 
 test("runs Guard Mode through Llama Guard with exactly one classifier call", async () => {
@@ -224,8 +224,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.13 release version", () => {
-  assert.equal(APP.version, "3.3.13");
+test("declares the official v3.3.14 release version", () => {
+  assert.equal(APP.version, "3.3.14");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -275,9 +275,23 @@ test("presents the requested Start controls and five-row Menu hierarchy", () => 
   assert.equal(start[0][2].callback_data, "menu:language");
   assert.equal(start[0][2].style, "danger");
 
-  const picker = modelPickerKeyboard([{ id: "@cf/zai-org/glm-4.7-flash", name: "GLM 4.7 Flash", provider: "workers-ai" }], { selectedModel: "@cf/zai-org/glm-4.7-flash" }).inline_keyboard.flat();
-  assert.ok(picker.some((button) => button.callback_data === "model:pick:0" && button.style === "success"));
-  assert.ok(picker.some((button) => button.callback_data === "model:auto" && button.style === "primary"));
+  const pickerModels = [
+    { id: "@cf/zai-org/glm-4.7-flash", name: "GLM 4.7 Flash", provider: "workers-ai", category: "fast", contextLength: 131072 },
+    { id: "google/gemma:free", name: "Gemma Free", provider: "openrouter", category: "deep" },
+    { id: "openai/gpt-oss-20b", name: "GPT-OSS 20B", provider: "groq", category: "code" },
+    { id: "gemini-3.7-flash", name: "Gemini 3.7 Flash", provider: "google", category: "deep" }
+  ];
+  const picker = modelPickerKeyboard(pickerModels, { selectedModel: "@cf/zai-org/glm-4.7-flash" }).inline_keyboard.flat();
+  assert.ok(picker.some((button) => button.callback_data === "model:view:workers-ai" && button.text.startsWith("🟣")));
+  assert.ok(picker.some((button) => button.callback_data === "model:view:openrouter" && button.text.startsWith("🔵")));
+  assert.ok(picker.some((button) => button.callback_data === "model:view:groq" && button.text.startsWith("🟠")));
+  assert.ok(picker.some((button) => button.callback_data === "model:view:google" && button.text.startsWith("🟢")));
+  assert.ok(picker.some((button) => button.callback_data === "model:pick:0:all:0" && button.style === "success"));
+  assert.ok(picker.some((button) => button.callback_data === "model:auto:all" && button.style === "primary"));
+  const providerFiltered = modelPickerKeyboard(pickerModels, { scope: "google" }).inline_keyboard.flat();
+  assert.ok(providerFiltered.some((button) => button.callback_data === "model:pick:0:google:0" && /Gemini/.test(button.text)));
+  assert.match(modelPickerText(pickerModels, { selectedModel: "@cf/zai-org/glm-4.7-flash", language: "en" }), /Cloudflare/);
+  assert.match(modelSelectionText(pickerModels[0], "en"), /Provider:/);
   assert.equal(thinkingText("en", 0), "<i>IVAI is thinking.</i>");
   assert.equal(thinkingText("en", 2), "<i>IVAI is thinking...</i>");
   assert.equal(modeLabel(MODES.DEEP, "en"), "Deep");
@@ -774,8 +788,12 @@ test("accepts only verified zero-price OpenRouter models in a refreshed catalog"
   }
 });
 
-test("uses the official OpenRouter Free Router as a safe automatic fallback", () => {
-  assert.ok(defaultFreeModels().some((model) => model.id === "openrouter/free"));
+test("uses the official OpenRouter Free Router and expanded verified static routes", () => {
+  const models = defaultFreeModels();
+  assert.ok(models.some((model) => model.id === "openrouter/free"));
+  assert.ok(models.some((model) => model.id === "@cf/meta/llama-3.2-1b-instruct"));
+  assert.ok(models.some((model) => model.id === "@cf/openai/gpt-oss-120b"));
+  assert.ok(models.some((model) => model.id === "gemini-3.5-flash"));
 });
 
 test("prefers the selected free Workers AI model before fallback", async () => {
@@ -800,7 +818,7 @@ test("opens a callback-driven model picker and selects a displayed free model", 
     const update = {
       update_id: 904,
       callback_query: {
-        id: "picker-1", from: { id: 7, first_name: "Picker" }, data: "model:pick:0",
+        id: "picker-1", from: { id: 7, first_name: "Picker" }, data: "model:pick:0:all:0",
         message: { message_id: 20, chat: { id: 42, type: "private" }, from: { id: 8285612628, is_bot: true } }
       }
     };
@@ -810,7 +828,8 @@ test("opens a callback-driven model picker and selects a displayed free model", 
     assert.equal(response.status, 200);
     const edit = calls.find((call) => /editMessageText$/.test(call.url));
     assert.match(edit.body.text, /Model selected/);
-    assert.equal(edit.body.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === "model:auto"), true);
+    assert.match(edit.body.text, /Provider:/);
+    assert.equal(edit.body.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === "model:auto:all"), true);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -28,7 +28,7 @@ import {
   upsertUser,
   writeAdminAudit
 } from "./storage.js";
-import { adminKeyboard, answerCallback, editMessage, ensureTerminalMenuButton, escapeHtml, languageKeyboard, languageMenuText, menuText, modelPickerKeyboard, modeKeyboard, modeLabel, requiredMembershipKeyboard, requiredMembershipText, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendTyping, settingsKeyboard, splitText, startKeyboard, startThinkingAnimation, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
+import { adminKeyboard, answerCallback, editMessage, ensureTerminalMenuButton, escapeHtml, languageKeyboard, languageMenuText, menuText, modelPickerKeyboard, modelPickerText, modelSelectionText, modeKeyboard, modeLabel, requiredMembershipKeyboard, requiredMembershipText, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendTyping, settingsKeyboard, splitText, startKeyboard, startThinkingAnimation, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
 
 const COMMAND_MODE = Object.freeze({
   "/auto": MODES.AUTO,
@@ -278,12 +278,22 @@ function secretaryTaskKeyboard(tasks, language) {
   return rows.length ? { inline_keyboard: rows } : undefined;
 }
 
-async function modelPickerView(language, selectedModel, env, page = 0) {
+function pickerScope(value = "all") {
+  return ["all", "workers-ai", "openrouter", "groq", "google", "fast", "deep", "code"].includes(value) ? value : "all";
+}
+
+function scopedCatalog(catalog, scope) {
+  const activeScope = pickerScope(scope);
+  return activeScope === "all" ? catalog : catalog.filter((model) => model.provider === activeScope || model.category === activeScope);
+}
+
+async function modelPickerView(language, selectedModel, env, page = 0, scope = "all") {
   const catalog = await getFreeModelCatalog(env);
-  const locked = selectedModel ? `<code>${escapeHtml(selectedModel)}</code>` : (language === "fa" ? "Auto" : "Auto");
-  const heading = language === "fa" ? "<b>انتخاب مدل AI رایگان</b>" : "<b>Free AI model picker</b>";
-  const detail = language === "fa" ? "مدل انتخابی شما اولویت دارد؛ اگر موقتاً در دسترس نباشد، fallback رایگان و ترتیبی فعال می‌شود." : "Your selected model is preferred; if it is temporarily unavailable, ordered free fallback stays active.";
-  return { text: `${heading}\n\n<b>${language === "fa" ? "مدل فعال" : "Active model"}:</b> ${locked}\n${detail}`, keyboard: modelPickerKeyboard(catalog, { page, selectedModel, language }) };
+  const activeScope = pickerScope(scope);
+  return {
+    text: modelPickerText(catalog, { selectedModel, language, scope: activeScope }),
+    keyboard: modelPickerKeyboard(catalog, { page, selectedModel, language, scope: activeScope })
+  };
 }
 
 async function sendModelList(chatId, language, selectedModel, env, replyTo) {
@@ -734,33 +744,48 @@ async function processCallback(query, env) {
     await editMessage(env, { chatId, messageId, text: view.text, keyboard: view.keyboard });
     return;
   }
-  if (data.startsWith("model:page:")) {
-    const page = Number(data.slice("model:page:".length));
+  if (data.startsWith("model:view:")) {
+    const scope = pickerScope(data.slice("model:view:".length));
     const settings = await getUserSettings(userId, env);
-    const view = await modelPickerView(language, settings.selectedModel, env, Number.isFinite(page) ? page : 0);
+    const view = await modelPickerView(language, settings.selectedModel, env, 0, scope);
+    await editMessage(env, { chatId, messageId, text: view.text, keyboard: view.keyboard });
+    return;
+  }
+  if (data.startsWith("model:page:")) {
+    const [requestedScope, requestedPage] = data.slice("model:page:".length).split(":");
+    const legacyPage = requestedPage === undefined ? Number(requestedScope) : NaN;
+    const scope = requestedPage === undefined ? "all" : pickerScope(requestedScope);
+    const page = requestedPage === undefined ? legacyPage : Number(requestedPage);
+    const settings = await getUserSettings(userId, env);
+    const view = await modelPickerView(language, settings.selectedModel, env, Number.isFinite(page) ? page : 0, scope);
     await editMessage(env, { chatId, messageId, text: view.text, keyboard: view.keyboard });
     return;
   }
   if (data.startsWith("model:pick:")) {
-    const index = Number(data.slice("model:pick:".length));
-    const catalog = await getFreeModelCatalog(env);
+    const [indexText, requestedScope = "all", requestedPage = "0"] = data.slice("model:pick:".length).split(":");
+    const index = Number(indexText);
+    const scope = pickerScope(requestedScope);
+    const catalog = scopedCatalog(await getFreeModelCatalog(env), scope);
     const model = catalog[index];
     if (!model) return;
     await setSelectedModel(userId, model.id, env);
-    const view = await modelPickerView(language, model.id, env, Math.floor(index / 6));
-    await editMessage(env, { chatId, messageId, text: `${language === "fa" ? "✓ مدل انتخاب شد" : "✓ Model selected"}: <code>${escapeHtml(model.id)}</code>\n${language === "fa" ? "این مدل در اولویت است و fallback رایگان باقی می‌ماند." : "This model is preferred; free fallback remains available."}`, keyboard: view.keyboard });
+    const view = await modelPickerView(language, model.id, env, Number.isFinite(Number(requestedPage)) ? Number(requestedPage) : 0, scope);
+    await editMessage(env, { chatId, messageId, text: modelSelectionText(model, language), keyboard: view.keyboard });
     return;
   }
-  if (data === "model:auto") {
+  if (data === "model:auto" || data.startsWith("model:auto:")) {
+    const scope = pickerScope(data.split(":")[2] || "all");
     await setSelectedModel(userId, null, env);
-    const view = await modelPickerView(language, null, env);
-    await editMessage(env, { chatId, messageId, text: `${language === "fa" ? "✓ Auto policy فعال شد." : "✓ Auto policy is active."}\n\n${view.text}`, keyboard: view.keyboard });
+    const view = await modelPickerView(language, null, env, 0, scope);
+    const confirmation = language === "fa" ? "✓ مسیر خودکار فعال شد." : language === "ar" ? "✓ تم تفعيل المسار التلقائي." : "✓ Auto route is active.";
+    await editMessage(env, { chatId, messageId, text: `${confirmation}\n\n${view.text}`, keyboard: view.keyboard });
     return;
   }
-  if (data === "model:refresh") {
+  if (data === "model:refresh" || data.startsWith("model:refresh:")) {
+    const scope = pickerScope(data.split(":")[2] || "all");
     try { await refreshFreeModelCatalog(env); } catch { /* The picker keeps the last safe catalog. */ }
     const settings = await getUserSettings(userId, env);
-    const view = await modelPickerView(language, settings.selectedModel, env);
+    const view = await modelPickerView(language, settings.selectedModel, env, 0, scope);
     await editMessage(env, { chatId, messageId, text: view.text, keyboard: view.keyboard });
     return;
   }

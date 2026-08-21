@@ -1,6 +1,6 @@
 export const APP = Object.freeze({
   name: "IVAI",
-  version: "3.3.13",
+  version: "3.3.14",
   terminalAppUrl: "https://ivai-bot.ivai-bot.workers.dev/app",
   requiredChannelId: -1003162460662,
   requiredChannelUsername: "ILIVIR3",
@@ -103,7 +103,13 @@ export const FREE_MODEL_POLICY = Object.freeze({
       "@cf/zai-org/glm-4.7-flash",
       "@cf/google/gemma-4-26b-a4b-it",
       "@cf/openai/gpt-oss-20b",
-      "@cf/ibm-granite/granite-4.0-h-micro"
+      "@cf/openai/gpt-oss-120b",
+      "@cf/ibm-granite/granite-4.0-h-micro",
+      "@cf/meta/llama-3.2-1b-instruct",
+      "@cf/meta/llama-3.2-3b-instruct",
+      "@cf/meta/llama-3.1-8b-instruct-fp8-fast",
+      "@cf/meta/llama-4-scout-17b-16e-instruct",
+      "@cf/qwen/qwen3-30b-a3b-fp8"
     ]),
     vision: Object.freeze([
       "@cf/google/gemma-4-26b-a4b-it",
@@ -127,6 +133,7 @@ export const FREE_MODEL_POLICY = Object.freeze({
   google: Object.freeze([
     "gemini-3.7-flash",
     "gemini-3.6-flash",
+    "gemini-3.5-flash",
     "gemini-3.5-flash-lite",
     "gemini-3.1-flash-lite",
     "gemini-2.5-flash",
