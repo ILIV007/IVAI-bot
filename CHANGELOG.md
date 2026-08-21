@@ -2,6 +2,22 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.10] - 2026-08-21
+
+### Fixed
+
+- Reworked the `Check membership` callback so a failed Telegram verification no longer attempts to edit the same Join message, which Telegram rejects as `message is not modified` and made the button appear non-functional.
+- The callback now keeps the Join prompt unchanged and shows a localized Telegram alert explaining whether the user is not yet confirmed or the bot cannot verify the channel.
+- A successful verified member callback still changes the prompt exactly once to the normal IVAI welcome controls, without showing Join/Recheck again.
+
+### Tests
+
+- Added callback regression coverage for verified membership and verification failure; the suite now contains 49 passing tests.
+
+### Operational requirement
+
+- The canonical channel remains `-1003162460662` / `@ILIVIR3`. `@IVAI_Llm_bot` must be an administrator of that same channel so Telegram can verify ordinary members.
+
 ## [3.3.9] - 2026-08-21
 
 ### Fixed
@@ -146,6 +162,7 @@ All notable changes to IVAI Bot are documented in this file. The project follows
 
 - Baseline IVAI bot experience on which the v3.3 modular modernization is built.
 
+[3.3.10]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.9...v3.3.10
 [3.3.9]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.8...v3.3.9
 [3.3.8]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.7...v3.3.8
 [3.3.7]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.6...v3.3.7

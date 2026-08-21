@@ -224,8 +224,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.9 release version", () => {
-  assert.equal(APP.version, "3.3.9");
+test("declares the official v3.3.10 release version", () => {
+  assert.equal(APP.version, "3.3.10");
 });
 
 test("keeps bounded free-tier output limits", () => {
@@ -335,6 +335,46 @@ test("blocks a non-member before bot commands and presents the correct join flow
     assert.equal(calls[0].body.chat_id, APP.requiredChannelId);
     assert.match(calls[1].body.text, /Membership in @ILIVIR3 is required/);
     assert.equal(calls[1].body.reply_markup.inline_keyboard[0][0].url, APP.requiredChannelUrl);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("keeps the join prompt intact and shows a useful alert when Telegram cannot verify membership", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    const call = { url: String(url), body: JSON.parse(init.body) };
+    calls.push(call);
+    if (/getChatMember$/.test(call.url)) return new Response(JSON.stringify({ ok: false, description: "Bad Request: bot is not an administrator" }), { status: 400 });
+    return new Response(JSON.stringify({ ok: true, result: true }), { status: 200 });
+  };
+  try {
+    const update = { update_id: 212, callback_query: { id: "membership-failed", from: { id: 126679582, first_name: "Member" }, data: "membership:check", message: { message_id: 23, chat: { id: 44, type: "private" }, from: { id: 8285612628, is_bot: true } } } };
+    const response = await worker.fetch(new Request("https://worker.test/", { method: "POST", headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" }, body: JSON.stringify(update) }), { ...baseEnv(), REQUIRED_CHANNEL_ENFORCED: "true" });
+    assert.equal(response.status, 200);
+    assert.equal(calls.filter((call) => /getChatMember$/.test(call.url)).length, 2);
+    const alert = calls.find((call) => /answerCallbackQuery$/.test(call.url));
+    assert.equal(alert.body.show_alert, true);
+    assert.match(alert.body.text, /administrator of @ILIVIR3/);
+    assert.equal(calls.some((call) => /editMessageText$/.test(call.url)), false);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("confirms membership after a verified callback without showing the join prompt again", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    const call = { url: String(url), body: JSON.parse(init.body) };
+    calls.push(call);
+    if (/getChatMember$/.test(call.url)) return new Response(JSON.stringify({ ok: true, result: { status: "member" } }), { status: 200 });
+    return new Response(JSON.stringify({ ok: true, result: true }), { status: 200 });
+  };
+  try {
+    const update = { update_id: 213, callback_query: { id: "membership-ok", from: { id: 126679582, first_name: "Member" }, data: "membership:check", message: { message_id: 24, chat: { id: 45, type: "private" }, from: { id: 8285612628, is_bot: true } } } };
+    const response = await worker.fetch(new Request("https://worker.test/", { method: "POST", headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" }, body: JSON.stringify(update) }), { ...baseEnv(), REQUIRED_CHANNEL_ENFORCED: "true" });
+    assert.equal(response.status, 200);
+    const edit = calls.find((call) => /editMessageText$/.test(call.url));
+    assert.match(edit.body.text, /Membership confirmed/);
+    assert.doesNotMatch(edit.body.text, /Join @ILIVIR3/);
   } finally { globalThis.fetch = originalFetch; }
 });
 

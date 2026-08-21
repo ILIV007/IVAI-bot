@@ -39,7 +39,7 @@
 
 ### 2.3 false-negative عضویت کانال در production
 
-برای کاهش وابستگی غیرضروری به یک representation از chat، بررسی canonical ابتدا با ID عددی و تنها در صورت خطای API با username رسمی `@ILIVIR3` دوباره انجام می‌شود. پاسخ موفق Telegram با status `member`، `administrator`، `creator`/`owner` یا restricted-member قطعی است و user بدون پیام Join/Recheck از مسیر معمول بات عبور می‌کند. اگر هر دو lookup خطا بدهند، طراحی همچنان fail-closed می‌ماند؛ در این حالت bot باید administrator کانال باشد و ID/username کانال باید دقیقاً به همان کانال اشاره کنند.
+برای کاهش وابستگی غیرضروری به یک representation از chat، بررسی canonical ابتدا با ID عددی و تنها در صورت خطای API با username رسمی `@ILIVIR3` دوباره انجام می‌شود. پاسخ موفق Telegram با status `member`، `administrator`، `creator`/`owner` یا restricted-member قطعی است و user بدون پیام Join/Recheck از مسیر معمول بات عبور می‌کند. در v3.3.10 دکمهٔ Check membership نیز دیگر در failure همان پیام Join را دوباره edit نمی‌کند؛ prompt دست‌نخورده می‌ماند و Telegram alert علت عدم تأیید را نشان می‌دهد. اگر هر دو lookup خطا بدهند، طراحی همچنان fail-closed می‌ماند؛ در این حالت bot باید administrator کانال باشد و ID/username کانال باید دقیقاً به همان کانال اشاره کنند.
 
 ## 3. معماری و کنترل‌های منطقی
 
@@ -65,7 +65,7 @@ Broadcast و یادآوری‌ها sequential و batch-bounded هستند. ای�
 | کنترل | نتیجه |
 |---|---|
 | `pnpm install --frozen-lockfile` | موفق؛ lockfile قابل‌تکرار است |
-| `pnpm run validate` | **47/47 passed** |
+| `pnpm run validate` | **49/49 passed** |
 | `pnpm audit --audit-level=high` | هیچ آسیب‌پذیری شناخته‌شده‌ای یافت نشد |
 | `git diff --check` | موفق؛ بدون خطای whitespace |
 | Integrity Git | `git fsck --no-dangling` موفق |

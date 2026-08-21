@@ -47,6 +47,12 @@ function membershipConfirmedText(language) {
   return language === "fa" ? "<b>✓ عضویت تأیید شد</b>\n\nاکنون می‌توانید از IVAI استفاده کنید." : language === "ar" ? "<b>✓ تم تأكيد العضوية</b>\n\nيمكنك الآن استخدام IVAI." : "<b>✓ Membership confirmed</b>\n\nYou can now use IVAI.";
 }
 
+function membershipCheckAlertText(language, { checkFailed = false } = {}) {
+  if (language === "fa") return checkFailed ? "بررسی از Telegram تأیید نشد. بات باید administrator کانال @ILIVIR3 باشد." : "عضویت شما هنوز در کانال تأیید نشده است.";
+  if (language === "ar") return checkFailed ? "تعذر التحقق من Telegram. يجب أن يكون البوت مشرفًا في @ILIVIR3." : "لم يتم تأكيد عضويتك في القناة بعد.";
+  return checkFailed ? "Telegram could not verify membership. The bot must be an administrator of @ILIVIR3." : "Your channel membership is not active yet.";
+}
+
 async function isRequiredChannelMember(userId, env) {
   return getRequiredChannelMembership(userId, env);
 }
@@ -663,20 +669,21 @@ async function processCallback(query, env) {
   const chatId = query.message?.chat?.id;
   const language = (await getUserSettings(userId, env)).language || "en";
   const data = String(query.data || "");
-  await answerCallback(env, query.id).catch(() => {});
   const messageId = query.message?.message_id;
   if (!chatId || !messageId) return;
 
   if (data === "membership:check") {
     const membership = await isRequiredChannelMember(userId, env);
     if (!membership.allowed) {
-      await editMessage(env, { chatId, messageId, text: requiredMembershipText(language, { checkFailed: membership.reason === "CHECK_FAILED" }), keyboard: requiredMembershipKeyboard(language) });
+      await answerCallback(env, query.id, membershipCheckAlertText(language, { checkFailed: membership.reason === "CHECK_FAILED" }), { showAlert: true }).catch(() => {});
       return;
     }
+    await answerCallback(env, query.id).catch(() => {});
     await editMessage(env, { chatId, messageId, text: membershipConfirmedText(language), keyboard: welcomeKeyboard(language, query.message) });
     return;
   }
 
+  await answerCallback(env, query.id).catch(() => {});
   const membership = await isRequiredChannelMember(userId, env);
   if (!membership.allowed) {
     await editMessage(env, { chatId, messageId, text: requiredMembershipText(language, { checkFailed: membership.reason === "CHECK_FAILED" }), keyboard: requiredMembershipKeyboard(language) });

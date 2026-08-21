@@ -277,8 +277,8 @@ export async function editMessage(env, { chatId, messageId, text, keyboard, busi
   });
 }
 
-export async function answerCallback(env, callbackQueryId, text = "") {
-  return telegram(env, "answerCallbackQuery", { callback_query_id: callbackQueryId, text, show_alert: false });
+export async function answerCallback(env, callbackQueryId, text = "", { showAlert = false } = {}) {
+  return telegram(env, "answerCallbackQuery", { callback_query_id: callbackQueryId, text, show_alert: showAlert });
 }
 
 export function splitText(text, maxLength) {
