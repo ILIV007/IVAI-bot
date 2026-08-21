@@ -284,7 +284,7 @@ export async function claimReengagementUsers(env, { limit = 5, now = new Date().
   const leaseUntil = new Date(Date.parse(now) + leaseSeconds * 1000).toISOString();
   const claimed = [];
   for (const candidate of candidates?.results || []) {
-    await env.IVAI_DB.prepare(`INSERT INTO user_reengagement (telegram_user_id, enabled, delivery_state, last_attempt_at, lease_until, updated_at)
+    const result = await env.IVAI_DB.prepare(`INSERT INTO user_reengagement (telegram_user_id, enabled, delivery_state, last_attempt_at, lease_until, updated_at)
       VALUES (?, 1, 'sending', ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(telegram_user_id) DO UPDATE SET delivery_state='sending', last_attempt_at=excluded.last_attempt_at,
         lease_until=excluded.lease_until, updated_at=CURRENT_TIMESTAMP
@@ -292,8 +292,9 @@ export async function claimReengagementUsers(env, { limit = 5, now = new Date().
         AND (user_reengagement.last_sent_at IS NULL OR datetime(user_reengagement.last_sent_at) <= datetime(?))
         AND (user_reengagement.delivery_state IN ('idle','sent') OR (user_reengagement.delivery_state='failed' AND datetime(user_reengagement.last_attempt_at) <= datetime(?)))`)
       .bind(String(candidate.userId), now, leaseUntil, now, resendBefore, retryBefore).run();
-    const claimedRow = await env.IVAI_DB.prepare("SELECT delivery_state AS state, lease_until AS leaseUntil FROM user_reengagement WHERE telegram_user_id=?").bind(String(candidate.userId)).first();
-    if (claimedRow?.state === "sending" && claimedRow.leaseUntil === leaseUntil) claimed.push(candidate);
+    // D1's affected-row count is the atomic claim result. Reading the row back would
+    // let a competing cron run mistake another invocation's identical lease for its own.
+    if (Number(result?.meta?.changes || 0) === 1) claimed.push(candidate);
   }
   return claimed;
 }

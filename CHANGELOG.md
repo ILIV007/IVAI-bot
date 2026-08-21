@@ -2,6 +2,17 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.15] - 2026-08-21
+
+### Fixed
+
+- Hardened the 15-day re-engagement cron claim against overlapping Scheduled Event executions. The code now trusts D1's atomic affected-row result instead of reading the lease back after the write, preventing a second concurrent execution from mistaking an identical lease for its own claim.
+- Preserved the existing free, no-AI-message behavior: a batch claims at most five eligible inactive users, sends localized Telegram text only, respects `/notify off`, and waits at least 15 days between successful check-ins.
+
+### Tests
+
+- Added a concurrent-cron simulation at the same timestamp. It proves exactly one re-engagement delivery is sent when two overlapping jobs see the same eligible user. The suite contains 52 passing tests.
+
 ## [3.3.14] - 2026-08-21
 
 ### Changed
@@ -231,6 +242,7 @@ All notable changes to IVAI Bot are documented in this file. The project follows
 
 - Baseline IVAI bot experience on which the v3.3 modular modernization is built.
 
+[3.3.15]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.14...v3.3.15
 [3.3.14]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.13...v3.3.14
 [3.3.13]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.12...v3.3.13
 [3.3.12]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.11...v3.3.12

@@ -224,8 +224,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.14 release version", () => {
-  assert.equal(APP.version, "3.3.14");
+test("declares the official v3.3.15 release version", () => {
+  assert.equal(APP.version, "3.3.15");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -951,6 +951,28 @@ test("sends one localized re-engagement message after an atomic claim", async ()
     assert.equal(calls.length, 1);
     assert.match(calls[0].body.text, /IVAI sigue aquí/);
     assert.equal(calls[0].body.reply_markup.inline_keyboard[0][1].callback_data, "notify:off");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("does not duplicate a re-engagement delivery when cron runs overlap", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 772 } }), { status: 200 });
+  };
+  try {
+    const env = { ...baseEnv(), IVAI_DB: new ReengagementD1() };
+    const now = "2026-08-20T12:00:00.000Z";
+    const [first, second] = await Promise.all([
+      processReengagementBatch(env, { now }),
+      processReengagementBatch(env, { now })
+    ]);
+    assert.equal(first.claimed + second.claimed, 1);
+    assert.equal(first.sent + second.sent, 1);
+    assert.equal(calls.length, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }
