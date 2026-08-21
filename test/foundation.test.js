@@ -8,7 +8,7 @@ import { processReengagementBatch } from "../src/reengagement.js";
 import { analyzePhoto, downloadTelegramFile, transcribeVoice } from "../src/media.js";
 import { APP, defaultFreeModelFor, FREE_MODEL_POLICY, LANGUAGE_OPTIONS, MODES, modeOutputLimit } from "../src/config.js";
 import { defaultFreeModels, refreshFreeModelCatalog } from "../src/catalog.js";
-import { getAdminOperationalStats, getUserSettings, setMemoryEnabled, setSelectedModel, setUserLanguage, setUserMode, upsertUser } from "../src/storage.js";
+import { ensureConversationSession, getAdminOperationalStats, getConversationSession, getUserSettings, saveConversationSession, setMemoryEnabled, setSelectedModel, setUserLanguage, setUserMode, startNewConversationSession, upsertUser } from "../src/storage.js";
 import { getRequiredChannelMembership } from "../src/membership.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
 import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelSelectionText, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, startKeyboard, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
@@ -225,8 +225,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.19 release version", () => {
-  assert.equal(APP.version, "3.3.19");
+test("declares the official v3.3.20 release version", () => {
+  assert.equal(APP.version, "3.3.20");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -1227,4 +1227,115 @@ test("preserves mode and model when the first preference writes arrive in a diff
     selectedModel: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
     memoryEnabled: true
   });
+});
+
+test("bounds conversation Sessions by idle and absolute lifetime without a background job", async () => {
+  const kv = new KV();
+  const env = { IVAI_KV: kv };
+  const scope = "42:7:main:root";
+  const t0 = 1_000_000;
+  const firstMessages = [{ role: "user", content: "Remember this" }, { role: "assistant", content: "Stored" }];
+
+  let session = await saveConversationSession(scope, firstMessages, env, { now: t0 });
+  assert.equal(session.messages.length, 2);
+  assert.equal(session.idleExpiresAt, t0 + APP.conversationSessionIdleSeconds * 1000);
+  assert.equal(session.expiresAt, t0 + APP.conversationSessionAbsoluteSeconds * 1000);
+  assert.equal((await kv.get(`session:${scope}`)) !== null, true);
+
+  assert.deepEqual((await getConversationSession(scope, env, { now: t0 + 29 * 60 * 1000 })).messages, firstMessages);
+  assert.equal(await getConversationSession(scope, env, { now: t0 + 30 * 60 * 1000 }), null);
+  assert.equal(await kv.get(`session:${scope}`), null);
+
+  session = await saveConversationSession(scope, firstMessages, env, { now: t0 });
+  for (const minutes of [20, 40, 60, 80, 100]) {
+    session = await saveConversationSession(scope, firstMessages, env, { session, now: t0 + minutes * 60 * 1000 });
+  }
+  assert.equal((await getConversationSession(scope, env, { now: t0 + 119 * 60 * 1000 }))?.id, session.id);
+  assert.equal(await getConversationSession(scope, env, { now: t0 + 120 * 60 * 1000 }), null);
+});
+
+test("resets only the requested conversation Session and leaves a separate Terminal Session intact", async () => {
+  const kv = new KV();
+  const env = { IVAI_KV: kv };
+  const chatScope = "42:7:main:root";
+  const terminalScope = "7:7:terminal:root";
+  const now = 2_000_000;
+  await saveConversationSession(chatScope, [{ role: "user", content: "Telegram context" }], env, { now });
+  await saveConversationSession(terminalScope, [{ role: "user", content: "Terminal context" }], env, { now });
+
+  await startNewConversationSession(chatScope, env);
+
+  assert.equal(await getConversationSession(chatScope, env, { now: now + 1 }), null);
+  assert.equal((await getConversationSession(terminalScope, env, { now: now + 1 }))?.messages[0].content, "Terminal context");
+});
+
+test("starts a new Telegram Session with /new without AI work or preference resets", async () => {
+  const originalFetch = globalThis.fetch;
+  const kv = new KV();
+  const env = { ...baseEnv(), IVAI_KV: kv, AI: { async run() { throw new Error("/new must not call AI"); } } };
+  const scope = "42:126679582:main:root";
+  await saveConversationSession(scope, [{ role: "user", content: "Old context" }], env, { now: Date.now() });
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true, result: { message_id: 777 } }), { status: 200 });
+  try {
+    const update = { update_id: 1301, message: { message_id: 51, chat: { id: 42, type: "private" }, from: { id: 126679582, first_name: "Owner" }, text: "/new" } };
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+      body: JSON.stringify(update)
+    }), env);
+    assert.equal(response.status, 200);
+    assert.equal(await getConversationSession(scope, env), null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("starts a new Telegram Session with /start without an AI call", async () => {
+  const originalFetch = globalThis.fetch;
+  const kv = new KV();
+  const env = { ...baseEnv(), IVAI_KV: kv, AI: { async run() { throw new Error("/start must not call AI"); } } };
+  const scope = "42:126679582:main:root";
+  await saveConversationSession(scope, [{ role: "user", content: "Old context" }], env, { now: Date.now() });
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true, result: { message_id: 778 } }), { status: 200 });
+  try {
+    const update = { update_id: 1302, message: { message_id: 52, chat: { id: 42, type: "private" }, from: { id: 126679582, first_name: "Owner" }, text: "/start" } };
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+      body: JSON.stringify(update)
+    }), env);
+    assert.equal(response.status, 200);
+    assert.equal(await getConversationSession(scope, env), null);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("resets the authenticated Terminal Session through /app/new without an AI call", async () => {
+  const kv = new KV();
+  const env = { ...baseEnv(), IVAI_KV: kv, AI: { async run() { throw new Error("/app/new must not call AI"); } } };
+  const scope = "126679582:126679582:terminal:root";
+  await saveConversationSession(scope, [{ role: "user", content: "Terminal old context" }], env, { now: Date.now() });
+  const response = await worker.fetch(new Request("https://worker.test/app/new", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-telegram-init-data": signedWebAppInitData() },
+    body: "{}"
+  }), env);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).ok, true);
+  assert.equal(await getConversationSession(scope, env), null);
+});
+
+test("does not resurrect a reset Session when an older AI turn finishes later", async () => {
+  const kv = new KV();
+  const env = { IVAI_KV: kv };
+  const scope = "42:7:main:root";
+  const now = 3_000_000;
+  const active = await ensureConversationSession(scope, env, { now });
+
+  await startNewConversationSession(scope, env);
+  const saved = await saveConversationSession(scope, [{ role: "user", content: "Late old response" }], env, { session: active, now: now + 1 });
+
+  assert.equal(saved, null);
+  assert.equal(await getConversationSession(scope, env, { now: now + 1 }), null);
 });

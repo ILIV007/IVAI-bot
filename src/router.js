@@ -6,11 +6,11 @@ import { cancelBroadcast } from "./broadcast.js";
 import { allowUsage, canBroadcast, canManage, getRole, safeError } from "./security.js";
 import { getRequiredChannelMembership } from "./membership.js";
 import {
-  clearGuestMemory,
   conversationKey,
   createSecretaryTask,
   createBroadcastDraft,
-  getGuestMemory,
+  ensureConversationSession,
+  getConversationSession,
   getAdminOperationalStats,
   getUserDebugStats,
   getUserSettings,
@@ -18,7 +18,8 @@ import {
   listSecretaryTasks,
   markBroadcastConfirmed,
   recordFeedback,
-  saveGuestMemory,
+  saveConversationSession,
+  startNewConversationSession,
   setMemoryEnabled,
   setReengagementPreference,
   setSelectedModel,
@@ -167,9 +168,15 @@ function responseText(language, key) {
 
 function helpText(language) {
   if (language === "fa") {
-    return `<b>📖 راهنمای IVAI</b>\n\nیک پیام بفرستید؛ <code>Auto</code> مسیر رایگان مناسب را انتخاب می‌کند.\n\n<b>حالت‌ها</b>\n<code>Auto</code> انتخاب خودکار · <code>Fast</code> پاسخ سریع · <code>Deep</code> پاسخ دقیق\n\n<b>ابزارها</b>\n<code>/models</code> مدل رایگان · <code>/memory on|off</code> حافظه · <code>/terminal</code> محیط گفتگو\n<code>/task عنوان</code> یادآور · <code>/guard</code> بررسی ایمنی\n\n<blockquote>همهٔ مسیرها رایگان هستند.</blockquote>`;
+    return `<b>📖 راهنمای IVAI</b>\n\nیک پیام بفرستید؛ <code>Auto</code> مسیر رایگان مناسب را انتخاب می‌کند.\n\n<b>حالت‌ها</b>\n<code>Auto</code> انتخاب خودکار · <code>Fast</code> پاسخ سریع · <code>Deep</code> پاسخ دقیق\n\n<b>ابزارها</b>\n<code>/new</code> گفتگوی جدید · <code>/models</code> مدل رایگان · <code>/memory on|off</code> حافظه\n<code>/terminal</code> محیط گفتگو · <code>/task عنوان</code> یادآور · <code>/guard</code> بررسی ایمنی\n\n<blockquote>هر Session حافظهٔ کوتاه و مستقل دارد؛ همهٔ مسیرها رایگان هستند.</blockquote>`;
   }
-  return `<b>📖 IVAI Help</b>\n\nSend a message; <code>Auto</code> selects a suitable free route.\n\n<b>Modes</b>\n<code>Auto</code> automatic · <code>Fast</code> concise · <code>Deep</code> detailed\n\n<b>Tools</b>\n<code>/models</code> free model · <code>/memory on|off</code> memory · <code>/terminal</code> chat workspace\n<code>/task title</code> reminder · <code>/guard</code> safety check\n\n<blockquote>Every route is free-only.</blockquote>`;
+  return `<b>📖 IVAI Help</b>\n\nSend a message; <code>Auto</code> selects a suitable free route.\n\n<b>Modes</b>\n<code>Auto</code> automatic · <code>Fast</code> concise · <code>Deep</code> detailed\n\n<b>Tools</b>\n<code>/new</code> new chat · <code>/models</code> free model · <code>/memory on|off</code> memory\n<code>/terminal</code> chat workspace · <code>/task title</code> reminder · <code>/guard</code> safety check\n\n<blockquote>Each Session has short, independent memory; every route is free-only.</blockquote>`;
+}
+
+function newConversationText(language) {
+  if (language === "fa") return "<b>✓ گفتگوی جدید آماده است</b>\n\nSession این گفتگو پاک شد. زبان، مدل، حالت پاسخ و تنظیم حافظه بدون تغییر ماندند.";
+  if (language === "ar") return "<b>✓ المحادثة الجديدة جاهزة</b>\n\nتمت إعادة Session هذه المحادثة فقط. بقيت اللغة والنموذج ووضع الرد وإعداد الذاكرة دون تغيير.";
+  return "<b>✓ New chat ready</b>\n\nOnly this conversation Session was reset. Your language, model, response mode and memory setting are unchanged.";
 }
 
 function renderAiText(text) {
@@ -182,15 +189,16 @@ function renderAiText(text) {
 }
 
 function getThreadId(message) {
-  return message.message_thread_id || message.reply_to_message?.message_id || null;
+  return message.message_thread_id || null;
 }
 
 function contextKey(message) {
+  // Replies belong to their parent conversation. Only an explicit Telegram topic
+  // establishes a separate Session boundary.
   return conversationKey({
     chatId: message.chat?.id,
     userId: message.from?.id,
-    threadId: getThreadId(message),
-    replyTo: message.reply_to_message?.message_id
+    threadId: getThreadId(message)
   });
 }
 
@@ -221,8 +229,8 @@ function terminalMemoryKey(userId) {
 
 async function clearUserMemory(message, env) {
   await Promise.all([
-    clearGuestMemory(contextKey(message), env),
-    clearGuestMemory(terminalMemoryKey(message.from?.id), env)
+    startNewConversationSession(contextKey(message), env),
+    startNewConversationSession(terminalMemoryKey(message.from?.id), env)
   ]);
 }
 
@@ -308,7 +316,13 @@ async function handleCommand(message, env, language) {
   const settings = await getUserSettings(userId, env);
 
   if (command === "/start") {
+    await startNewConversationSession(contextKey(message), env);
     await sendMessage(env, { chatId, text: welcomeText(language), keyboard: welcomeKeyboard(language, message), replyTo: message.message_id });
+    return true;
+  }
+  if (command === "/new") {
+    await startNewConversationSession(contextKey(message), env);
+    await sendMessage(env, { chatId, text: newConversationText(language), replyTo: message.message_id });
     return true;
   }
   if (command === "/menu") {
@@ -424,8 +438,9 @@ async function handleCommand(message, env, language) {
       await sendMessage(env, { chatId, text: language === "fa" ? "✓ حافظهٔ این گفت‌وگو و IVAI Terminal پاک شد." : "✓ This conversation and IVAI Terminal memory were cleared.", replyTo: message.message_id });
       return true;
     }
-    const memory = await getGuestMemory(key, env);
-    const preview = memory.length ? memory.map((entry) => `<b>${entry.role}:</b> ${escapeHtml(String(entry.content).slice(0, 280))}`).join("\n\n") : (language === "fa" ? "حافظه‌ای برای این گفت‌وگو نیست." : "There is no stored memory for this conversation.");
+    const session = settings.memoryEnabled ? await getConversationSession(key, env) : null;
+    const memory = session?.messages || [];
+    const preview = memory.length ? memory.map((entry) => `<b>${entry.role}:</b> ${escapeHtml(String(entry.content).slice(0, 280))}`).join("\n\n") : (language === "fa" ? "حافظه‌ای برای Session این گفت‌وگو نیست." : "There is no stored memory for this conversation Session.");
     await sendMessage(env, { chatId, text: preview, replyTo: message.message_id });
     return true;
   }
@@ -505,7 +520,8 @@ async function processText(message, env) {
   }
 
   const key = contextKey(message);
-  const context = settings.memoryEnabled ? await getGuestMemory(key, env) : [];
+  const session = settings.memoryEnabled ? await ensureConversationSession(key, env) : null;
+  const context = session?.messages || [];
   await sendTyping(env, chatId, delivery).catch(() => {});
   const richEligible = message.chat?.type === "private" && !delivery.businessConnectionId;
   let richDraftActive = false;
@@ -535,7 +551,7 @@ async function processText(message, env) {
     const result = await generateReply({ text, selectedMode: settings.mode, selectedModel: settings.selectedModel, language, context }, env);
     await thinking?.stop();
     if (settings.memoryEnabled) {
-      await saveGuestMemory(key, [...context, { role: "user", content: text }, { role: "assistant", content: result.text }], env);
+      await saveConversationSession(key, [...context, { role: "user", content: text }, { role: "assistant", content: result.text }], env, { session });
     }
     const finalText = `${renderAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: result.mode, language })}`;
     if (finalText.length <= APP.maxTelegramText) {
@@ -809,8 +825,8 @@ async function processCallback(query, env) {
     await setSelectedModel(userId, null, env);
     await setMemoryEnabled(userId, false, env);
     await Promise.all([
-      clearGuestMemory(conversationKey({ chatId, userId, threadId: getThreadId(query.message), replyTo: query.message?.reply_to_message?.message_id }), env),
-      clearGuestMemory(terminalMemoryKey(userId), env)
+      startNewConversationSession(conversationKey({ chatId, userId, threadId: getThreadId(query.message) }), env),
+      startNewConversationSession(terminalMemoryKey(userId), env)
     ]);
     await editMessage(env, { chatId, messageId, text: language === "fa" ? "✓ تنظیمات و حافظهٔ Terminal بازنشانی شد." : "✓ Settings and Terminal memory were reset.", keyboard: mainKeyboard(language, query.message) });
     return;

@@ -320,3 +320,129 @@ export async function markReengagementFailure({ userId, error, blocked = false }
   await env.IVAI_DB.prepare("UPDATE user_reengagement SET delivery_state=?, lease_until=NULL, last_error=?, updated_at=CURRENT_TIMESTAMP WHERE telegram_user_id=?")
     .bind(blocked ? "blocked" : "failed", String(error || "Telegram delivery failed").slice(0, 500), String(userId)).run();
 }
+
+function sessionStorageKey(scope) {
+  return `session:${String(scope || "unknown")}`;
+}
+
+function sessionId() {
+  return crypto.randomUUID();
+}
+
+function safeSessionMessages(value) {
+  return Array.isArray(value)
+    ? value.slice(-APP.maxContextMessages).filter((entry) => entry && typeof entry === "object" && typeof entry.content === "string")
+    : [];
+}
+
+function makeConversationSession(messages, now) {
+  const createdAt = Number(now);
+  return {
+    id: sessionId(),
+    createdAt,
+    lastActivityAt: createdAt,
+    idleExpiresAt: createdAt + APP.conversationSessionIdleSeconds * 1000,
+    expiresAt: createdAt + APP.conversationSessionAbsoluteSeconds * 1000,
+    messages: safeSessionMessages(messages)
+  };
+}
+
+function isLiveConversationSession(session, now) {
+  return Boolean(
+    session
+    && typeof session.id === "string"
+    && Number.isFinite(Number(session.createdAt))
+    && Number.isFinite(Number(session.lastActivityAt))
+    && Number.isFinite(Number(session.idleExpiresAt))
+    && Number.isFinite(Number(session.expiresAt))
+    && Number(session.idleExpiresAt) > Number(now)
+    && Number(session.expiresAt) > Number(now)
+  );
+}
+
+function sessionTtlSeconds(session, now) {
+  const remainingIdleSeconds = Math.ceil((Number(session.idleExpiresAt) - Number(now)) / 1000);
+  const remainingAbsoluteSeconds = Math.ceil((Number(session.expiresAt) - Number(now)) / 1000);
+  return Math.max(0, Math.min(remainingIdleSeconds, remainingAbsoluteSeconds));
+}
+
+async function writeConversationSession(scope, session, env, now) {
+  if (!env.IVAI_KV) return session;
+  const ttl = sessionTtlSeconds(session, now);
+  if (ttl <= 0) return null;
+  await env.IVAI_KV.put(sessionStorageKey(scope), JSON.stringify(session), { expirationTtl: ttl });
+  return session;
+}
+
+/**
+ * Reads the active short-lived session for one conversation scope. A bounded legacy
+ * `guest:` value is migrated only on first use, so the Session release does not
+ * abruptly discard a user's still-valid opt-in memory.
+ */
+export async function getConversationSession(scope, env, { now = Date.now() } = {}) {
+  if (!env.IVAI_KV) return null;
+  try {
+    const key = sessionStorageKey(scope);
+    const raw = await env.IVAI_KV.get(key);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (isLiveConversationSession(parsed, now)) {
+        return { ...parsed, messages: safeSessionMessages(parsed.messages) };
+      }
+      await env.IVAI_KV.delete(key);
+    }
+
+    const legacy = await getGuestMemory(scope, env);
+    if (legacy.length) {
+      const migrated = makeConversationSession(legacy, now);
+      await writeConversationSession(scope, migrated, env, now);
+      await clearGuestMemory(scope, env);
+      return migrated;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Starts a new conversation by invalidating the current scope. The first successful
+ * AI response creates the replacement session, so Memory off remains zero-storage.
+ */
+export async function startNewConversationSession(scope, env) {
+  if (!env.IVAI_KV) return;
+  await Promise.all([
+    env.IVAI_KV.delete(sessionStorageKey(scope)),
+    clearGuestMemory(scope, env)
+  ]);
+}
+
+/**
+ * Ensures that a memory-enabled turn has one active Session before model work begins.
+ * The returned ID is used as an optimistic concurrency guard when the response is saved.
+ */
+export async function ensureConversationSession(scope, env, { now = Date.now() } = {}) {
+  const current = await getConversationSession(scope, env, { now });
+  if (current) return current;
+  const created = makeConversationSession([], now);
+  return await writeConversationSession(scope, created, env, now);
+}
+
+/**
+ * Persists bounded context only if the same Session still owns the scope. A /new or
+ * /start that arrives while the model is producing therefore wins and cannot be
+ * overwritten by the older response.
+ */
+export async function saveConversationSession(scope, messages, env, { session = null, now = Date.now() } = {}) {
+  if (!env.IVAI_KV) return null;
+  try {
+    const active = await getConversationSession(scope, env, { now });
+    if (session && (!active || active.id !== session.id)) return null;
+    const next = active
+      ? { ...active, lastActivityAt: Number(now), idleExpiresAt: Number(now) + APP.conversationSessionIdleSeconds * 1000, messages: safeSessionMessages(messages) }
+      : makeConversationSession(messages, now);
+    return await writeConversationSession(scope, next, env, now);
+  } catch {
+    return null;
+  }
+}

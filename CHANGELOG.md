@@ -2,6 +2,24 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.20] - 2026-08-21
+
+### Added
+
+- Introduced short-lived, independent conversation Sessions in KV. Opt-in context retains at most three complete turns, expires after 30 minutes of inactivity, and has a hard two-hour lifetime even during continuous conversation.
+- Added `/new` for a clean Telegram conversation Session. `/start` now begins the same clean Session after the required membership gate, while preserving language, model, response mode and the Memory preference.
+- Added a localized **New Chat** control to IVAI Terminal, backed by an authenticated `/app/new` endpoint. Terminal memory remains a separate per-user scope from the Telegram chat.
+
+### Changed
+
+- Replaced reply-based memory segmentation with topic-only Session segmentation, so replying to a private-chat message no longer fragments a user’s context.
+- Kept one successful AI path per prompt, with no AI call for `/new`, `/start`, Session expiry or Session reset. KV TTL and request-time validation handle cleanup without a polling job or Cron.
+- Guarded Session saves with the active Session ID, so a delayed response that began before `/new` or `/start` cannot resurrect discarded context after the reset.
+
+### Tests
+
+- Added deterministic coverage for 30-minute idle expiry, two-hour absolute expiry, Terminal/Telegram Session isolation, `/new` reset and `/start` reset. The suite contains 64 passing tests.
+
 ## [3.3.19] - 2026-08-21
 
 ### Changed

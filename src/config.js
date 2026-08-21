@@ -1,6 +1,6 @@
 export const APP = Object.freeze({
   name: "IVAI",
-  version: "3.3.19",
+  version: "3.3.20",
   terminalAppUrl: "https://ivai-bot.ivai-bot.workers.dev/app",
   requiredChannelId: -1003162460662,
   requiredChannelUsername: "ILIVIR3",
@@ -8,7 +8,10 @@ export const APP = Object.freeze({
   timezone: "UTC",
   maxTelegramText: 4096,
   maxInlineResults: 10,
+  // Session memory keeps three complete user/assistant turns, expires after 30 minutes of inactivity, and can never outlive two hours.
   maxContextMessages: 6,
+  conversationSessionIdleSeconds: 30 * 60,
+  conversationSessionAbsoluteSeconds: 2 * 60 * 60,
   guestMemoryTtlSeconds: 60 * 60,
   updateDedupeTtlSeconds: 10 * 60,
   cacheTtlSeconds: 15 * 60,

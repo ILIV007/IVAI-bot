@@ -1,7 +1,7 @@
 import { generateReply } from "./ai.js";
 import { APP, SUPPORTED_LANGUAGE_CODES } from "./config.js";
 import { allowUsage, safeError } from "./security.js";
-import { conversationKey, getGuestMemory, getUserSettings, saveGuestMemory, upsertUser } from "./storage.js";
+import { conversationKey, ensureConversationSession, getConversationSession, getUserSettings, saveConversationSession, startNewConversationSession, upsertUser } from "./storage.js";
 import { getVerifiedWebAppUser } from "./webapp-auth.js";
 import { getRequiredChannelMembership } from "./membership.js";
 
@@ -72,6 +72,12 @@ export async function handleAppRequest(request, env) {
     return json({ ok: true, settings: publicSettings(actor.settings) });
   }
 
+  const key = terminalConversationKey(actor.telegramUser.id);
+  if (url.pathname === "/app/new") {
+    await startNewConversationSession(key, env);
+    return json({ ok: true, settings: publicSettings(actor.settings) });
+  }
+
   if (url.pathname !== "/app/chat") return json({ ok: false, code: "NOT_FOUND" }, 404);
 
   const body = await request.json().catch(() => null);
@@ -82,8 +88,8 @@ export async function handleAppRequest(request, env) {
   if (!usage.allowed) return json({ ok: false, code: "RATE_LIMIT", message: responseText(actor.settings.language, "busy"), remaining: 0 }, 429);
 
   const prompt = text.trim();
-  const key = terminalConversationKey(actor.telegramUser.id);
-  const context = actor.settings.memoryEnabled ? await getGuestMemory(key, env) : [];
+  const session = actor.settings.memoryEnabled ? await ensureConversationSession(key, env) : null;
+  const context = session?.messages || [];
   try {
     const result = await generateReply({
       text: prompt,
@@ -93,7 +99,7 @@ export async function handleAppRequest(request, env) {
       context
     }, env);
     if (actor.settings.memoryEnabled) {
-      await saveGuestMemory(key, [...context, { role: "user", content: prompt }, { role: "assistant", content: result.text }], env);
+      await saveConversationSession(key, [...context, { role: "user", content: prompt }, { role: "assistant", content: result.text }], env, { session });
     }
     return json({
       ok: true,
