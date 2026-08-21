@@ -2,6 +2,27 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.9] - 2026-08-21
+
+### Fixed
+
+- Fixed the broadcast queue so an active campaign continues seeding eligible recipients after entering `sending`, rather than being limited to its first 250 recipients.
+- Added a stable campaign snapshot boundary: users created after confirmation are excluded from that in-flight campaign, while repeated cron runs idempotently seed the remaining confirmed audience.
+- Added bounded retry behavior for transient broadcast delivery failures: blocked chats are final immediately; other failures retry up to three total delivery attempts before becoming terminal failures.
+- Hardened legacy feedback callbacks against malformed KV content, invalid scores, cross-user or cross-chat replay, and replay of an already-consumed token.
+- Removed duplicate unreachable callback branches and unused feedback-token writer code from the Telegram router.
+
+### Changed
+
+- Modernized CI around the pinned pnpm version, a frozen lockfile install, pnpm-store cache, full regression validation and high-severity dependency audit.
+- Enabled Dependabot alerts and automated security fixes, added npm/pnpm dependency updates alongside GitHub Actions updates, and strengthened `main` protection with required checks, code-owner review, stale-review dismissal, linear history and resolved conversations.
+- Moved the preserved v3.2 single-file reference into `legacy/` so the modular `src/index.js` production entrypoint is unambiguous.
+
+### Tests
+
+- Added broadcast regression coverage for recipient pagination, confirmation-time snapshot boundaries, transient retry recovery and terminal failure after three attempts.
+- Added Secretary retry-boundary coverage and expanded the suite to 45 passing tests.
+
 ## [3.3.8] - 2026-08-21
 
 ### Fixed
@@ -124,6 +145,7 @@ All notable changes to IVAI Bot are documented in this file. The project follows
 
 - Baseline IVAI bot experience on which the v3.3 modular modernization is built.
 
+[3.3.9]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.8...v3.3.9
 [3.3.8]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.7...v3.3.8
 [3.3.7]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.6...v3.3.7
 [3.3.6]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.5...v3.3.6

@@ -271,13 +271,6 @@ function secretaryTaskKeyboard(tasks, language) {
   return rows.length ? { inline_keyboard: rows } : undefined;
 }
 
-async function saveFeedbackToken({ token, userId, chatId, responseMessageId, model, mode }, env) {
-  if (!env.IVAI_KV) return;
-  await env.IVAI_KV.put(`feedback:${token}`, JSON.stringify({ userId, chatId, responseMessageId, model, mode }), {
-    expirationTtl: 24 * 60 * 60
-  });
-}
-
 async function modelPickerView(language, selectedModel, env, page = 0) {
   const catalog = await getFreeModelCatalog(env);
   const locked = selectedModel ? `<code>${escapeHtml(selectedModel)}</code>` : (language === "fa" ? "Auto" : "Auto");
@@ -784,16 +777,6 @@ async function processCallback(query, env) {
     await editMessage(env, { chatId, messageId, text: helpText(language), keyboard: mainKeyboard(language, query.message) });
     return;
   }
-  if (data === "modes:back") {
-    if (!chatId || !query.message?.message_id) return;
-    await editMessage(env, {
-      chatId,
-      messageId: query.message.message_id,
-      text: menuText(language),
-      keyboard: mainKeyboard(language, query.message)
-    });
-    return;
-  }
   if (data.startsWith("mode:")) {
     const mode = data.slice(5);
     if (!USER_FACING_MODES.has(mode)) {
@@ -816,16 +799,15 @@ async function processCallback(query, env) {
     await editMessage(env, { chatId, messageId, text: selected === "fa" ? "✓ زبان فارسی فعال شد." : selected === "ar" ? "✓ تم تفعيل العربية." : `✓ ${escapeHtml(selected)} is now active.`, keyboard: mainKeyboard(selected, query.message) });
     return;
   }
-  if (data === "settings:open") {
-    const settings = await getUserSettings(userId, env);
-    await sendMessage(env, { chatId, text: `<b>Settings</b>\nMode: <code>${escapeHtml(settings.mode)}</code>\nModel: <code>${escapeHtml(settings.selectedModel || "auto")}</code>\nMemory: <code>${settings.memoryEnabled ? "on" : "off"}</code>\n\nUse /help for commands.` });
-    return;
-  }
   if (data.startsWith("feedback:")) {
     const [, scoreText, token] = data.split(":");
+    if (!(["up", "down"].includes(scoreText) && /^[A-Za-z0-9_-]{8,64}$/.test(token || ""))) return;
     const raw = await env.IVAI_KV?.get(`feedback:${token}`);
-    const session = raw ? JSON.parse(raw) : {};
+    let session;
+    try { session = raw ? JSON.parse(raw) : null; } catch { session = null; }
+    if (!session || String(session.userId) !== String(userId) || String(session.chatId) !== String(chatId)) return;
     await recordFeedback({ userId, chatId, messageId: session.responseMessageId, model: session.model, score: scoreText === "up" ? 1 : -1, kind: "message" }, env);
+    await env.IVAI_KV?.delete(`feedback:${token}`);
     await sendMessage(env, { chatId, text: responseText(language, "feedbackSaved") });
     return;
   }

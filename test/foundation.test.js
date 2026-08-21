@@ -223,8 +223,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.8 release version", () => {
-  assert.equal(APP.version, "3.3.8");
+test("declares the official v3.3.9 release version", () => {
+  assert.equal(APP.version, "3.3.9");
 });
 
 test("keeps bounded free-tier output limits", () => {

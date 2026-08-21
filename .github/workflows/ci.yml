@@ -23,11 +23,22 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      - name: Set up Node.js and pnpm cache
         uses: actions/setup-node@v4
         with:
           node-version: 22
           check-latest: true
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
-      - name: Validate source and foundation tests
-        run: npm run validate
+      - name: Enable the pinned pnpm version
+        run: corepack enable
+
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate source and regression tests
+        run: pnpm run validate
+
+      - name: Audit known dependency vulnerabilities
+        run: pnpm audit --audit-level=high

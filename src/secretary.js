@@ -28,10 +28,11 @@ export async function processSecretaryReminderBatch(env, { limit = 4, now } = {}
       await markSecretaryReminderSent({ id: task.id, messageId: sent?.message_id }, env);
       summary.sent += 1;
     } catch (error) {
-      await markSecretaryReminderFailed({ id: task.id, attempts: task.attempts, error: error?.message }, env);
-      if (Number(task.attempts || 0) >= 3) summary.failed += 1;
+      const attempts = Number(task.attempts || 0);
+      await markSecretaryReminderFailed({ id: task.id, attempts, error: error?.message }, env);
+      if (attempts >= 3) summary.failed += 1;
       else summary.retried += 1;
-      console.error(JSON.stringify({ event: "secretary_reminder_failure", taskId: task.id, attempts: task.attempts, error: String(error?.message || "unknown") }));
+      console.error(JSON.stringify({ event: "secretary_reminder_failure", taskId: task.id, attempts, error: String(error?.message || "unknown") }));
     }
   }
   return summary;

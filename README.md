@@ -1,8 +1,8 @@
-# IVAI Bot v3.3.8 — Free-Tier, Secure Telegram AI Assistant
+# IVAI Bot v3.3.9 — Free-Tier, Secure Telegram AI Assistant
 
 [![Continuous Integration](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.8 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while adding webhook security, a source-verified free-only model policy, D1 data, admin controls, a responsive user-facing IVAI Terminal Mini App, multimodal adapters, and inline feedback.
+> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.9 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while adding webhook security, a source-verified free-only model policy, D1 data, admin controls, a responsive user-facing IVAI Terminal Mini App, multimodal adapters, and inline feedback.
 
 ## Product principles
 
@@ -58,7 +58,8 @@ db/0001_initial_schema.sql  # D1 base schema
 db/0002_runtime_guards.sql  # Atomic dedupe and quota guards
 db/0003_secretary_reminders.sql # Task reminder delivery state and indexes
 db/0004_reengagement.sql # Consent and delivery state for inactivity check-ins
-test/foundation.test.js      # Node test suite
+test/                       # Node regression suites for Worker, broadcast and scheduled delivery
+legacy/TeleLLMBot.v3.2.reference.js # Archived v3.2 reference; not the production entrypoint
 wrangler.jsonc               # Binding-only Worker configuration
 ```
 
@@ -121,7 +122,9 @@ npm test
 | [Telegram real-world test plan (FA)](docs/TELEGRAM_REAL_WORLD_TEST_PLAN_FA.md) | Executed checks, Telegram acceptance scenarios, recovery behavior and safe failure reporting. |
 | [Required channel access](docs/REQUIRED_CHANNEL_ACCESS_FA.md) | Required channel policy, bot administrator prerequisite, join/recheck flow and acceptance checks. |
 | [Terminal engineering review (FA)](docs/TERMINAL_ENGINEERING_REVIEW_2026-08-21_FA.md) | Root cause, v3.3.8 hotfix, security review, quality checks and final Telegram acceptance scenario. |
-| [Changelog](CHANGELOG.md) | Release-level changes for v3.3.8. |
+| [Full project engineering review (FA)](docs/PROJECT_ENGINEERING_REVIEW_2026-08-21_FA.md) | v3.3.9 code, queue, security, test, CI and GitHub review with remaining real-world acceptance checks. |
+| [Repository automation sources](docs/REPOSITORY_AUTOMATION_SOURCES_2026-08-21.md) | Official sources behind pnpm CI and Dependabot hygiene. |
+| [Changelog](CHANGELOG.md) | Release-level changes through v3.3.9. |
 | [Contributing](CONTRIBUTING.md) | Free-only, privacy, testing, and migration rules for contributors. |
 | [Security policy](SECURITY.md) | Private reporting process for vulnerabilities and exposed credentials. |
 

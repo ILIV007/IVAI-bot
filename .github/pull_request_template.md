@@ -14,8 +14,8 @@ Describe the user-visible outcome and the reason for this change.
 
 ## Verification
 
-- [ ] `npm run check` passes locally.
-- [ ] `npm test` passes locally.
+- [ ] `pnpm run validate` passes locally.
+- [ ] `pnpm audit --audit-level=high` was run when dependencies changed.
 - [ ] Tests were added or updated for behavior changes.
 - [ ] No secret, `.dev.vars`, user content, or database export is included.
 - [ ] The normal request path still makes at most one model call.
