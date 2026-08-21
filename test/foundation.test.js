@@ -1082,6 +1082,7 @@ class PreferenceD1 {
   constructor() {
     this.users = new Map();
     this.preferences = new Map();
+    this.processedUpdates = new Set();
   }
 
   prepare(sql) {
@@ -1112,6 +1113,12 @@ class PreferenceD1 {
 
   async #run(sql, params) {
     sql = sql.replace(/\s+/g, " ");
+    if (sql.includes("INTO processed_updates")) {
+      const updateId = String(params[0]);
+      if (this.processedUpdates.has(updateId)) return { meta: { changes: 0 } };
+      this.processedUpdates.add(updateId);
+      return { meta: { changes: 1 } };
+    }
     if (sql.includes("INSERT INTO users (telegram_user_id, username, first_name, language")) {
       const [userId, username, firstName, language] = params;
       const id = String(userId);
@@ -1338,4 +1345,44 @@ test("does not resurrect a reset Session when an older AI turn finishes later", 
 
   assert.equal(saved, null);
   assert.equal(await getConversationSession(scope, env, { now: now + 1 }), null);
+});
+
+test("preserves persistent preferences when /new resets only the conversation Session", async () => {
+  const originalFetch = globalThis.fetch;
+  const kv = new KV();
+  const env = { ...baseEnv(), IVAI_DB: new PreferenceD1(), IVAI_KV: kv };
+  const user = { id: 333, username: "session_owner", first_name: "Session owner" };
+  const chat = { id: 444, type: "private" };
+  const scope = "444:333:main:root";
+  await setUserLanguage(user.id, "fa", env);
+  await upsertUser({ user, chat, language: "en" }, env);
+  await setUserMode(user.id, MODES.CODE, env);
+  await setSelectedModel(user.id, "@cf/meta/llama-3.3-70b-instruct-fp8-fast", env);
+  await setMemoryEnabled(user.id, true, env);
+  await saveConversationSession(scope, [{ role: "user", content: "Context to discard" }], env, { now: Date.now() });
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 779 } }), { status: 200 });
+  };
+  try {
+    const update = { update_id: 1303, message: { message_id: 53, chat, from: user, text: "/new" } };
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+      body: JSON.stringify(update)
+    }), env);
+    assert.equal(response.status, 200);
+    const reply = calls.find((call) => /sendMessage$/.test(call.url));
+    assert.match(reply.body.text, /گفتگوی جدید آماده است/);
+    assert.equal(await getConversationSession(scope, env), null);
+    assert.deepEqual(await getUserSettings(user.id, env), {
+      language: "fa",
+      mode: MODES.CODE,
+      selectedModel: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+      memoryEnabled: true
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

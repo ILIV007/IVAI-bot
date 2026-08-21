@@ -18,7 +18,7 @@ All notable changes to IVAI Bot are documented in this file. The project follows
 
 ### Tests
 
-- Added deterministic coverage for 30-minute idle expiry, two-hour absolute expiry, Terminal/Telegram Session isolation, `/new` reset and `/start` reset. The suite contains 64 passing tests.
+- Added deterministic coverage for 30-minute idle expiry, two-hour absolute expiry, Terminal/Telegram Session isolation, `/new` reset and `/start` reset. The suite contains 65 passing tests.
 
 ## [3.3.19] - 2026-08-21
 
