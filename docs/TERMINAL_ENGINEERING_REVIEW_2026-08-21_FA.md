@@ -55,3 +55,7 @@
 ## References
 
 [1] [Telegram Bot API — getChatMember](https://core.telegram.org/bots/api#getchatmember)
+
+## تأیید پس از انتشار v3.3.8
+
+پس از موفقیت CI و Cloudflare Workers Build، نسخهٔ production دوباره بررسی شد. صفحهٔ `/app` اکنون bootstrap را اجرا می‌کند و در محیط خارج از Telegram به‌درستی پیام امن «Open IVAI Terminal from inside Telegram»، وضعیت `RECONNECT` و دکمهٔ Reconnect را نمایش می‌دهد؛ composer نیز غیرفعال است. این رفتار تأیید می‌کند که حالت `CONNECTING` دائمیِ ناشی از syntax error دیگر در production وجود ندارد.
