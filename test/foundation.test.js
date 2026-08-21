@@ -225,8 +225,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.16 release version", () => {
-  assert.equal(APP.version, "3.3.16");
+test("declares the official v3.3.17 release version", () => {
+  assert.equal(APP.version, "3.3.17");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -1018,8 +1018,58 @@ test("runs one guarded Workers AI call for voice and photo media", async () => {
     assert.equal(voice.text, "voice transcript");
     assert.equal(photo.text, "photo description");
     assert.equal(aiCalls.length, 2);
+    assert.equal(aiCalls[0].model, "@cf/openai/whisper-large-v3-turbo");
+    assert.equal(aiCalls[0].input.task, "transcribe");
+    assert.ok(Array.isArray(aiCalls[0].input.audio));
     assert.equal(aiCalls[0].input.language, "fa");
+    assert.equal(aiCalls[1].model, "@cf/meta/llama-4-scout-17b-16e-instruct");
     assert.match(aiCalls[1].input.messages[0].content[1].image_url.url, /^data:image\/jpeg;base64,/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("rejects a reasoning-only vision result instead of returning an empty photo reply", async () => {
+  const originalFetch = globalThis.fetch;
+  const binary = new Uint8Array([1, 2, 3, 4]);
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("getFile")) return new Response(JSON.stringify({ ok: true, result: { file_path: "photo.png", file_size: binary.byteLength } }), { status: 200 });
+    return new Response(binary, { status: 200, headers: { "content-type": "image/png" } });
+  };
+  try {
+    const env = {
+      ...baseEnv(),
+      AI: { async run() { return { choices: [{ message: { content: "", reasoning_content: "internal reasoning only" } }] }; } }
+    };
+    await assert.rejects(analyzePhoto({ fileId: "reasoning-only", language: "en" }, env), /Vision model returned an empty result/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("accepts an OpenAI-compatible vision content reply and keeps photo output bounded", async () => {
+  const originalFetch = globalThis.fetch;
+  const aiCalls = [];
+  const binary = new Uint8Array([1, 2, 3, 4]);
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("getFile")) return new Response(JSON.stringify({ ok: true, result: { file_path: "photo.png", file_size: binary.byteLength } }), { status: 200 });
+    return new Response(binary, { status: 200, headers: { "content-type": "image/png" } });
+  };
+  try {
+    const env = {
+      ...baseEnv(),
+      AI: {
+        async run(model, input) {
+          aiCalls.push({ model, input });
+          return { choices: [{ message: { content: "A compact valid photo description." } }] };
+        }
+      }
+    };
+    const photo = await analyzePhoto({ fileId: "openai-content", language: "en" }, env);
+    assert.equal(photo.text, "A compact valid photo description.");
+    assert.equal(aiCalls.length, 1);
+    assert.equal(aiCalls[0].model, "@cf/meta/llama-4-scout-17b-16e-instruct");
+    assert.equal(aiCalls[0].input.max_tokens, 320);
   } finally {
     globalThis.fetch = originalFetch;
   }

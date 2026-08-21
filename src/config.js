@@ -1,6 +1,6 @@
 export const APP = Object.freeze({
   name: "IVAI",
-  version: "3.3.16",
+  version: "3.3.17",
   terminalAppUrl: "https://ivai-bot.ivai-bot.workers.dev/app",
   requiredChannelId: -1003162460662,
   requiredChannelUsername: "ILIVIR3",
@@ -111,9 +111,11 @@ export const FREE_MODEL_POLICY = Object.freeze({
       "@cf/meta/llama-4-scout-17b-16e-instruct",
       "@cf/qwen/qwen3-30b-a3b-fp8"
     ]),
+    // Llama 4 Scout produces a final OpenAI-compatible vision reply on the Workers AI binding.
+    // Gemma 4 remains a free-tier fallback, but its reasoning-first output can exhaust a short reply budget.
     vision: Object.freeze([
-      "@cf/google/gemma-4-26b-a4b-it",
-      "@cf/meta/llama-4-scout-17b-16e-instruct"
+      "@cf/meta/llama-4-scout-17b-16e-instruct",
+      "@cf/google/gemma-4-26b-a4b-it"
     ]),
     speech: Object.freeze([
       "@cf/openai/whisper-large-v3-turbo",

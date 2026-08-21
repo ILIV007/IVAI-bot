@@ -72,7 +72,8 @@ export async function analyzePhoto({ fileId, caption = "", language = "en" }, en
         { type: "image_url", image_url: { url: dataUrl } }
       ]
     }],
-    max_tokens: 900
+    // Photo replies are concise by design; a bounded completion preserves the daily free allocation.
+    max_tokens: 320
   });
   const text = result?.response || result?.result?.response || result?.choices?.[0]?.message?.content;
   if (!String(text || "").trim()) throw new Error("Vision model returned an empty result");

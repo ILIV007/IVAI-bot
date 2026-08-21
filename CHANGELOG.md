@@ -2,6 +2,22 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.17] - 2026-08-21
+
+### Fixed
+
+- Replaced Gemma 4 with Llama 4 Scout as the primary Workers AI vision route. A live account test showed that Gemma 4 can consume its bounded completion on reasoning-only output without returning user-visible text, while Llama 4 Scout returned a completed visible image description with IVAI's existing OpenAI-compatible image data-URL request shape.
+- Retained Gemma 4 only as a free-tier vision fallback, reduced photo output from 900 to 320 tokens, and preserved the 1,000-unit conservative image reservation.
+
+### Verified
+
+- Confirmed live compatibility of Llama 4 Scout, Gemma 4 and Whisper Large V3 Turbo request routes without accessing any user media. The Whisper test used a synthetic short WAV and correctly reached the model, which rejected it as no speech.
+- Recorded official Workers AI capabilities, pricing, 10,000-Neuron daily free allocation and selection rationale in `docs/MULTIMODAL_MODEL_AUDIT_2026-08-21.md`.
+
+### Tests
+
+- Added regressions for reasoning-only vision responses, OpenAI-compatible visible vision content, image output bounds, voice payload shape and the selected free model. The suite contains 56 passing tests.
+
 ## [3.3.16] - 2026-08-21
 
 ### Verified
@@ -254,6 +270,7 @@ All notable changes to IVAI Bot are documented in this file. The project follows
 
 - Baseline IVAI bot experience on which the v3.3 modular modernization is built.
 
+[3.3.17]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.16...v3.3.17
 [3.3.16]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.15...v3.3.16
 [3.3.15]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.14...v3.3.15
 [3.3.14]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.13...v3.3.14
