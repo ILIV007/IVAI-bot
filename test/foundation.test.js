@@ -604,6 +604,8 @@ test("emits parseable Terminal bootstrap JavaScript after template rendering", a
   assert.doesNotThrow(() => new Function(bootstrap));
   assert.match(bootstrap, /function shortModel\(value\)/);
   assert.match(bootstrap, /function renderRich\(target,value\)/);
+  assert.match(bootstrap, /settings=result\.data\.settings\|\|Object\.assign/);
+  assert.match(bootstrap, /settings=result\.data\.settings\|\|settings\|\|\{\};localize\(settings\);feed\.innerHTML/);
 });
 
 test("rejects unauthenticated Terminal API requests", async () => {
