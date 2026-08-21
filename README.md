@@ -5,6 +5,7 @@
 > **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.19 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while hardening independent D1 settings persistence.
 >
 > **Use IVAI on Telegram:** [@IVAI_Llm_bot](https://t.me/IVAI_Llm_bot)
+> **Channel on Telegram:** [@ILIVIR3](https://t.me/ILIVIR3)
 
 ## Product principles
 
