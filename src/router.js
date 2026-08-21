@@ -27,7 +27,7 @@ import {
   upsertUser,
   writeAdminAudit
 } from "./storage.js";
-import { adminKeyboard, answerCallback, editMessage, escapeHtml, languageKeyboard, languageMenuText, modelPickerKeyboard, modeKeyboard, modeLabel, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendTyping, settingsKeyboard, startThinkingAnimation, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
+import { adminKeyboard, answerCallback, editMessage, escapeHtml, languageKeyboard, languageMenuText, menuText, modelPickerKeyboard, modeKeyboard, modeLabel, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendTyping, settingsKeyboard, startKeyboard, startThinkingAnimation, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
 
 const COMMAND_MODE = Object.freeze({
   "/auto": MODES.AUTO,
@@ -160,6 +160,10 @@ function mainKeyboard(language, message) {
   return modeKeyboard(language, { includeTerminal: message?.chat?.type === "private" });
 }
 
+function welcomeKeyboard(language, message) {
+  return startKeyboard(language, { includeTerminal: message?.chat?.type === "private" });
+}
+
 function terminalMemoryKey(userId) {
   return conversationKey({ chatId: userId, userId, threadId: "terminal" });
 }
@@ -249,8 +253,12 @@ async function handleCommand(message, env, language) {
   const { command, args, argumentText } = commandParts(message.text);
   const settings = await getUserSettings(userId, env);
 
-  if (command === "/start" || command === "/menu") {
-    await sendMessage(env, { chatId, text: welcomeText(language), keyboard: mainKeyboard(language, message), replyTo: message.message_id });
+  if (command === "/start") {
+    await sendMessage(env, { chatId, text: welcomeText(language), keyboard: welcomeKeyboard(language, message), replyTo: message.message_id });
+    return true;
+  }
+  if (command === "/menu") {
+    await sendMessage(env, { chatId, text: menuText(language), keyboard: mainKeyboard(language, message), replyTo: message.message_id });
     return true;
   }
   if (command === "/help") {
@@ -626,7 +634,7 @@ async function processCallback(query, env) {
     return;
   }
   if (data === "menu:main" || data === "modes:back") {
-    await editMessage(env, { chatId, messageId, text: welcomeText(language), keyboard: mainKeyboard(language, query.message) });
+    await editMessage(env, { chatId, messageId, text: menuText(language), keyboard: mainKeyboard(language, query.message) });
     return;
   }
   if (data === "menu:help") {
@@ -709,7 +717,7 @@ async function processCallback(query, env) {
     await editMessage(env, {
       chatId,
       messageId: query.message.message_id,
-      text: welcomeText(language),
+      text: menuText(language),
       keyboard: mainKeyboard(language, query.message)
     });
     return;

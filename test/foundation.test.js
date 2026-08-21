@@ -9,7 +9,7 @@ import { APP, defaultFreeModelFor, FREE_MODEL_POLICY, LANGUAGE_OPTIONS, MODES, m
 import { defaultFreeModels, refreshFreeModelCatalog } from "../src/catalog.js";
 import { getAdminOperationalStats } from "../src/storage.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
-import { feedbackKeyboard, languageKeyboard, modeKeyboard, modeLabel, modelPickerKeyboard, responseMeta, shortModelLabel, splitText, terminalKeyboard, thinkingText } from "../src/telegram.js";
+import { feedbackKeyboard, languageKeyboard, modeKeyboard, modeLabel, modelPickerKeyboard, responseMeta, shortModelLabel, splitText, startKeyboard, terminalKeyboard, thinkingText } from "../src/telegram.js";
 
 class KV {
   constructor() { this.values = new Map(); }
@@ -222,8 +222,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.5 release version", () => {
-  assert.equal(APP.version, "3.3.5");
+test("declares the official v3.3.6 release version", () => {
+  assert.equal(APP.version, "3.3.6");
 });
 
 test("keeps bounded free-tier output limits", () => {
@@ -246,7 +246,11 @@ test("presents three main modes with semantic styles and a paginated model picke
   assert.equal(modeLabel(MODES.DEEP, "en"), "Deep");
   assert.equal(terminalKeyboard("en").inline_keyboard[0][0].web_app.url, APP.terminalAppUrl);
   assert.ok(!core.some((button) => button.web_app));
-  assert.equal(modeKeyboard("en", { includeTerminal: true }).inline_keyboard.at(-1)[0].web_app.url, APP.terminalAppUrl);
+  const menu = modeKeyboard("en", { includeTerminal: true }).inline_keyboard;
+  assert.equal(menu[2][0].web_app.url, APP.terminalAppUrl);
+  assert.equal(menu[0][0].style, "primary");
+  assert.equal(menu[0][1].style, "success");
+  assert.equal(startKeyboard("en", { includeTerminal: true }).inline_keyboard[0][0].web_app.url, APP.terminalAppUrl);
 });
 
 test("renders concise linked response metadata without per-message action buttons", () => {
@@ -286,8 +290,34 @@ test("handles a valid start update and sends Telegram output", async () => {
     assert.equal(response.status, 200);
     assert.equal(calls.length, 1);
     assert.match(calls[0].url, /sendMessage$/);
-    assert.match(calls[0].body.text, /IVAI/);
-    assert.equal(calls[0].body.reply_markup.inline_keyboard.at(-1)[0].web_app.url, APP.terminalAppUrl);
+    assert.match(calls[0].body.text, /Welcome to IVAI/);
+    assert.equal(calls[0].body.reply_markup.inline_keyboard[0][0].web_app.url, APP.terminalAppUrl);
+    assert.equal(calls[0].body.reply_markup.inline_keyboard[1][0].callback_data, "menu:main");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("keeps /menu separate from the welcome flow", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 78 } }), { status: 200 });
+  };
+  try {
+    const update = {
+      update_id: 22,
+      message: { message_id: 22, chat: { id: 42, type: "private" }, from: { id: 126679582, first_name: "Owner" }, text: "/menu" }
+    };
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+      body: JSON.stringify(update)
+    }), baseEnv());
+    assert.equal(response.status, 200);
+    assert.match(calls[0].body.text, /IVAI controls/);
+    assert.equal(calls[0].body.reply_markup.inline_keyboard[0][0].callback_data, "mode:auto");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -378,6 +408,9 @@ test("serves a lightweight IVAI Terminal shell with strict same-origin security 
   assert.match(html, /--navy:#07192f/);
   assert.match(html, /--jade:#16b89b/);
   assert.match(html, /textContent=text/);
+  assert.match(html, /RECONNECT/);
+  assert.match(html, /AbortController/);
+  assert.match(html, /Open IVAI Terminal from inside Telegram/);
   assert.match(response.headers.get("content-security-policy"), /connect-src 'self'/);
   assert.equal(response.headers.get("cache-control"), "no-store");
 });

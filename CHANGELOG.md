@@ -2,6 +2,21 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.6] - 2026-08-21
+
+### Fixed
+
+- Reworked IVAI Terminal session states so missing, rejected, timed-out and temporarily unavailable connections show a clear recovery message and a user-controlled reconnect action instead of an indefinite connecting state.
+- Added a bounded 45-second client request timeout and kept retries explicit; no polling, background model call or paid route was added.
+- Added minimal safe runtime diagnostics for rejected Mini App authentication without logging the signed `initData` itself.
+
+### Changed
+
+- Rebuilt the Terminal as a polished navy/deep-blue/jade AI workspace with connection status, welcome guidance, suggestion chips, message bubbles, accessible composer and responsive mobile layout.
+- Separated `/start` from `/menu`: `/start` is now the onboarding and quick-launch surface, while `/menu` is the dedicated controls dashboard.
+- Reordered and colored inline controls consistently: blue for main routing, green for active/quick actions and red only for destructive actions.
+- Added regression coverage for the separate start/menu flows and Terminal reconnect affordances; the suite now contains 38 passing tests.
+
 ## [3.3.5] - 2026-08-20
 
 ### Fixed
@@ -86,6 +101,7 @@ All notable changes to IVAI Bot are documented in this file. The project follows
 
 - Baseline IVAI bot experience on which the v3.3 modular modernization is built.
 
+[3.3.6]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.5...v3.3.6
 [3.3.5]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.4...v3.3.5
 [3.3.4]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.3...v3.3.4
 [3.3.3]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.2...v3.3.3

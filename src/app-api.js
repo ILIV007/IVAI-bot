@@ -37,8 +37,12 @@ function responseText(language, key) {
 }
 
 async function terminalUser(request, env) {
+  const initData = String(request.headers.get("x-telegram-init-data") || "");
   const telegramUser = await getVerifiedWebAppUser(request, env);
-  if (!telegramUser?.id) return null;
+  if (!telegramUser?.id) {
+    console.warn(JSON.stringify({ event: "terminal_auth_rejected", initDataPresent: Boolean(initData), initDataLength: initData.length }));
+    return null;
+  }
   const settings = await getUserSettings(telegramUser.id, env);
   const requestedLanguage = String(settings.language || telegramUser.language_code || "en").replace("_", "-");
   const language = SUPPORTED_LANGUAGE_CODES.has(requestedLanguage) ? requestedLanguage : "en";

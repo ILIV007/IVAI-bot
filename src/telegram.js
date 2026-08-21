@@ -23,19 +23,30 @@ export function modeKeyboard(language = "en", { includeTerminal = false } = {}) 
   const rows = [
     [
       button(fa ? "🔀 خودکار" : "🔀 Auto", "mode:auto", "primary"),
-      button(fa ? "⚡ سریع" : "⚡ Fast", "mode:fast"),
-      button(fa ? "🧠 عمیق" : "🧠 Deep", "mode:deep")
+      button(fa ? "⚡ سریع" : "⚡ Fast", "mode:fast", "success"),
+      button(fa ? "🧠 عمیق" : "🧠 Deep", "mode:deep", "primary")
     ],
     [
       button(fa ? "🎛 انتخاب مدل" : "🎛 Pick model", "menu:models", "success"),
-      button(fa ? "📖 راهنما" : "📖 Help", "menu:help")
+      button(fa ? "🌐 زبان" : "🌐 Language", "menu:language", "primary")
     ],
     [
-      button(fa ? "⚙️ تنظیمات" : "⚙️ Settings", "menu:settings"),
-      button(fa ? "🌐 زبان" : "🌐 Language", "menu:language")
+      button(fa ? "📖 راهنما" : "📖 Help", "menu:help", "primary"),
+      button(fa ? "⚙️ تنظیمات" : "⚙️ Settings", "menu:settings")
     ]
   ];
+  if (includeTerminal) rows.splice(2, 0, terminalKeyboard(language).inline_keyboard[0]);
+  return { inline_keyboard: rows };
+}
+
+export function startKeyboard(language = "en", { includeTerminal = false } = {}) {
+  const fa = language === "fa";
+  const rows = [];
   if (includeTerminal) rows.push(terminalKeyboard(language).inline_keyboard[0]);
+  rows.push([
+    button(fa ? "🎛 بازکردن کنترل‌ها" : "🎛 Open controls", "menu:main", "primary"),
+    button(fa ? "📖 راهنمای شروع" : "📖 Getting started", "menu:help", "success")
+  ]);
   return { inline_keyboard: rows };
 }
 
@@ -265,9 +276,14 @@ export function splitText(text, maxLength) {
 
 export function welcomeText(language = "en") {
   if (language === "fa") {
-    return "<b>🪐 IVAI</b>\nدستیار AI رایگان و کم‌مصرف شما\n\nیک پیام بفرستید تا چت را شروع کنیم. <b>Auto</b> بهترین مسیر رایگان را انتخاب می‌کند؛ برای کنترل بیشتر، یک مدل رایگان از picker انتخاب کنید.\n\n<b>شروع سریع:</b> پیام خود را بنویسید، یک حالت انتخاب کنید یا <code>/help</code> را بزنید.";
+    return "<b>🪐 به IVAI خوش آمدید</b>\nدستیار AI رایگان، کم‌مصرف و English-first شما\n\nیک پیام بفرستید تا گفت‌وگو شروع شود. <b>Auto</b> بهترین مسیر رایگان را انتخاب می‌کند و در خطا فقط fallback رایگان فعال می‌شود.\n\n<b>شروع سریع</b>\n۱) پیام خود را بنویسید\n۲) برای گفت‌وگوی حرفه‌ای، <b>IVAI Terminal</b> را باز کنید\n۳) برای انتخاب mode و مدل، «Open controls» را بزنید.";
   }
-  return "<b>🪐 IVAI</b>\nYour low-cost, free AI assistant\n\nSend any message to begin. <b>Auto</b> chooses the best available free route; use the model picker when you want a preferred model.\n\n<b>Quick start:</b> write your prompt, pick one of three modes, or use <code>/help</code>.";
+  return "<b>🪐 Welcome to IVAI</b>\nYour English-first, free and low-consumption AI assistant\n\nSend a message to begin. <b>Auto</b> chooses the best free route and falls back only to another free provider when needed.\n\n<b>Quick start</b>\n1) Write your prompt\n2) Open <b>IVAI Terminal</b> for a focused chat workspace\n3) Use “Open controls” to choose a mode or model.";
+}
+
+export function menuText(language = "en") {
+  if (language === "fa") return "<b>🎛 کنترل‌های IVAI</b>\n\nحالت پاسخ، مدل انتخابی، زبان و حافظه را از اینجا مدیریت کنید.\n\n<b>راهنمای رنگ‌ها:</b> آبی = مسیر اصلی، سبز = اقدام سریع یا انتخاب، قرمز = حذف یا بازنشانی.";
+  return "<b>🎛 IVAI controls</b>\n\nManage response mode, preferred model, language and memory from one place.\n\n<b>Color guide:</b> blue = primary route, green = quick action or active choice, red = reset or cancellation.";
 }
 
 export function shortModelLabel(model = "") {
