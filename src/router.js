@@ -30,6 +30,7 @@ import {
   writeAdminAudit
 } from "./storage.js";
 import { adminKeyboard, answerCallback, editMessage, ensureTerminalMenuButton, escapeHtml, languageKeyboard, languageMenuText, menuText, modelPickerKeyboard, modelPickerText, modelSelectionText, modeKeyboard, modeLabel, requiredMembershipKeyboard, requiredMembershipText, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendTyping, settingsKeyboard, splitText, startKeyboard, startThinkingAnimation, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
+import { renderRichAiText, renderStandardAiText } from "./rich-renderer.js";
 
 const COMMAND_MODE = Object.freeze({
   "/auto": MODES.AUTO,
@@ -119,7 +120,7 @@ async function handleGuestMessage(message, env) {
   try {
     if (!usage.allowed) throw new Error("RATE_LIMIT");
     const result = await generateReply({ text: prompt, selectedMode: MODES.GUEST, language, context: [] }, env);
-    text = `${renderAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: MODES.GUEST, language })}`;
+    text = `${renderStandardAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: MODES.GUEST, language })}`;
   } catch (error) {
     text = responseText(language, safeError(error) === "RATE_LIMIT" ? "busy" : "temporary");
   }
@@ -177,15 +178,6 @@ function newConversationText(language) {
   if (language === "fa") return "<b>🪐 گفتگوی تازه آماده است!</b>\n\ncontext گفتگوی قبلی پاک شد؛ زبان، مدل، حالت پاسخ و تنظیم حافظه‌ات دقیقاً همان‌طور که بوده‌اند باقی مانده‌اند. از کجا شروع کنیم؟";
   if (language === "ar") return "<b>🪐 محادثة جديدة جاهزة!</b>\n\nتمت إزالة سياق المحادثة السابقة، بينما بقيت اللغة والنموذج ووضع الرد وإعداد الذاكرة كما هي. من أين نبدأ؟";
   return "<b>🪐 Fresh chat, ready to go!</b>\n\nYour previous chat context is cleared, while your language, model, response mode and memory setting stay exactly as you left them. What would you like to explore?";
-}
-
-function renderAiText(text) {
-  // Escape all model output before applying a deliberately small safe HTML subset.
-  return escapeHtml(text)
-    .replace(/(?:^&gt; ?[^\n]*(?:\n|$))+/gm, (quote) => `<blockquote>${quote.trim().replace(/^&gt; ?/gm, "").replaceAll("\n", "<br>")}</blockquote>`)
-    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/^#{1,3}\s+(.+)$/gm, "<b>$1</b>");
 }
 
 function getThreadId(message) {
@@ -539,7 +531,7 @@ async function processText(message, env) {
         draftId: Number(message.message_id) || 1,
         html: `<tg-thinking>${language === "fa" ? "IVAI در حال فکر کردن" : "IVAI is thinking"}</tg-thinking>`,
         threadId: delivery.threadId,
-        rtl: language === "fa"
+        rtl: ["fa", "ar"].includes(language)
       });
       richDraftActive = true;
     } catch (error) {
@@ -560,20 +552,23 @@ async function processText(message, env) {
     if (settings.memoryEnabled) {
       await saveConversationSession(key, [...context, { role: "user", content: text }, { role: "assistant", content: result.text }], env, { session });
     }
-    const finalText = `${renderAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: result.mode, language })}`;
-    if (finalText.length <= APP.maxTelegramText) {
-      if (richDraftActive) {
-        try {
-          await sendRichMessage(env, { chatId, html: finalText, replyTo: message.message_id, ...delivery, rtl: language === "fa" });
-          return;
-        } catch (error) {
-          console.info(JSON.stringify({ event: "rich_message_fallback", error: String(error?.message || "unknown") }));
+      const finalText = `${renderStandardAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: result.mode, language })}`;
+      // Keep the existing metadata block as-is: nesting a blockquote inside a Rich HTML
+      // footer is not needed and can reduce parser compatibility across Telegram clients.
+      const richFinalText = `${renderRichAiText(result.text)}\n${responseMeta({ model: result.model, mode: result.mode, language })}`;
+      if (finalText.length <= APP.maxTelegramText) {
+        if (richDraftActive) {
+          try {
+            await sendRichMessage(env, { chatId, html: richFinalText, replyTo: message.message_id, ...delivery, rtl: ["fa", "ar"].includes(language) });
+            return;
+          } catch (error) {
+            console.info(JSON.stringify({ event: "rich_message_fallback", error: String(error?.message || "unknown") }));
+          }
         }
+        if (progress?.message_id) await editMessage(env, { chatId, messageId: progress.message_id, text: finalText, businessConnectionId: delivery.businessConnectionId });
+        else await sendMessage(env, { chatId, text: finalText, replyTo: message.message_id, ...delivery });
+        return;
       }
-      if (progress?.message_id) await editMessage(env, { chatId, messageId: progress.message_id, text: finalText, businessConnectionId: delivery.businessConnectionId });
-      else await sendMessage(env, { chatId, text: finalText, replyTo: message.message_id, ...delivery });
-      return;
-    }
     if (progress?.message_id) {
       await editMessage(env, {
         chatId,
@@ -587,7 +582,7 @@ async function processText(message, env) {
     const rawParts = splitText(result.text, APP.maxTelegramText - 600);
     for (let index = 0; index < rawParts.length; index += 1) {
       const last = index === rawParts.length - 1;
-      const formattedPart = renderAiText(rawParts[index]);
+      const formattedPart = renderStandardAiText(rawParts[index]);
       const textPart = last ? `${formattedPart}\n\n${responseMeta({ model: result.model, mode: result.mode, language })}` : formattedPart;
       await sendMessage(env, { chatId, text: textPart, replyTo: index === 0 ? message.message_id : undefined, ...delivery });
     }
@@ -631,7 +626,7 @@ async function processMedia(message, env) {
     }
     await sendMessage(env, {
       chatId,
-      text: `${prefix}${renderAiText(result.text)}\n\n${responseMeta({ model: result.model, language })}`,
+      text: `${prefix}${renderStandardAiText(result.text)}\n\n${responseMeta({ model: result.model, language })}`,
       replyTo: message.message_id,
       ...delivery
     });
@@ -679,7 +674,7 @@ async function handleInlineQuery(query, env) {
         id: token,
         title: "IVAI",
         description: result.text.slice(0, 100),
-        input_message_content: { message_text: `${renderAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: result.mode, language })}`, parse_mode: "HTML", disable_web_page_preview: true }
+        input_message_content: { message_text: `${renderStandardAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: result.mode, language })}`, parse_mode: "HTML", disable_web_page_preview: true }
       }]
     });
   } catch (error) {

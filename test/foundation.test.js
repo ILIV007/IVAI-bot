@@ -10,6 +10,7 @@ import { APP, defaultFreeModelFor, FREE_MODEL_POLICY, LANGUAGE_OPTIONS, MODES, m
 import { defaultFreeModels, refreshFreeModelCatalog } from "../src/catalog.js";
 import { ensureConversationSession, getAdminOperationalStats, getConversationSession, getUserSettings, saveConversationSession, setMemoryEnabled, setSelectedModel, setUserLanguage, setUserMode, startNewConversationSession, upsertUser } from "../src/storage.js";
 import { getRequiredChannelMembership } from "../src/membership.js";
+import { renderRichAiText, renderStandardAiText } from "../src/rich-renderer.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
 import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelSelectionText, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, startKeyboard, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
 
@@ -225,8 +226,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.22 release version", () => {
-  assert.equal(APP.version, "3.3.22");
+test("declares the official v3.3.23 release version", () => {
+  assert.equal(APP.version, "3.3.23");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -1438,6 +1439,123 @@ test("turning memory off clears Telegram and Terminal Sessions without resetting
     });
     const reply = calls.find((call) => /sendMessage$/.test(call.url));
     assert.match(reply.body.text, /IVAI Terminal پاک شد/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("renders an allow-listed Rich Markdown subset without trusting model HTML", () => {
+  const source = [
+    "# Build plan",
+    "",
+    "```js",
+    "const unsafe = '<script>alert(1)</script>';",
+    "```",
+    "",
+    "- first item",
+    "- [x] done item",
+    "- [ ] pending item",
+    "",
+    "1. ordered item",
+    "",
+    "---",
+    "",
+    "> quoted **note**",
+    "",
+    "<img src=x onerror=alert(1)>"
+  ].join("\n");
+  const rich = renderRichAiText(source);
+  assert.match(rich, /<h1>Build plan<\/h1>/);
+  assert.match(rich, /<pre><code class="language-js">const unsafe = &#39;&lt;script&gt;alert\(1\)&lt;\/script&gt;&#39;;<\/code><\/pre>/);
+  assert.match(rich, /<ul><li>first item<\/li><li><input type="checkbox" checked> done item<\/li><li><input type="checkbox"> pending item<\/li><\/ul>/);
+  assert.match(rich, /<ol><li>ordered item<\/li><\/ol>/);
+  assert.match(rich, /<hr\/>/);
+  assert.match(rich, /<blockquote>quoted <b>note<\/b><\/blockquote>/);
+  assert.match(rich, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.doesNotMatch(rich, /<script|<img src=x/);
+  const standard = renderStandardAiText(source);
+  assert.match(standard, /&lt;script&gt;/);
+  assert.doesNotMatch(standard, /<pre>|<ul>|<hr\/>/);
+});
+
+test("uses RTL rich drafts and final messages for Arabic responses", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ ok: true, result: true }), { status: 200 });
+  };
+  try {
+    const env = { ...baseEnv(), AI: { async run() { return { response: "إجابة منظمة" }; } } };
+    const update = {
+      update_id: 2301,
+      message: { message_id: 201, chat: { id: 42, type: "private" }, from: { id: 99, first_name: "Arabic", language_code: "ar" }, text: "مرحبا" }
+    };
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+      body: JSON.stringify(update)
+    }), env);
+    assert.equal(response.status, 200);
+    const draft = calls.find((call) => /sendRichMessageDraft$/.test(call.url));
+    const final = calls.find((call) => /sendRichMessage$/.test(call.url));
+    assert.equal(draft.body.rich_message.is_rtl, true);
+    assert.equal(final.body.rich_message.is_rtl, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("sends structured safe Rich HTML for code and lists after a Rich Draft", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ ok: true, result: true }), { status: 200 });
+  };
+  try {
+    const answer = ["## Steps", "", "```python", "print('<script>')", "```", "", "- [x] ready", "- [ ] next", "", "---"].join("\n");
+    const env = { ...baseEnv(), AI: { async run() { return { response: answer }; } } };
+    const update = { update_id: 2302, message: { message_id: 202, chat: { id: 42, type: "private" }, from: { id: 8 }, text: "Format the steps" } };
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+      body: JSON.stringify(update)
+    }), env);
+    assert.equal(response.status, 200);
+    const final = calls.find((call) => /sendRichMessage$/.test(call.url));
+    assert.match(final.body.rich_message.html, /<h2>Steps<\/h2>/);
+    assert.match(final.body.rich_message.html, /<pre><code class="language-python">print\(&#39;&lt;script&gt;&#39;\)<\/code><\/pre>/);
+    assert.match(final.body.rich_message.html, /<ul><li><input type="checkbox" checked> ready<\/li><li><input type="checkbox"> next<\/li><\/ul>/);
+    assert.match(final.body.rich_message.html, /<hr\/>/);
+    assert.doesNotMatch(final.body.rich_message.html, /<script>/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("keeps the standard HTML fallback free of Rich-only structural tags", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    const method = String(url).split("/").at(-1);
+    if (method === "sendRichMessageDraft") return new Response(JSON.stringify({ ok: false, description: "Rich unavailable" }), { status: 400 });
+    return new Response(JSON.stringify({ ok: true, result: method === "sendMessage" ? { message_id: 333 } : true }), { status: 200 });
+  };
+  try {
+    const env = { ...baseEnv(), AI: { async run() { return { response: "```js\nconst x = 1;\n```\n- item\n---" }; } } };
+    const update = { update_id: 2303, message: { message_id: 203, chat: { id: 42, type: "private" }, from: { id: 9 }, text: "Fallback format" } };
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+      body: JSON.stringify(update)
+    }), env);
+    assert.equal(response.status, 200);
+    const final = calls.find((call) => /editMessageText$/.test(call.url) && /const x = 1/.test(call.body.text));
+    assert.ok(final);
+    assert.doesNotMatch(final.body.text, /<pre>|<ul>|<hr\/>/);
+    assert.equal(final.body.parse_mode, "HTML");
   } finally {
     globalThis.fetch = originalFetch;
   }

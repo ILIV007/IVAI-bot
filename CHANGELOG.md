@@ -2,6 +2,22 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.23] - 2026-08-21
+
+### Added
+
+- Added a deterministic, allow-listed Rich Markdown renderer for private-chat Rich Messages. It supports headings, fenced code blocks with safe language classes, ordered and unordered lists, visual task lists, horizontal dividers, block quotes, bold text and inline code.
+- Added a structured Rich HTML final-message path while preserving the existing ordinary Telegram HTML fallback for draft failures, rich-send failures and long replies.
+
+### Fixed
+
+- Arabic now receives the same `is_rtl` Rich Message treatment as Persian for the draft and final response.
+- Rich rendering escapes model output before adding trusted Telegram markup, so model-provided tags and attributes cannot become executable or native Rich HTML.
+
+### Tests
+
+- Added Rich Markdown injection, code/list/divider, Arabic RTL, end-to-end rich-payload and normal-fallback regression coverage. The validation suite contains 70 passing tests.
+
 ## [3.3.22] - 2026-08-21
 
 ### Fixed
