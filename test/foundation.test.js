@@ -10,7 +10,7 @@ import { defaultFreeModels, refreshFreeModelCatalog } from "../src/catalog.js";
 import { getAdminOperationalStats } from "../src/storage.js";
 import { getRequiredChannelMembership } from "../src/membership.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
-import { feedbackKeyboard, languageKeyboard, modeKeyboard, modeLabel, modelPickerKeyboard, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, startKeyboard, terminalKeyboard, thinkingText } from "../src/telegram.js";
+import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, startKeyboard, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
 
 class KV {
   constructor() { this.values = new Map(); }
@@ -224,8 +224,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.10 release version", () => {
-  assert.equal(APP.version, "3.3.10");
+test("declares the official v3.3.11 release version", () => {
+  assert.equal(APP.version, "3.3.11");
 });
 
 test("keeps bounded free-tier output limits", () => {
@@ -234,12 +234,24 @@ test("keeps bounded free-tier output limits", () => {
   assert.ok(modeOutputLimit(MODES.THREAD) <= 900);
 });
 
-test("presents three main modes with semantic styles and a paginated model picker", () => {
-  const core = modeKeyboard("en").inline_keyboard.flat();
-  const modeCallbacks = core.filter((button) => button.callback_data.startsWith("mode:")).map((button) => button.callback_data);
-  assert.deepEqual(modeCallbacks, ["mode:auto", "mode:fast", "mode:deep"]);
-  assert.equal(core.find((button) => button.callback_data === "mode:auto").style, "primary");
-  assert.equal(core.find((button) => button.callback_data === "menu:models").style, "success");
+test("presents the compact Start and the requested four-row Menu hierarchy", () => {
+  const menu = modeKeyboard("en", { includeTerminal: true }).inline_keyboard;
+  assert.deepEqual(menu[0].map((button) => button.callback_data), ["mode:auto", "mode:fast", "mode:deep"]);
+  assert.ok(menu[0].every((button) => button.style === "primary"));
+  assert.equal(menu[1][0].web_app.url, APP.terminalAppUrl);
+  assert.equal(menu[1][0].style, "success");
+  assert.equal(menu[2][0].callback_data, "menu:models");
+  assert.equal(menu[2][0].style, "danger");
+  assert.deepEqual(menu[3].map((button) => button.callback_data), ["menu:help", "menu:settings", "menu:language"]);
+
+  const start = startKeyboard("en", { includeTerminal: true }).inline_keyboard;
+  assert.equal(start.length, 1);
+  assert.deepEqual(start[0].slice(0, 2).map((button) => button.callback_data), ["mode:auto", "menu:language"]);
+  assert.equal(start[0][0].style, "primary");
+  assert.equal(start[0][1].style, "success");
+  assert.equal(start[0][2].web_app.url, APP.terminalAppUrl);
+  assert.equal(start[0][2].style, "danger");
+
   const picker = modelPickerKeyboard([{ id: "@cf/zai-org/glm-4.7-flash", name: "GLM 4.7 Flash", provider: "workers-ai" }], { selectedModel: "@cf/zai-org/glm-4.7-flash" }).inline_keyboard.flat();
   assert.ok(picker.some((button) => button.callback_data === "model:pick:0" && button.style === "success"));
   assert.ok(picker.some((button) => button.callback_data === "model:auto" && button.style === "primary"));
@@ -247,14 +259,22 @@ test("presents three main modes with semantic styles and a paginated model picke
   assert.equal(thinkingText("en", 2), "<i>IVAI is thinking...</i>");
   assert.equal(modeLabel(MODES.DEEP, "en"), "Deep");
   assert.equal(terminalKeyboard("en").inline_keyboard[0][0].web_app.url, APP.terminalAppUrl);
-  assert.ok(!core.some((button) => button.web_app));
-  const menu = modeKeyboard("en", { includeTerminal: true }).inline_keyboard;
-  assert.equal(menu[2][0].web_app.url, APP.terminalAppUrl);
-  assert.equal(menu[0][0].style, "primary");
-  assert.equal(menu[0][1].style, "success");
-  assert.equal(startKeyboard("en", { includeTerminal: true }).inline_keyboard[0][0].web_app.url, APP.terminalAppUrl);
   assert.equal(requiredMembershipKeyboard("en").inline_keyboard[0][0].url, "https://t.me/ILIVIR3");
   assert.equal(requiredMembershipKeyboard("en").inline_keyboard[0][1].callback_data, "membership:check");
+});
+
+test("renders concise rich Start and Menu copy with live settings and language flags", () => {
+  assert.match(welcomeText("en"), /Free-only routes/);
+  assert.match(welcomeText("en"), /<blockquote>/);
+  const menu = menuText("en", { mode: MODES.DEEP, selectedModel: "@cf/zai-org/glm-4.7-flash", memoryEnabled: true });
+  assert.match(menu, /Response mode:<\/b> <code>Deep<\/code>/);
+  assert.match(menu, /Model:<\/b> <code>GLM 4\.7 Flash<\/code>/);
+  assert.match(menu, /Memory:<\/b> <code>On<\/code>/);
+  assert.doesNotMatch(menu, /Color guide/);
+  const languages = languageKeyboard("en").inline_keyboard.flat().map((button) => button.text).join(" ");
+  assert.match(languages, /🇬🇧 English/);
+  assert.match(languages, /🇮🇷 فارسی/);
+  assert.match(languageMenuText("fa"), /🇮🇷 فارسی/);
 });
 
 test("renders concise linked response metadata without per-message action buttons", () => {
@@ -294,9 +314,10 @@ test("handles a valid start update and sends Telegram output", async () => {
     assert.equal(response.status, 200);
     assert.equal(calls.length, 1);
     assert.match(calls[0].url, /sendMessage$/);
-    assert.match(calls[0].body.text, /Welcome to IVAI/);
-    assert.equal(calls[0].body.reply_markup.inline_keyboard[0][0].web_app.url, APP.terminalAppUrl);
-    assert.equal(calls[0].body.reply_markup.inline_keyboard[1][0].callback_data, "menu:main");
+    assert.match(calls[0].body.text, /a free AI assistant for chat, analysis, writing and code/);
+    const startRow = calls[0].body.reply_markup.inline_keyboard[0];
+    assert.deepEqual(startRow.slice(0, 2).map((button) => button.callback_data), ["mode:auto", "menu:language"]);
+    assert.equal(startRow[2].web_app.url, APP.terminalAppUrl);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -392,9 +413,9 @@ test("lets a confirmed channel member enter without any join prompt", async () =
     assert.equal(response.status, 200);
     assert.match(calls[0].url, /getChatMember$/);
     const reply = calls.find((call) => /sendMessage$/.test(call.url));
-    assert.match(reply.body.text, /Welcome to IVAI/);
+    assert.match(reply.body.text, /a free AI assistant for chat, analysis, writing and code/);
     assert.doesNotMatch(reply.body.text, /Membership in @ILIVIR3 is required/);
-    assert.equal(reply.body.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === "menu:main"), true);
+    assert.deepEqual(reply.body.reply_markup.inline_keyboard[0].slice(0, 2).map((button) => button.callback_data), ["mode:auto", "menu:language"]);
   } finally { globalThis.fetch = originalFetch; }
 });
 

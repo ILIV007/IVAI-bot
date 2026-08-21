@@ -1,6 +1,6 @@
 export const APP = Object.freeze({
   name: "IVAI",
-  version: "3.3.10",
+  version: "3.3.11",
   terminalAppUrl: "https://ivai-bot.ivai-bot.workers.dev/app",
   requiredChannelId: -1003162460662,
   requiredChannelUsername: "ILIVIR3",
@@ -58,17 +58,17 @@ export const USER_FACING_MODES = new Set([
 ]);
 
 export const LANGUAGE_OPTIONS = Object.freeze([
-  { code: "en", label: "English", native: "English", rtl: false },
-  { code: "fa", label: "Persian", native: "فارسی", rtl: true },
-  { code: "ar", label: "Arabic", native: "العربية", rtl: true },
-  { code: "es", label: "Spanish", native: "Español", rtl: false },
-  { code: "tr", label: "Turkish", native: "Türkçe", rtl: false },
-  { code: "ru", label: "Russian", native: "Русский", rtl: false },
-  { code: "pt-BR", label: "Portuguese (Brazil)", native: "Português", rtl: false },
-  { code: "id", label: "Indonesian", native: "Bahasa Indonesia", rtl: false },
-  { code: "hi", label: "Hindi", native: "हिन्दी", rtl: false },
-  { code: "fr", label: "French", native: "Français", rtl: false },
-  { code: "de", label: "German", native: "Deutsch", rtl: false }
+  { code: "en", label: "English", native: "English", flag: "🇬🇧", rtl: false },
+  { code: "fa", label: "Persian", native: "فارسی", flag: "🇮🇷", rtl: true },
+  { code: "ar", label: "Arabic", native: "العربية", flag: "🇸🇦", rtl: true },
+  { code: "es", label: "Spanish", native: "Español", flag: "🇪🇸", rtl: false },
+  { code: "tr", label: "Turkish", native: "Türkçe", flag: "🇹🇷", rtl: false },
+  { code: "ru", label: "Russian", native: "Русский", flag: "🇷🇺", rtl: false },
+  { code: "pt-BR", label: "Portuguese (Brazil)", native: "Português", flag: "🇧🇷", rtl: false },
+  { code: "id", label: "Indonesian", native: "Bahasa Indonesia", flag: "🇮🇩", rtl: false },
+  { code: "hi", label: "Hindi", native: "हिन्दी", flag: "🇮🇳", rtl: false },
+  { code: "fr", label: "French", native: "Français", flag: "🇫🇷", rtl: false },
+  { code: "de", label: "German", native: "Deutsch", flag: "🇩🇪", rtl: false }
 ]);
 
 export const SUPPORTED_LANGUAGE_CODES = new Set(LANGUAGE_OPTIONS.map((language) => language.code));

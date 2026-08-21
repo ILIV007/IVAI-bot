@@ -2,6 +2,26 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.11] - 2026-08-21
+
+### Changed
+
+- Redesigned `/start` as a concise capability overview with only three inline controls: Auto, Language and IVAI Terminal.
+- Rebuilt `/menu` into a status-first control surface. It now displays active response mode, selected model and memory state without a color legend.
+- Reordered the main keyboard: Auto/Fast/Deep in the first blue row; Terminal alone in green; Pick model alone in red; Help, Settings and Language in the final neutral row.
+- Added country flags to the language picker and current-language header.
+- Simplified Help copy into a short practical guide instead of a dense command catalog.
+
+### Rich formatting
+
+- Retained native Rich Message/Rich Draft delivery when Telegram supports it and the existing safe HTML fallback otherwise.
+- Added safe conversion of AI lines beginning with `>` into Telegram HTML blockquotes after escaping all untrusted model output.
+- Used native Telegram HTML headings, code and blockquotes for concise Start, Help and response metadata presentation.
+
+### Tests
+
+- Added UI regression coverage for the three-button Start screen, four-row Menu hierarchy, live Menu status, language flags and rich introductory copy. The suite now contains 50 passing tests.
+
 ## [3.3.10] - 2026-08-21
 
 ### Fixed
@@ -162,6 +182,7 @@ All notable changes to IVAI Bot are documented in this file. The project follows
 
 - Baseline IVAI bot experience on which the v3.3 modular modernization is built.
 
+[3.3.11]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.10...v3.3.11
 [3.3.10]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.9...v3.3.10
 [3.3.9]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.8...v3.3.9
 [3.3.8]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.7...v3.3.8

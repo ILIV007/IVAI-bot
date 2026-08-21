@@ -167,14 +167,15 @@ function responseText(language, key) {
 
 function helpText(language) {
   if (language === "fa") {
-    return `<b>راهنمای IVAI</b>\n\n<b>شروع سریع</b>\nیک پیام بفرستید؛ حالت <code>/auto</code> بهترین مسیر رایگان را انتخاب می‌کند.\n\n<b>سه حالت اصلی</b>\n<code>/auto</code> — انتخاب خودکار\n<code>/fast</code> — پاسخ کوتاه و سریع\n<code>/deep</code> — پاسخ ساختاریافته و دقیق\n\n<b>انتخاب مدل رایگان</b>\n<code>/models</code> یا دکمهٔ «انتخاب مدل»؛ مدل انتخابی اولویت دارد و در خطا fallback رایگان فعال می‌ماند.\n<code>/model off</code> — بازگشت به Auto\n\n<b>ابزارها</b>\n<code>/guard</code> — بررسی ایمنی یک‌مرحله‌ای\n<code>/task عنوان</code> · <code>/task in 30m | عنوان</code> · <code>/tasks</code>\n<code>/memory on|off|show|clear</code>\n<code>/terminal</code> — بازکردن رابط سبک IVAI Terminal در چت خصوصی\n<code>/lang</code> · <code>/notify on|off</code> · <code>/debug</code> · <code>/reset</code>\n\n<b>نکته</b>\nهمهٔ مسیرهای مدل فقط free-only هستند.`;
+    return `<b>📖 راهنمای IVAI</b>\n\nیک پیام بفرستید؛ <code>Auto</code> مسیر رایگان مناسب را انتخاب می‌کند.\n\n<b>حالت‌ها</b>\n<code>Auto</code> انتخاب خودکار · <code>Fast</code> پاسخ سریع · <code>Deep</code> پاسخ دقیق\n\n<b>ابزارها</b>\n<code>/models</code> مدل رایگان · <code>/memory on|off</code> حافظه · <code>/terminal</code> محیط گفتگو\n<code>/task عنوان</code> یادآور · <code>/guard</code> بررسی ایمنی\n\n<blockquote>همهٔ مسیرها رایگان هستند.</blockquote>`;
   }
-  return `<b>IVAI Help</b>\n\n<b>Quick start</b>\nSend a message. <code>/auto</code> chooses the best available free route.\n\n<b>Three main modes</b>\n<code>/auto</code> — automatic routing\n<code>/fast</code> — concise, quick answers\n<code>/deep</code> — structured, careful answers\n\n<b>Choose a free AI model</b>\nUse <code>/models</code> or the “Pick model” button. A chosen model is preferred, while free fallback remains available on failure.\n<code>/model off</code> — return to Auto\n\n<b>Tools</b>\n<code>/guard</code> — one-call safety check\n<code>/task title</code> · <code>/task in 30m | title</code> · <code>/tasks</code>\n<code>/memory on|off|show|clear</code>\n<code>/terminal</code> — open the lightweight IVAI Terminal in this private chat\n<code>/lang</code> · <code>/notify on|off</code> · <code>/debug</code> · <code>/reset</code>\n\n<b>Policy</b>\nEvery model route is free-only.`;
+  return `<b>📖 IVAI Help</b>\n\nSend a message; <code>Auto</code> selects a suitable free route.\n\n<b>Modes</b>\n<code>Auto</code> automatic · <code>Fast</code> concise · <code>Deep</code> detailed\n\n<b>Tools</b>\n<code>/models</code> free model · <code>/memory on|off</code> memory · <code>/terminal</code> chat workspace\n<code>/task title</code> reminder · <code>/guard</code> safety check\n\n<blockquote>Every route is free-only.</blockquote>`;
 }
 
 function renderAiText(text) {
-  // Escape all model output before applying a limited, safe presentation layer.
+  // Escape all model output before applying a deliberately small safe HTML subset.
   return escapeHtml(text)
+    .replace(/(?:^&gt; ?[^\n]*(?:\n|$))+/gm, (quote) => `<blockquote>${quote.trim().replace(/^&gt; ?/gm, "").replaceAll("\n", "<br>")}</blockquote>`)
     .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
     .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/^#{1,3}\s+(.+)$/gm, "<b>$1</b>");
@@ -301,7 +302,8 @@ async function handleCommand(message, env, language) {
     return true;
   }
   if (command === "/menu") {
-    await sendMessage(env, { chatId, text: menuText(language), keyboard: mainKeyboard(language, message), replyTo: message.message_id });
+    const settings = await getUserSettings(userId, env);
+    await sendMessage(env, { chatId, text: menuText(language, settings), keyboard: mainKeyboard(language, message), replyTo: message.message_id });
     return true;
   }
   if (command === "/help") {
@@ -706,7 +708,8 @@ async function processCallback(query, env) {
     return;
   }
   if (data === "menu:main" || data === "modes:back") {
-    await editMessage(env, { chatId, messageId, text: menuText(language), keyboard: mainKeyboard(language, query.message) });
+    const settings = await getUserSettings(userId, env);
+    await editMessage(env, { chatId, messageId, text: menuText(language, settings), keyboard: mainKeyboard(language, query.message) });
     return;
   }
   if (data === "menu:help") {
@@ -791,7 +794,8 @@ async function processCallback(query, env) {
       return;
     }
     await setUserMode(userId, mode, env);
-    await sendMessage(env, { chatId, text: `${responseText(language, "saved")} <b>${escapeHtml(modeLabel(mode, language))}</b>` });
+    const settings = await getUserSettings(userId, env);
+    await editMessage(env, { chatId, messageId, text: menuText(language, settings), keyboard: mainKeyboard(language, query.message) });
     return;
   }
   if (data.startsWith("lang:page:")) {
@@ -803,7 +807,8 @@ async function processCallback(query, env) {
     const selected = data.startsWith("lang:set:") ? data.slice("lang:set:".length) : data.slice(5);
     if (!SUPPORTED_LANGUAGE_CODES.has(selected)) return;
     await setUserLanguage(userId, selected, env);
-    await editMessage(env, { chatId, messageId, text: selected === "fa" ? "✓ زبان فارسی فعال شد." : selected === "ar" ? "✓ تم تفعيل العربية." : `✓ ${escapeHtml(selected)} is now active.`, keyboard: mainKeyboard(selected, query.message) });
+    const settings = await getUserSettings(userId, env);
+    await editMessage(env, { chatId, messageId, text: menuText(selected, { ...settings, language: selected }), keyboard: mainKeyboard(selected, query.message) });
     return;
   }
   if (data.startsWith("feedback:")) {

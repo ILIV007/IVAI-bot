@@ -1,8 +1,8 @@
-# IVAI Bot v3.3.10 — Free-Tier, Secure Telegram AI Assistant
+# IVAI Bot v3.3.11 — Free-Tier, Secure Telegram AI Assistant
 
 [![Continuous Integration](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.10 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while adding webhook security, a source-verified free-only model policy, D1 data, admin controls, a responsive user-facing IVAI Terminal Mini App, multimodal adapters, and inline feedback.
+> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.11 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while adding webhook security, a source-verified free-only model policy, D1 data, admin controls, a responsive user-facing IVAI Terminal Mini App, multimodal adapters, and inline feedback.
 
 ## Product principles
 
@@ -125,7 +125,8 @@ npm test
 | [Full project engineering review (FA)](docs/PROJECT_ENGINEERING_REVIEW_2026-08-21_FA.md) | v3.3.9 code, queue, security, test, CI and GitHub review with remaining real-world acceptance checks. |
 | [Production check notes (FA)](docs/PRODUCTION_CHECK_NOTES_2026-08-21.md) | Read-only production endpoint, Terminal recovery and API-surface verification for v3.3.10. |
 | [Repository automation sources](docs/REPOSITORY_AUTOMATION_SOURCES_2026-08-21.md) | Official sources behind pnpm CI and Dependabot hygiene. |
-| [Changelog](CHANGELOG.md) | Release-level changes through v3.3.10. |
+| [Telegram rich formatting research](docs/TELEGRAM_RICH_FORMATTING_RESEARCH_2026-08-21.md) | Official rich-message, HTML and quote-formatting research behind v3.3.11. |
+| [Changelog](CHANGELOG.md) | Release-level changes through v3.3.11. |
 | [Contributing](CONTRIBUTING.md) | Free-only, privacy, testing, and migration rules for contributors. |
 | [Security policy](SECURITY.md) | Private reporting process for vulnerabilities and exposed credentials. |
 

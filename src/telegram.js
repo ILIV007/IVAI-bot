@@ -23,31 +23,33 @@ export function modeKeyboard(language = "en", { includeTerminal = false } = {}) 
   const rows = [
     [
       button(fa ? "🔀 خودکار" : "🔀 Auto", "mode:auto", "primary"),
-      button(fa ? "⚡ سریع" : "⚡ Fast", "mode:fast", "success"),
+      button(fa ? "⚡ سریع" : "⚡ Fast", "mode:fast", "primary"),
       button(fa ? "🧠 عمیق" : "🧠 Deep", "mode:deep", "primary")
-    ],
-    [
-      button(fa ? "🎛 انتخاب مدل" : "🎛 Pick model", "menu:models", "success"),
-      button(fa ? "🌐 زبان" : "🌐 Language", "menu:language", "primary")
-    ],
-    [
-      button(fa ? "📖 راهنما" : "📖 Help", "menu:help", "primary"),
-      button(fa ? "⚙️ تنظیمات" : "⚙️ Settings", "menu:settings")
     ]
   ];
-  if (includeTerminal) rows.splice(2, 0, terminalKeyboard(language).inline_keyboard[0]);
+  if (includeTerminal) rows.push(terminalKeyboard(language).inline_keyboard[0]);
+  rows.push(
+    [button(fa ? "🎛 انتخاب مدل" : "🎛 Pick model", "menu:models", "danger")],
+    [
+      button(fa ? "📖 راهنما" : "📖 Help", "menu:help"),
+      button(fa ? "⚙️ تنظیمات" : "⚙️ Settings", "menu:settings"),
+      button(fa ? "🌐 زبان" : "🌐 Language", "menu:language")
+    ]
+  );
   return { inline_keyboard: rows };
 }
 
 export function startKeyboard(language = "en", { includeTerminal = false } = {}) {
   const fa = language === "fa";
-  const rows = [];
-  if (includeTerminal) rows.push(terminalKeyboard(language).inline_keyboard[0]);
-  rows.push([
-    button(fa ? "🎛 بازکردن کنترل‌ها" : "🎛 Open controls", "menu:main", "primary"),
-    button(fa ? "📖 راهنمای شروع" : "📖 Getting started", "menu:help", "success")
-  ]);
-  return { inline_keyboard: rows };
+  const terminalLabel = fa ? "⌘ سایت IVAI" : language === "ar" ? "⌘ موقع IVAI" : "⌘ IVAI Terminal";
+  const terminal = includeTerminal
+    ? { text: terminalLabel, web_app: { url: APP.terminalAppUrl }, style: "danger" }
+    : { text: terminalLabel, url: APP.terminalAppUrl, style: "danger" };
+  return { inline_keyboard: [[
+    button(fa ? "🔀 خودکار" : "🔀 Auto", "mode:auto", "primary"),
+    button(fa ? "🌐 زبان" : "🌐 Language", "menu:language", "success"),
+    terminal
+  ]] };
 }
 
 export function modelPickerKeyboard(models, { page = 0, selectedModel, language = "en", pageSize = 6 } = {}) {
@@ -83,7 +85,7 @@ export function languageKeyboard(selectedCode = "en", page = 0, pageSize = 6) {
   const rows = [];
   for (let index = 0; index < options.length; index += 2) {
     rows.push(options.slice(index, index + 2).map((option) => button(
-      `${option.code === selectedCode ? "✓ " : ""}${option.native}`,
+      `${option.code === selectedCode ? "✓ " : ""}${option.flag || "🌐"} ${option.native}`,
       `lang:set:${option.code}`,
       option.code === selectedCode ? "success" : undefined
     )));
@@ -93,13 +95,14 @@ export function languageKeyboard(selectedCode = "en", page = 0, pageSize = 6) {
   nav.push(button(`${safePage + 1}/${maxPage + 1}`, "lang:noop"));
   if (safePage < maxPage) nav.push(button("▶", `lang:page:${safePage + 1}`));
   rows.push(nav);
-  rows.push([button("← Menu", "menu:main")]);
+  rows.push([button(selectedCode === "fa" ? "← منو" : "← Menu", "menu:main")]);
   return { inline_keyboard: rows };
 }
 
 export function languageMenuText(language = "en") {
   const selected = getLanguageOption(language);
-  return language === "fa" ? `<b>🌐 زبان</b>\n\nزبان فعلی: <b>${escapeHtml(selected.native)}</b>` : `<b>🌐 Language</b>\n\nCurrent language: <b>${escapeHtml(selected.native)}</b>`;
+  const label = `${selected.flag || "🌐"} ${escapeHtml(selected.native)}`;
+  return language === "fa" ? `<b>🌐 زبان</b>\n\nزبان فعلی: <b>${label}</b>` : `<b>🌐 Language</b>\n\nCurrent language: <b>${label}</b>`;
 }
 
 export function settingsKeyboard(language = "en", memoryEnabled = false) {
@@ -299,14 +302,17 @@ export function splitText(text, maxLength) {
 
 export function welcomeText(language = "en") {
   if (language === "fa") {
-    return "<b>🪐 به IVAI خوش آمدید</b>\nدستیار AI رایگان، کم‌مصرف و English-first شما\n\nیک پیام بفرستید تا گفت‌وگو شروع شود. <b>Auto</b> بهترین مسیر رایگان را انتخاب می‌کند و در خطا فقط fallback رایگان فعال می‌شود.\n\n<b>شروع سریع</b>\n۱) پیام خود را بنویسید\n۲) برای گفت‌وگوی حرفه‌ای، <b>IVAI Terminal</b> را باز کنید\n۳) برای انتخاب mode و مدل، «Open controls» را بزنید.";
+    return "<b>🪐 IVAI</b> — دستیار AI رایگان برای گفتگو، تحلیل، نوشتن و کد.\n\n• متن، عکس و voice\n• پاسخ‌های Auto، Fast و Deep\n• انتخاب مدل، حافظهٔ اختیاری و IVAI Terminal\n• Guard و یادآوری‌های رایگان\n\n<blockquote>فقط مسیرهای رایگان · یک فراخوانی AI برای هر درخواست</blockquote>\nیک پیام بفرستید تا شروع کنیم.";
   }
-  return "<b>🪐 Welcome to IVAI</b>\nYour English-first, free and low-consumption AI assistant\n\nSend a message to begin. <b>Auto</b> chooses the best free route and falls back only to another free provider when needed.\n\n<b>Quick start</b>\n1) Write your prompt\n2) Open <b>IVAI Terminal</b> for a focused chat workspace\n3) Use “Open controls” to choose a mode or model.";
+  return "<b>🪐 IVAI</b> — a free AI assistant for chat, analysis, writing and code.\n\n• Text, photo and voice prompts\n• Auto, Fast and Deep replies\n• Model picker, optional memory and IVAI Terminal\n• Guard checks and free reminders\n\n<blockquote>Free-only routes · one AI call per request</blockquote>\nSend a message to begin.";
 }
 
-export function menuText(language = "en") {
-  if (language === "fa") return "<b>🎛 کنترل‌های IVAI</b>\n\nحالت پاسخ، مدل انتخابی، زبان و حافظه را از اینجا مدیریت کنید.\n\n<b>راهنمای رنگ‌ها:</b> آبی = مسیر اصلی، سبز = اقدام سریع یا انتخاب، قرمز = حذف یا بازنشانی.";
-  return "<b>🎛 IVAI controls</b>\n\nManage response mode, preferred model, language and memory from one place.\n\n<b>Color guide:</b> blue = primary route, green = quick action or active choice, red = reset or cancellation.";
+export function menuText(language = "en", settings = {}) {
+  const mode = escapeHtml(modeLabel(settings.mode || MODES.AUTO, language));
+  const model = escapeHtml(settings.selectedModel ? shortModelLabel(settings.selectedModel) : "Auto");
+  const memory = settings.memoryEnabled ? (language === "fa" ? "روشن" : "On") : (language === "fa" ? "خاموش" : "Off");
+  if (language === "fa") return `<b>🎛 کنترل‌های IVAI</b>\n\n<b>حالت پاسخ:</b> <code>${mode}</code>\n<b>مدل:</b> <code>${model}</code>\n<b>حافظه:</b> <code>${memory}</code>\n\nبرای ادامه، یک کنترل را انتخاب کنید.`;
+  return `<b>🎛 IVAI controls</b>\n\n<b>Response mode:</b> <code>${mode}</code>\n<b>Model:</b> <code>${model}</code>\n<b>Memory:</b> <code>${memory}</code>\n\nChoose a control to continue.`;
 }
 
 export function shortModelLabel(model = "") {
