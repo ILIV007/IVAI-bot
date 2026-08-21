@@ -1,8 +1,10 @@
-# IVAI Bot v3.3.17 — Free-Tier, Secure Telegram AI Assistant
+# IVAI Bot v3.3.19 — Free-Tier, Secure Telegram AI Assistant
 
 [![Continuous Integration](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.17 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while adding a live-validated multimodal audit, a visible-response-safe vision primary, and strict free-tier media safeguards.
+> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.19 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while hardening independent D1 settings persistence.
+>
+> **Use IVAI on Telegram:** [@IVAI_Llm_bot](https://t.me/IVAI_Llm_bot)
 
 ## Product principles
 
@@ -107,7 +109,7 @@ npm test
 3. Register actual values as Worker Secrets.
 4. Deploy the Worker.
 5. Set the Telegram webhook with a random `secret_token` that matches `TELEGRAM_WEBHOOK_SECRET`; subscribe only to needed update types.
-6. Enable Inline Mode in BotFather. Configure the **Main Mini App** and the bot menu button to `https://ivai-bot.ivai-bot.workers.dev/app`; keep `/admin` as the separate role-protected operations panel.
+6. Enable Inline Mode in BotFather. Configure the **Main Mini App** and the bot menu button with the deployed value of `APP.terminalAppUrl`; keep `/admin` as the separate role-protected operations panel. The public entry point for users is [@IVAI_Llm_bot](https://t.me/IVAI_Llm_bot).
 7. Validate `/start`, `/help`, language picker, model picker, private Rich Draft/fallback, text, inline query, Guest reply, reaction feedback, Business/Thread context, role checks, broadcast preview, `/task in 30m | reminder test`, and `/notify off` on a staging chat before production use. Cron reminders and inactive-user check-ins are batch-delivered within roughly ten minutes of eligibility.
 8. After the code is live, refresh the Telegram webhook with `guest_message` and `message_reaction` in `allowed_updates`; enable Guest Mode and Inline Mode in BotFather. See `docs/TELEGRAM_FEATURE_MATRIX_FA.md`.
 
@@ -130,7 +132,7 @@ npm test
 | [Production check notes (FA)](docs/PRODUCTION_CHECK_NOTES_2026-08-21.md) | Read-only production endpoint, Terminal recovery and API-surface verification for v3.3.10. |
 | [Repository automation sources](docs/REPOSITORY_AUTOMATION_SOURCES_2026-08-21.md) | Official sources behind pnpm CI and Dependabot hygiene. |
 | [Telegram rich formatting research](docs/TELEGRAM_RICH_FORMATTING_RESEARCH_2026-08-21.md) | Official rich-message, HTML and quote-formatting research behind v3.3.11. |
-| [Changelog](CHANGELOG.md) | Release-level changes through v3.3.12. |
+| [Changelog](CHANGELOG.md) | Release-level changes through v3.3.19. |
 | [Contributing](CONTRIBUTING.md) | Free-only, privacy, testing, and migration rules for contributors. |
 | [Security policy](SECURITY.md) | Private reporting process for vulnerabilities and exposed credentials. |
 

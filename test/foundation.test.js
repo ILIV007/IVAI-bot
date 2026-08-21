@@ -225,8 +225,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.18 release version", () => {
-  assert.equal(APP.version, "3.3.18");
+test("declares the official v3.3.19 release version", () => {
+  assert.equal(APP.version, "3.3.19");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -283,10 +283,13 @@ test("presents the requested Start controls and five-row Menu hierarchy", () => 
     { id: "gemini-3.7-flash", name: "Gemini 3.7 Flash", provider: "google", category: "deep" }
   ];
   const picker = modelPickerKeyboard(pickerModels, { selectedModel: "@cf/zai-org/glm-4.7-flash" }).inline_keyboard.flat();
-  assert.ok(picker.some((button) => button.callback_data === "model:view:workers-ai" && button.text.startsWith("🟣")));
-  assert.ok(picker.some((button) => button.callback_data === "model:view:openrouter" && button.text.startsWith("🔵")));
-  assert.ok(picker.some((button) => button.callback_data === "model:view:groq" && button.text.startsWith("🟠")));
-  assert.ok(picker.some((button) => button.callback_data === "model:view:google" && button.text.startsWith("🟢")));
+  assert.ok(picker.some((button) => button.callback_data === "model:view:workers-ai" && button.text.startsWith("🟣") && button.style === "primary"));
+  assert.ok(picker.some((button) => button.callback_data === "model:view:openrouter" && button.text.startsWith("🔵") && button.style === "primary"));
+  assert.ok(picker.some((button) => button.callback_data === "model:view:groq" && button.text.startsWith("🟠") && button.style === "primary"));
+  assert.ok(picker.some((button) => button.callback_data === "model:view:google" && button.text.startsWith("🟢") && button.style === "primary"));
+  for (const scope of ["all", "fast", "deep", "code"]) {
+    assert.ok(picker.some((button) => button.callback_data === `model:view:${scope}` && button.style === "danger"));
+  }
   assert.ok(picker.some((button) => button.callback_data === "model:pick:0:all:0" && button.style === "success"));
   assert.ok(picker.some((button) => button.callback_data === "model:auto:all" && button.style === "primary"));
   const providerFiltered = modelPickerKeyboard(pickerModels, { scope: "google" }).inline_keyboard.flat();

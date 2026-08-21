@@ -2,6 +2,17 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.19] - 2026-08-21
+
+### Changed
+
+- Made every provider control in the inline AI model picker blue and every All/Fast/Deep/Code filter red. The active scope retains an explicit ✓ indicator, so its selection remains clear without relying on a third color.
+- Made [@IVAI_Llm_bot](https://t.me/IVAI_Llm_bot) the prominent public entry point in the repository README. The technical Mini App deployment value now refers to `APP.terminalAppUrl` rather than displaying the Worker URL.
+
+### Tests
+
+- Added assertions that all provider controls are blue and all model-scope filters are red. The existing selected-model assertion remains in place.
+
 ## [3.3.18] - 2026-08-21
 
 ### Fixed

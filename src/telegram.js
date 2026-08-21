@@ -102,21 +102,21 @@ export function modelPickerKeyboard(models, { page = 0, selectedModel, language 
   const safePage = Math.max(0, Math.min(page, Math.max(0, Math.ceil(scopedModels.length / pageSize) - 1)));
   const start = safePage * pageSize;
   const pageModels = scopedModels.slice(start, start + pageSize);
-  const scopedStyle = (value) => activeScope === value ? "success" : undefined;
+  const scopedLabel = (value, label) => `${activeScope === value ? "✓ " : ""}${label}`;
   const fa = language === "fa";
   const ar = language === "ar";
   const rows = [
     [
-      button("🟣 CF", "model:view:workers-ai", scopedStyle("workers-ai")),
-      button("🔵 OpenRouter", "model:view:openrouter", scopedStyle("openrouter")),
-      button("🟠 Groq", "model:view:groq", scopedStyle("groq")),
-      button("🟢 Gemini", "model:view:google", scopedStyle("google"))
+      button(scopedLabel("workers-ai", "🟣 CF"), "model:view:workers-ai", "primary"),
+      button(scopedLabel("openrouter", "🔵 OpenRouter"), "model:view:openrouter", "primary"),
+      button(scopedLabel("groq", "🟠 Groq"), "model:view:groq", "primary"),
+      button(scopedLabel("google", "🟢 Gemini"), "model:view:google", "primary")
     ],
     [
-      button(fa ? "◉ همه" : ar ? "◉ الكل" : "◉ All", "model:view:all", scopedStyle("all")),
-      button(fa ? "⚡ سریع" : ar ? "⚡ سريع" : "⚡ Fast", "model:view:fast", scopedStyle("fast")),
-      button(fa ? "🧠 عمیق" : ar ? "🧠 عميق" : "🧠 Deep", "model:view:deep", scopedStyle("deep")),
-      button(fa ? "⌘ کد" : ar ? "⌘ برمجة" : "⌘ Code", "model:view:code", scopedStyle("code"))
+      button(scopedLabel("all", fa ? "◉ همه" : ar ? "◉ الكل" : "◉ All"), "model:view:all", "danger"),
+      button(scopedLabel("fast", fa ? "⚡ سریع" : ar ? "⚡ سريع" : "⚡ Fast"), "model:view:fast", "danger"),
+      button(scopedLabel("deep", fa ? "🧠 عمیق" : ar ? "🧠 عميق" : "🧠 Deep"), "model:view:deep", "danger"),
+      button(scopedLabel("code", fa ? "⌘ کد" : ar ? "⌘ برمجة" : "⌘ Code"), "model:view:code", "danger")
     ]
   ];
   for (let index = 0; index < pageModels.length; index += 2) {
