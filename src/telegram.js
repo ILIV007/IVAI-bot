@@ -126,6 +126,29 @@ export function terminalKeyboard(language = "en") {
   return { inline_keyboard: [[{ text: label, web_app: { url: APP.terminalAppUrl }, style: "success" }]] };
 }
 
+export function requiredMembershipText(language = "en", { checkFailed = false } = {}) {
+  const channel = `@${APP.requiredChannelUsername}`;
+  if (language === "fa") {
+    const detail = checkFailed ? "بررسی عضویت موقتاً در دسترس نبود. پس از عضویت، چند لحظه بعد دوباره بررسی کنید." : "برای استفاده از IVAI ابتدا باید عضو کانال شوید.";
+    return `<b>🔒 عضویت در ${channel} لازم است</b>\n\n${detail}\n\n۱) روی «عضویت در کانال» بزنید\n۲) عضو ${channel} شوید\n۳) به اینجا برگردید و «بررسی عضویت» را بزنید`;
+  }
+  if (language === "ar") {
+    const detail = checkFailed ? "تعذر التحقق من العضوية مؤقتًا. بعد الانضمام، انتظر لحظة ثم تحقق مرة أخرى." : "يجب الانضمام إلى القناة قبل استخدام IVAI.";
+    return `<b>🔒 Membership in ${channel} is required</b>\n\n${detail}\n\n1) Join ${channel}\n2) Return here\n3) Tap Check membership`;
+  }
+  const detail = checkFailed ? "Membership could not be verified temporarily. After joining, wait a moment and check again." : "You must join the channel before using IVAI.";
+  return `<b>🔒 Membership in ${channel} is required</b>\n\n${detail}\n\n1) Join ${channel}\n2) Return here\n3) Tap Check membership`;
+}
+
+export function requiredMembershipKeyboard(language = "en") {
+  const join = language === "fa" ? "↗ عضویت در کانال" : language === "ar" ? "↗ انضم إلى القناة" : "↗ Join channel";
+  const check = language === "fa" ? "✓ بررسی عضویت" : language === "ar" ? "✓ تحقق من العضوية" : "✓ Check membership";
+  return { inline_keyboard: [[
+    { text: join, url: APP.requiredChannelUrl, style: "success" },
+    button(check, "membership:check", "primary")
+  ]] };
+}
+
 export function adminKeyboard() {
   return {
     inline_keyboard: [

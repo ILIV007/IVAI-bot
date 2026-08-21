@@ -1,8 +1,8 @@
-# IVAI Bot v3.3.6 — Free-Tier, Secure Telegram AI Assistant
+# IVAI Bot v3.3.7 — Free-Tier, Secure Telegram AI Assistant
 
 [![Continuous Integration](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.6 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while adding webhook security, a source-verified free-only model policy, D1 data, admin controls, a responsive user-facing IVAI Terminal Mini App, multimodal adapters, and inline feedback.
+> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.7 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while adding webhook security, a source-verified free-only model policy, D1 data, admin controls, a responsive user-facing IVAI Terminal Mini App, multimodal adapters, and inline feedback.
 
 ## Product principles
 
@@ -30,6 +30,7 @@
 | Context routing | Thread/topic, direct-message topic, and business-connection context are preserved for typing, draft, text and media replies |
 | Re-engagement | A consent-controlled, at-most-once-per-15-days check-in for inactive users; five sequential deliveries per scheduled run, no AI call and `/notify on|off` control |
 | Languages | English-first, Persian-second, plus Arabic, Spanish, Turkish, Russian, Portuguese (Brazil), Indonesian, Hindi, French and German via `/lang` |
+| Access control | Required membership in [@ILIVIR3](https://t.me/ILIVIR3) is verified with Telegram `getChatMember` before bot, inline, guest, media, callback and IVAI Terminal AI access; non-members receive only Join and Check membership actions |
 | Security | Telegram webhook secret validation, retry-safe update deduplication, no Secret in source control, user-level rate limits, strict zero-price catalog admission, and a conservative 8,000-Neuron daily Workers AI budget guard that is reported consistently in admin metrics |
 
 ## Project layout
@@ -118,7 +119,8 @@ npm test
 | [Provider research](docs/PROVIDER_RESEARCH_2026-08-20.md) | Source-backed model eligibility, deprecation review, provider limits, and safe fallback policy. |
 | [IVAI Terminal proposal (FA)](docs/USER_TERMINAL_MINI_APP_PROPOSAL_FA.md) | Security boundary, low-cost architecture, UI design, and rollout plan for the public terminal Mini App. |
 | [Telegram real-world test plan (FA)](docs/TELEGRAM_REAL_WORLD_TEST_PLAN_FA.md) | Executed checks, Telegram acceptance scenarios, recovery behavior and safe failure reporting. |
-| [Changelog](CHANGELOG.md) | Release-level changes for v3.3.6. |
+| [Required channel access](docs/REQUIRED_CHANNEL_ACCESS_FA.md) | Required channel policy, bot administrator prerequisite, join/recheck flow and acceptance checks. |
+| [Changelog](CHANGELOG.md) | Release-level changes for v3.3.7. |
 | [Contributing](CONTRIBUTING.md) | Free-only, privacy, testing, and migration rules for contributors. |
 | [Security policy](SECURITY.md) | Private reporting process for vulnerabilities and exposed credentials. |
 

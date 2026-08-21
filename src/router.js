@@ -4,6 +4,7 @@ import { getFreeModelCatalog, refreshFreeModelCatalog, renderModelList, selectCa
 import { analyzePhoto, transcribeVoice } from "./media.js";
 import { cancelBroadcast } from "./broadcast.js";
 import { allowUsage, canBroadcast, canManage, getRole, safeError } from "./security.js";
+import { getRequiredChannelMembership } from "./membership.js";
 import {
   clearGuestMemory,
   conversationKey,
@@ -27,7 +28,7 @@ import {
   upsertUser,
   writeAdminAudit
 } from "./storage.js";
-import { adminKeyboard, answerCallback, editMessage, escapeHtml, languageKeyboard, languageMenuText, menuText, modelPickerKeyboard, modeKeyboard, modeLabel, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendTyping, settingsKeyboard, startKeyboard, startThinkingAnimation, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
+import { adminKeyboard, answerCallback, editMessage, escapeHtml, languageKeyboard, languageMenuText, menuText, modelPickerKeyboard, modeKeyboard, modeLabel, requiredMembershipKeyboard, requiredMembershipText, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendTyping, settingsKeyboard, startKeyboard, startThinkingAnimation, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
 
 const COMMAND_MODE = Object.freeze({
   "/auto": MODES.AUTO,
@@ -41,6 +42,41 @@ const COMMAND_MODE = Object.freeze({
   "/management": MODES.MANAGEMENT,
   "/thread": MODES.THREAD
 });
+
+function membershipConfirmedText(language) {
+  return language === "fa" ? "<b>✓ عضویت تأیید شد</b>\n\nاکنون می‌توانید از IVAI استفاده کنید." : language === "ar" ? "<b>✓ تم تأكيد العضوية</b>\n\nيمكنك الآن استخدام IVAI." : "<b>✓ Membership confirmed</b>\n\nYou can now use IVAI.";
+}
+
+async function isRequiredChannelMember(userId, env) {
+  return getRequiredChannelMembership(userId, env);
+}
+
+async function sendMembershipRequired(message, language, membership, env) {
+  if (!message?.chat?.id) return;
+  await sendMessage(env, {
+    chatId: message.chat.id,
+    text: requiredMembershipText(language, { checkFailed: membership?.reason === "CHECK_FAILED" }),
+    keyboard: requiredMembershipKeyboard(language),
+    replyTo: message.message_id,
+    ...messageSendContext(message)
+  });
+}
+
+async function answerInlineMembershipRequired(query, language, env) {
+  await telegram(env, "answerInlineQuery", {
+    inline_query_id: query.id,
+    cache_time: 0,
+    is_personal: true,
+    results: [{
+      type: "article",
+      id: "ivai-channel-required",
+      title: "Join @ILIVIR3 to use IVAI",
+      description: "Membership is required before AI requests are enabled.",
+      input_message_content: { message_text: requiredMembershipText(language), parse_mode: "HTML" },
+      reply_markup: requiredMembershipKeyboard(language)
+    }]
+  });
+}
 
 function languageFromMessage(message) {
   const text = String(message?.text || message?.caption || "");
@@ -63,6 +99,14 @@ async function handleGuestMessage(message, env) {
   if (!guestQueryId || !prompt) return;
   const language = languageFromMessage(message);
   const userId = message?.guest_bot_caller_user?.id || message?.from?.id || "guest";
+  const membership = await isRequiredChannelMember(userId, env);
+  if (!membership.allowed) {
+    await telegram(env, "answerGuestQuery", {
+      guest_query_id: guestQueryId,
+      result: { type: "article", id: "ivai-channel-required", title: "Join @ILIVIR3 to use IVAI", input_message_content: { message_text: requiredMembershipText(language), parse_mode: "HTML" }, reply_markup: requiredMembershipKeyboard(language) }
+    });
+    return;
+  }
   const usage = await allowUsage({ scope: "guest", id: userId, limit: APP.userHourlyTextLimit }, env);
   let text;
   try {
@@ -433,6 +477,11 @@ async function processText(message, env) {
   const delivery = messageSendContext(message);
   const knownSettings = await getUserSettings(userId, env);
   const language = knownSettings.language || languageFromMessage(message) || "en";
+  const membership = await isRequiredChannelMember(userId, env);
+  if (!membership.allowed) {
+    await sendMembershipRequired(message, language, membership, env);
+    return;
+  }
   await upsertUser({ user: message.from, chat: message.chat, language }, env);
   if (text.startsWith("/") && await handleCommand(message, env, language)) return;
 
@@ -515,6 +564,11 @@ async function processMedia(message, env) {
   const chatId = message.chat?.id;
   const delivery = messageSendContext(message);
   const language = (await getUserSettings(userId, env)).language || languageFromMessage(message) || "en";
+  const membership = await isRequiredChannelMember(userId, env);
+  if (!membership.allowed) {
+    await sendMembershipRequired(message, language, membership, env);
+    return;
+  }
   await upsertUser({ user: message.from, chat: message.chat, language }, env);
   const usage = await allowUsage({ scope: "media", id: userId, limit: APP.userDailyMediaLimit, windowSeconds: 24 * 60 * 60 }, env);
   if (!usage.allowed) {
@@ -550,6 +604,8 @@ async function handleInlineQuery(query, env) {
   const userId = query.from?.id;
   const language = (await getUserSettings(userId, env)).language || (query.from?.language_code === "fa" ? "fa" : "en");
   const prompt = String(query.query || "").trim();
+  const membership = await isRequiredChannelMember(userId, env);
+  if (!membership.allowed) return answerInlineMembershipRequired(query, language, env);
   if (!prompt) {
     await telegram(env, "answerInlineQuery", {
       inline_query_id: query.id,
@@ -617,6 +673,22 @@ async function processCallback(query, env) {
   await answerCallback(env, query.id).catch(() => {});
   const messageId = query.message?.message_id;
   if (!chatId || !messageId) return;
+
+  if (data === "membership:check") {
+    const membership = await isRequiredChannelMember(userId, env);
+    if (!membership.allowed) {
+      await editMessage(env, { chatId, messageId, text: requiredMembershipText(language, { checkFailed: membership.reason === "CHECK_FAILED" }), keyboard: requiredMembershipKeyboard(language) });
+      return;
+    }
+    await editMessage(env, { chatId, messageId, text: membershipConfirmedText(language), keyboard: welcomeKeyboard(language, query.message) });
+    return;
+  }
+
+  const membership = await isRequiredChannelMember(userId, env);
+  if (!membership.allowed) {
+    await editMessage(env, { chatId, messageId, text: requiredMembershipText(language, { checkFailed: membership.reason === "CHECK_FAILED" }), keyboard: requiredMembershipKeyboard(language) });
+    return;
+  }
 
   if (data === "notify:on" || data === "notify:off") {
     const enabled = data === "notify:on";
@@ -821,6 +893,11 @@ export async function handleUpdate(update, env) {
   if (message.text) return processText(message, env);
   if (message.voice || message.photo?.length) return processMedia(message, env);
   const language = languageFromMessage(message) || "en";
+  const membership = await isRequiredChannelMember(message.from?.id, env);
+  if (!membership.allowed) {
+    await sendMembershipRequired(message, language, membership, env);
+    return;
+  }
   await upsertUser({ user: message.from, chat: message.chat, language }, env);
   if (message.chat?.id) await sendMessage(env, { chatId: message.chat.id, text: responseText(language, "unsupportedMedia"), replyTo: message.message_id });
 }

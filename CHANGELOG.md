@@ -2,6 +2,18 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.7] - 2026-08-21
+
+### Added
+
+- Added mandatory membership enforcement for `@ILIVIR3` (`-1003162460662`) before text, media, inline, guest, callback and IVAI Terminal AI access.
+- Added a fail-closed `getChatMember` guard, Join channel / Check membership controls, explicit Terminal `JOIN REQUIRED` state and no-AI rejection path for non-members.
+- Added regression coverage for non-member bot and authenticated Terminal requests, plus a Persian operational guide for required channel access.
+
+### Operational requirement
+
+- `@IVAI_Llm_bot` must be an administrator in `@ILIVIR3` so Telegram membership checks are reliable.
+
 ## [3.3.6] - 2026-08-21
 
 ### Fixed
@@ -101,6 +113,7 @@ All notable changes to IVAI Bot are documented in this file. The project follows
 
 - Baseline IVAI bot experience on which the v3.3 modular modernization is built.
 
+[3.3.7]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.6...v3.3.7
 [3.3.6]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.5...v3.3.6
 [3.3.5]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.4...v3.3.5
 [3.3.4]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.3...v3.3.4

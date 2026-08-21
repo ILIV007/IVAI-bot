@@ -9,7 +9,7 @@ import { APP, defaultFreeModelFor, FREE_MODEL_POLICY, LANGUAGE_OPTIONS, MODES, m
 import { defaultFreeModels, refreshFreeModelCatalog } from "../src/catalog.js";
 import { getAdminOperationalStats } from "../src/storage.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
-import { feedbackKeyboard, languageKeyboard, modeKeyboard, modeLabel, modelPickerKeyboard, responseMeta, shortModelLabel, splitText, startKeyboard, terminalKeyboard, thinkingText } from "../src/telegram.js";
+import { feedbackKeyboard, languageKeyboard, modeKeyboard, modeLabel, modelPickerKeyboard, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, startKeyboard, terminalKeyboard, thinkingText } from "../src/telegram.js";
 
 class KV {
   constructor() { this.values = new Map(); }
@@ -125,6 +125,7 @@ function baseEnv() {
   return {
     TELEGRAM_WEBHOOK_SECRET: "valid-secret",
     TELEGRAM_BOT_TOKEN: "test-token",
+    REQUIRED_CHANNEL_ENFORCED: "false",
     ADMIN_TELEGRAM_IDS: "126679582, 99",
     IVAI_KV: new KV()
   };
@@ -222,8 +223,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.6 release version", () => {
-  assert.equal(APP.version, "3.3.6");
+test("declares the official v3.3.7 release version", () => {
+  assert.equal(APP.version, "3.3.7");
 });
 
 test("keeps bounded free-tier output limits", () => {
@@ -251,6 +252,8 @@ test("presents three main modes with semantic styles and a paginated model picke
   assert.equal(menu[0][0].style, "primary");
   assert.equal(menu[0][1].style, "success");
   assert.equal(startKeyboard("en", { includeTerminal: true }).inline_keyboard[0][0].web_app.url, APP.terminalAppUrl);
+  assert.equal(requiredMembershipKeyboard("en").inline_keyboard[0][0].url, "https://t.me/ILIVIR3");
+  assert.equal(requiredMembershipKeyboard("en").inline_keyboard[0][1].callback_data, "membership:check");
 });
 
 test("renders concise linked response metadata without per-message action buttons", () => {
@@ -296,6 +299,25 @@ test("handles a valid start update and sends Telegram output", async () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("blocks a non-member before bot commands and presents the correct join flow", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    if (String(url).endsWith("/getChatMember")) return new Response(JSON.stringify({ ok: true, result: { status: "left" } }), { status: 200 });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 78 } }), { status: 200 });
+  };
+  try {
+    const update = { update_id: 210, message: { message_id: 21, chat: { id: 42, type: "private" }, from: { id: 126679582, first_name: "Owner" }, text: "/start" } };
+    const response = await worker.fetch(new Request("https://worker.test/", { method: "POST", headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" }, body: JSON.stringify(update) }), { ...baseEnv(), REQUIRED_CHANNEL_ENFORCED: "true" });
+    assert.equal(response.status, 200);
+    assert.match(calls[0].url, /getChatMember$/);
+    assert.equal(calls[0].body.chat_id, APP.requiredChannelId);
+    assert.match(calls[1].body.text, /Membership in @ILIVIR3 is required/);
+    assert.equal(calls[1].body.reply_markup.inline_keyboard[0][0].url, APP.requiredChannelUrl);
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test("keeps /menu separate from the welcome flow", async () => {
@@ -419,6 +441,20 @@ test("rejects unauthenticated Terminal API requests", async () => {
   const response = await worker.fetch(new Request("https://worker.test/app/session", { method: "POST", body: "{}" }), baseEnv());
   assert.equal(response.status, 401);
   assert.equal((await response.json()).code, "UNAUTHORIZED");
+});
+
+test("denies an authenticated Terminal session to a user outside the required channel", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    assert.match(String(url), /getChatMember$/);
+    assert.equal(JSON.parse(init.body).chat_id, APP.requiredChannelId);
+    return new Response(JSON.stringify({ ok: true, result: { status: "left" } }), { status: 200 });
+  };
+  try {
+    const response = await worker.fetch(new Request("https://worker.test/app/session", { method: "POST", headers: { "x-telegram-init-data": signedWebAppInitData() }, body: "{}" }), { ...baseEnv(), REQUIRED_CHANNEL_ENFORCED: "true" });
+    assert.equal(response.status, 403);
+    assert.equal((await response.json()).code, "CHANNEL_REQUIRED");
+  } finally { globalThis.fetch = originalFetch; }
 });
 
 test("runs exactly one free AI path for an authenticated Terminal chat turn", async () => {

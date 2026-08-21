@@ -3,6 +3,7 @@ import { APP, SUPPORTED_LANGUAGE_CODES } from "./config.js";
 import { allowUsage, safeError } from "./security.js";
 import { conversationKey, getGuestMemory, getUserSettings, saveGuestMemory, upsertUser } from "./storage.js";
 import { getVerifiedWebAppUser } from "./webapp-auth.js";
+import { getRequiredChannelMembership } from "./membership.js";
 
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -43,6 +44,8 @@ async function terminalUser(request, env) {
     console.warn(JSON.stringify({ event: "terminal_auth_rejected", initDataPresent: Boolean(initData), initDataLength: initData.length }));
     return null;
   }
+  const membership = await getRequiredChannelMembership(telegramUser.id, env);
+  if (!membership.allowed) return { blocked: true, telegramUser, membership };
   const settings = await getUserSettings(telegramUser.id, env);
   const requestedLanguage = String(settings.language || telegramUser.language_code || "en").replace("_", "-");
   const language = SUPPORTED_LANGUAGE_CODES.has(requestedLanguage) ? requestedLanguage : "en";
@@ -63,6 +66,7 @@ export async function handleAppRequest(request, env) {
   const url = new URL(request.url);
   const actor = await terminalUser(request, env);
   if (!actor) return json({ ok: false, code: "UNAUTHORIZED", message: "Open IVAI Terminal from Telegram." }, 401);
+  if (actor.blocked) return json({ ok: false, code: "CHANNEL_REQUIRED", message: "Join @ILIVIR3 before using IVAI Terminal.", membershipReason: actor.membership.reason }, 403);
 
   if (url.pathname === "/app/session") {
     return json({ ok: true, settings: publicSettings(actor.settings) });

@@ -1,7 +1,10 @@
 export const APP = Object.freeze({
   name: "IVAI",
-  version: "3.3.6",
+  version: "3.3.7",
   terminalAppUrl: "https://ivai-bot.ivai-bot.workers.dev/app",
+  requiredChannelId: -1003162460662,
+  requiredChannelUsername: "ILIVIR3",
+  requiredChannelUrl: "https://t.me/ILIVIR3",
   timezone: "UTC",
   maxTelegramText: 4096,
   maxInlineResults: 10,
