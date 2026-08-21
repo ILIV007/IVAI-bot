@@ -224,8 +224,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.11 release version", () => {
-  assert.equal(APP.version, "3.3.11");
+test("declares the official v3.3.12 release version", () => {
+  assert.equal(APP.version, "3.3.12");
 });
 
 test("keeps bounded free-tier output limits", () => {
@@ -528,7 +528,9 @@ test("serves a lightweight IVAI Terminal shell with strict same-origin security 
   assert.match(html, /IVAI \/\/ TERMINAL/);
   assert.match(html, /--navy:#07192f/);
   assert.match(html, /--jade:#16b89b/);
-  assert.match(html, /textContent=text/);
+  assert.match(html, /function renderRich\(target,value\)/);
+  assert.match(html, /languageChip/);
+  assert.match(html, /document\.createElement\('blockquote'\)/);
   assert.match(html, /RECONNECT/);
   assert.match(html, /AbortController/);
   assert.match(html, /Open IVAI Terminal from inside Telegram/);
@@ -543,7 +545,8 @@ test("emits parseable Terminal bootstrap JavaScript after template rendering", a
   const bootstrap = scripts.at(-1);
   assert.ok(bootstrap);
   assert.doesNotThrow(() => new Function(bootstrap));
-  assert.match(bootstrap, /replace\('@cf\/'/);
+  assert.match(bootstrap, /function shortModel\(value\)/);
+  assert.match(bootstrap, /function renderRich\(target,value\)/);
 });
 
 test("rejects unauthenticated Terminal API requests", async () => {
@@ -705,7 +708,8 @@ test("delivers a long AI response in complete follow-up messages instead of trun
     assert.equal(calls.filter((call) => /editMessageText$/.test(call.url)).length, 0);
     const delivered = calls.filter((call) => /sendMessage$/.test(call.url) && !/thinking/.test(call.body.text));
     assert.ok(delivered.length >= 2);
-    assert.ok(delivered.some((call) => !Object.hasOwn(call.body, "parse_mode")));
+    assert.ok(delivered.every((call) => call.body.parse_mode === "HTML"));
+    assert.ok(delivered.at(-1).body.text.includes('<blockquote>🪐 <a href="https://t.me/IVAI_Llm_bot">IVAI</a>'));
     assert.ok(delivered.every((call) => call.body.text.length <= 4096));
   } finally {
     globalThis.fetch = originalFetch;

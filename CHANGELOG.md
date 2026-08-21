@@ -2,6 +2,20 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.12] - 2026-08-21
+
+### Changed
+
+- Synchronized the public IVAI Terminal Mini App with the v3.3.11 control language: localized English, Persian and Arabic copy; a current-language flag chip; compact selected-model display; and live mode, model, language and memory updates after every successful turn.
+- Replaced plain Mini App message insertion with a safe DOM renderer for escaped blockquotes, bold text and inline code; it never inserts untrusted model output through `innerHTML`.
+- Localized required-channel membership, reconnect and retry states in the Terminal while retaining the existing server-side Telegram `initData` validation and same-origin API boundary.
+- Preserved safe Telegram HTML formatting for long bot replies by splitting raw model output before rendering each chunk, then appending the linked IVAI response metadata only to the final chunk.
+
+### Tests
+
+- Updated Terminal shell and bootstrap regression checks for the DOM renderer, language state and compact-model helpers.
+- Updated long-response regression coverage to require safe Telegram HTML delivery, bounded message chunks and exactly one final metadata block. The suite contains 50 passing tests.
+
 ## [3.3.11] - 2026-08-21
 
 ### Changed
@@ -182,6 +196,7 @@ All notable changes to IVAI Bot are documented in this file. The project follows
 
 - Baseline IVAI bot experience on which the v3.3 modular modernization is built.
 
+[3.3.12]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.11...v3.3.12
 [3.3.11]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.10...v3.3.11
 [3.3.10]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.9...v3.3.10
 [3.3.9]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.8...v3.3.9

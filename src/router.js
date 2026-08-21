@@ -28,7 +28,7 @@ import {
   upsertUser,
   writeAdminAudit
 } from "./storage.js";
-import { adminKeyboard, answerCallback, editMessage, escapeHtml, languageKeyboard, languageMenuText, menuText, modelPickerKeyboard, modeKeyboard, modeLabel, requiredMembershipKeyboard, requiredMembershipText, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendTyping, settingsKeyboard, startKeyboard, startThinkingAnimation, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
+import { adminKeyboard, answerCallback, editMessage, escapeHtml, languageKeyboard, languageMenuText, menuText, modelPickerKeyboard, modeKeyboard, modeLabel, requiredMembershipKeyboard, requiredMembershipText, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendTyping, settingsKeyboard, splitText, startKeyboard, startThinkingAnimation, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
 
 const COMMAND_MODE = Object.freeze({
   "/auto": MODES.AUTO,
@@ -548,8 +548,15 @@ async function processText(message, env) {
         businessConnectionId: delivery.businessConnectionId
       });
     }
-    await sendMessage(env, { chatId, text: result.text, replyTo: message.message_id, parseMode: null, ...delivery });
-    await sendMessage(env, { chatId, text: responseMeta({ model: result.model, mode: result.mode, language }), ...delivery });
+    // Split raw model output first, then render every part independently. This preserves the
+    // safe HTML/blockquote layer for long replies without risking broken tags across boundaries.
+    const rawParts = splitText(result.text, APP.maxTelegramText - 600);
+    for (let index = 0; index < rawParts.length; index += 1) {
+      const last = index === rawParts.length - 1;
+      const formattedPart = renderAiText(rawParts[index]);
+      const textPart = last ? `${formattedPart}\n\n${responseMeta({ model: result.model, mode: result.mode, language })}` : formattedPart;
+      await sendMessage(env, { chatId, text: textPart, replyTo: index === 0 ? message.message_id : undefined, ...delivery });
+    }
   } catch (error) {
     await thinking?.stop();
     const code = safeError(error);
