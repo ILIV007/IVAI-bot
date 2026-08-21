@@ -429,8 +429,15 @@ async function handleCommand(message, env, language) {
     const action = (args[0] || "show").toLowerCase();
     const key = contextKey(message);
     if (action === "on" || action === "off") {
-      await setMemoryEnabled(userId, action === "on", env);
-      await sendMessage(env, { chatId, text: action === "on" ? (language === "fa" ? "✓ حافظهٔ کوتاه‌مدت فعال شد." : "✓ Short-term memory enabled.") : (language === "fa" ? "✓ حافظه غیرفعال شد." : "✓ Memory disabled."), replyTo: message.message_id });
+      const enabled = action === "on";
+      await setMemoryEnabled(userId, enabled, env);
+      // Turning Memory off is a privacy boundary: discard both independent scopes so
+      // a later re-enable never resumes an older Telegram or Terminal conversation.
+      if (!enabled) await clearUserMemory(message, env);
+      const text = enabled
+        ? (language === "fa" ? "✓ حافظهٔ کوتاه‌مدت فعال شد." : "✓ Short-term memory enabled.")
+        : (language === "fa" ? "✓ حافظه غیرفعال شد و context چت و IVAI Terminal پاک شد." : "✓ Memory disabled and Telegram/IVAI Terminal context cleared.");
+      await sendMessage(env, { chatId, text, replyTo: message.message_id });
       return true;
     }
     if (action === "clear") {

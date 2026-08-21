@@ -225,8 +225,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.21 release version", () => {
-  assert.equal(APP.version, "3.3.21");
+test("declares the official v3.3.22 release version", () => {
+  assert.equal(APP.version, "3.3.22");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -639,6 +639,7 @@ test("runs exactly one free AI path for an authenticated Terminal chat turn", as
   assert.equal(body.ok, true);
   assert.equal(body.text, "Terminal reply.");
   assert.equal(body.mode, "deep");
+  assert.deepEqual(body.settings, { language: "en", mode: MODES.AUTO, selectedModel: null, memoryEnabled: false });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].model, "@cf/google/gemma-4-26b-a4b-it");
 });
@@ -1392,6 +1393,49 @@ test("preserves persistent preferences when /new resets only the conversation Se
       selectedModel: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
       memoryEnabled: true
     });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("turning memory off clears Telegram and Terminal Sessions without resetting other preferences", async () => {
+  const originalFetch = globalThis.fetch;
+  const kv = new KV();
+  const db = new PreferenceD1();
+  const user = { id: 4444, username: "memory_owner", first_name: "Memory owner" };
+  const chat = { id: 5555, type: "private" };
+  const env = { ...baseEnv(), IVAI_DB: db, IVAI_KV: kv };
+  const chatScope = "5555:4444:main:root";
+  const terminalScope = "4444:4444:terminal:root";
+  await setUserLanguage(user.id, "fa", env);
+  await setUserMode(user.id, MODES.CODE, env);
+  await setSelectedModel(user.id, "@cf/zai-org/glm-4.7-flash", env);
+  await setMemoryEnabled(user.id, true, env);
+  await saveConversationSession(chatScope, [{ role: "user", content: "Telegram context" }], env);
+  await saveConversationSession(terminalScope, [{ role: "user", content: "Terminal context" }], env);
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 888 } }), { status: 200 });
+  };
+  try {
+    const update = { update_id: 1401, message: { message_id: 71, chat, from: user, text: "/memory off" } };
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+      body: JSON.stringify(update)
+    }), env);
+    assert.equal(response.status, 200);
+    assert.equal(await getConversationSession(chatScope, env), null);
+    assert.equal(await getConversationSession(terminalScope, env), null);
+    assert.deepEqual(await getUserSettings(user.id, env), {
+      language: "fa",
+      mode: MODES.CODE,
+      selectedModel: "@cf/zai-org/glm-4.7-flash",
+      memoryEnabled: false
+    });
+    const reply = calls.find((call) => /sendMessage$/.test(call.url));
+    assert.match(reply.body.text, /IVAI Terminal پاک شد/);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -2,6 +2,18 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.22] - 2026-08-21
+
+### Fixed
+
+- Terminal chat responses now return the authoritative persisted settings snapshot alongside the generated reply. The UI updates its language, mode, selected model and Memory chip from that snapshot, so a fallback model used for one answer can never be displayed as the user’s selected model.
+- Terminal New Chat refreshes the same authoritative settings snapshot before redrawing the workspace, keeping it consistent with preferences changed in Telegram.
+- `/memory off` now clears both independent Telegram and IVAI Terminal Sessions as a privacy boundary. Re-enabling Memory starts with fresh context and preserves only language, model and response-mode preferences.
+
+### Tests
+
+- Added regression coverage for Terminal authoritative settings and end-to-end `/memory off` clearing of both scopes. The validation suite contains 66 passing tests.
+
 ## [3.3.21] - 2026-08-21
 
 ### Changed

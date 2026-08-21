@@ -107,6 +107,7 @@ export async function handleAppRequest(request, env) {
       model: result.model,
       mode: result.mode,
       language: actor.settings.language,
+      settings: publicSettings(actor.settings),
       remaining: usage.remaining
     });
   } catch (error) {
