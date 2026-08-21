@@ -2,6 +2,17 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.18] - 2026-08-21
+
+### Fixed
+
+- Isolated D1 preference setters for response mode, selected model and memory. Each setter now creates a default preference row only when absent, then updates only its own column; an independent preference write can no longer reset the other stored settings.
+- Preserved the existing explicit-language behavior: an explicitly chosen language remains authoritative when later Telegram updates expose a different account locale.
+
+### Tests
+
+- Added two stateful D1 regression scenarios covering sequential preference writes, opposite first-write ordering, a Persian language selection, later English Telegram metadata, selected-model changes and memory toggles. The suite contains 58 passing tests.
+
 ## [3.3.17] - 2026-08-21
 
 ### Fixed

@@ -43,23 +43,33 @@ export async function getUserSettings(userId, env) {
   };
 }
 
+async function ensureUserPreferences(userId, env) {
+  await env.IVAI_DB
+    .prepare(`INSERT OR IGNORE INTO user_preferences (telegram_user_id, mode, memory_enabled, updated_at)
+      VALUES (?, 'auto', 0, CURRENT_TIMESTAMP)`)
+    .bind(String(userId))
+    .run();
+}
+
 export async function setMemoryEnabled(userId, enabled, env) {
   if (!env.IVAI_DB || !userId) return;
+  await ensureUserPreferences(userId, env);
   await env.IVAI_DB
-    .prepare(`INSERT INTO user_preferences (telegram_user_id, mode, memory_enabled, updated_at)
-      VALUES (?, 'auto', ?, CURRENT_TIMESTAMP)
-      ON CONFLICT(telegram_user_id) DO UPDATE SET memory_enabled=excluded.memory_enabled, updated_at=CURRENT_TIMESTAMP`)
-    .bind(String(userId), enabled ? 1 : 0)
+    .prepare(`UPDATE user_preferences
+      SET memory_enabled=?, updated_at=CURRENT_TIMESTAMP
+      WHERE telegram_user_id=?`)
+    .bind(enabled ? 1 : 0, String(userId))
     .run();
 }
 
 export async function setSelectedModel(userId, modelId, env) {
   if (!env.IVAI_DB || !userId) return;
+  await ensureUserPreferences(userId, env);
   await env.IVAI_DB
-    .prepare(`INSERT INTO user_preferences (telegram_user_id, mode, selected_model, memory_enabled, updated_at)
-      VALUES (?, 'auto', ?, 0, CURRENT_TIMESTAMP)
-      ON CONFLICT(telegram_user_id) DO UPDATE SET selected_model=excluded.selected_model, updated_at=CURRENT_TIMESTAMP`)
-    .bind(String(userId), modelId || null)
+    .prepare(`UPDATE user_preferences
+      SET selected_model=?, updated_at=CURRENT_TIMESTAMP
+      WHERE telegram_user_id=?`)
+    .bind(modelId || null, String(userId))
     .run();
 }
 
@@ -75,11 +85,12 @@ export async function setUserLanguage(userId, language, env) {
 
 export async function setUserMode(userId, mode, env) {
   if (!env.IVAI_DB || !userId) return;
+  await ensureUserPreferences(userId, env);
   await env.IVAI_DB
-    .prepare(`INSERT INTO user_preferences (telegram_user_id, mode, memory_enabled, updated_at)
-      VALUES (?, ?, 0, CURRENT_TIMESTAMP)
-      ON CONFLICT(telegram_user_id) DO UPDATE SET mode=excluded.mode, updated_at=CURRENT_TIMESTAMP`)
-    .bind(String(userId), mode)
+    .prepare(`UPDATE user_preferences
+      SET mode=?, updated_at=CURRENT_TIMESTAMP
+      WHERE telegram_user_id=?`)
+    .bind(mode, String(userId))
     .run();
 }
 

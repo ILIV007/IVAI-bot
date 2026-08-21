@@ -8,7 +8,7 @@ import { processReengagementBatch } from "../src/reengagement.js";
 import { analyzePhoto, downloadTelegramFile, transcribeVoice } from "../src/media.js";
 import { APP, defaultFreeModelFor, FREE_MODEL_POLICY, LANGUAGE_OPTIONS, MODES, modeOutputLimit } from "../src/config.js";
 import { defaultFreeModels, refreshFreeModelCatalog } from "../src/catalog.js";
-import { getAdminOperationalStats, setUserLanguage } from "../src/storage.js";
+import { getAdminOperationalStats, getUserSettings, setMemoryEnabled, setSelectedModel, setUserLanguage, setUserMode, upsertUser } from "../src/storage.js";
 import { getRequiredChannelMembership } from "../src/membership.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
 import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelSelectionText, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, startKeyboard, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
@@ -225,8 +225,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.17 release version", () => {
-  assert.equal(APP.version, "3.3.17");
+test("declares the official v3.3.18 release version", () => {
+  assert.equal(APP.version, "3.3.18");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -1073,4 +1073,155 @@ test("accepts an OpenAI-compatible vision content reply and keeps photo output b
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+class PreferenceD1 {
+  constructor() {
+    this.users = new Map();
+    this.preferences = new Map();
+  }
+
+  prepare(sql) {
+    return {
+      bind: (...params) => ({
+        first: async () => {
+          if (!sql.includes("FROM users u LEFT JOIN user_preferences")) return null;
+          const user = this.users.get(String(params[0]));
+          if (!user) return null;
+          const preference = this.preferences.get(String(params[0])) || {};
+          return {
+            language: user.language,
+            mode: preference.mode,
+            selectedModel: preference.selectedModel,
+            memoryEnabled: preference.memoryEnabled
+          };
+        },
+        run: async () => this.#run(sql, params)
+      })
+    };
+  }
+
+  #ensurePreference(userId) {
+    const id = String(userId);
+    if (!this.preferences.has(id)) this.preferences.set(id, { mode: MODES.AUTO, selectedModel: null, memoryEnabled: 0 });
+    return this.preferences.get(id);
+  }
+
+  async #run(sql, params) {
+    sql = sql.replace(/\s+/g, " ");
+    if (sql.includes("INSERT INTO users (telegram_user_id, username, first_name, language")) {
+      const [userId, username, firstName, language] = params;
+      const id = String(userId);
+      const existing = this.users.get(id);
+      this.users.set(id, {
+        username,
+        firstName,
+        language: existing?.language ?? language
+      });
+      return { meta: { changes: 1 } };
+    }
+    if (sql.includes("INSERT INTO users (telegram_user_id, language")) {
+      const [userId, language] = params;
+      const id = String(userId);
+      this.users.set(id, { ...(this.users.get(id) || {}), language });
+      return { meta: { changes: 1 } };
+    }
+    if (sql.includes("INSERT INTO chats")) return { meta: { changes: 1 } };
+
+    if (sql.includes("INSERT OR IGNORE INTO user_preferences")) {
+      const id = String(params[0]);
+      const existed = this.preferences.has(id);
+      this.#ensurePreference(id);
+      return { meta: { changes: existed ? 0 : 1 } };
+    }
+    if (sql.includes("UPDATE user_preferences SET selected_model")) {
+      const preference = this.#ensurePreference(params[1]);
+      preference.selectedModel = params[0] || null;
+      return { meta: { changes: 1 } };
+    }
+    if (sql.includes("UPDATE user_preferences SET memory_enabled")) {
+      const preference = this.#ensurePreference(params[1]);
+      preference.memoryEnabled = params[0];
+      return { meta: { changes: 1 } };
+    }
+    if (sql.includes("UPDATE user_preferences SET mode")) {
+      const preference = this.#ensurePreference(params[1]);
+      preference.mode = params[0];
+      return { meta: { changes: 1 } };
+    }
+
+    if (sql.includes("INSERT INTO user_preferences") && sql.includes("selected_model")) {
+      const [userId, selectedModel] = params;
+      const id = String(userId);
+      const existing = this.preferences.get(id);
+      this.preferences.set(id, existing ? { ...existing, selectedModel: selectedModel || null } : { mode: MODES.AUTO, selectedModel: selectedModel || null, memoryEnabled: 0 });
+      return { meta: { changes: 1 } };
+    }
+    if (sql.includes("INSERT INTO user_preferences") && sql.includes("memory_enabled")) {
+      const [userId, value] = params;
+      const id = String(userId);
+      const existing = this.preferences.get(id);
+      if (sql.includes("mode, memory_enabled")) {
+        this.preferences.set(id, existing ? { ...existing, memoryEnabled: value } : { mode: MODES.AUTO, selectedModel: null, memoryEnabled: value });
+      }
+      return { meta: { changes: 1 } };
+    }
+    if (sql.includes("INSERT INTO user_preferences") && sql.includes("mode")) {
+      const [userId, mode] = params;
+      const id = String(userId);
+      const existing = this.preferences.get(id);
+      this.preferences.set(id, existing ? { ...existing, mode } : { mode, selectedModel: null, memoryEnabled: 0 });
+      return { meta: { changes: 1 } };
+    }
+    return { meta: { changes: 0 } };
+  }
+}
+
+test("keeps an explicit Persian language and selected settings across sequential preference writes", async () => {
+  const env = { IVAI_DB: new PreferenceD1() };
+  const user = { id: 77, username: "persian_user", first_name: "Persian user" };
+  const chat = { id: 770, type: "private" };
+
+  await setUserLanguage(user.id, "fa", env);
+  await upsertUser({ user, chat, language: "en" }, env);
+  await setUserMode(user.id, MODES.CODE, env);
+  await setSelectedModel(user.id, "@cf/meta/llama-3.3-70b-instruct-fp8-fast", env);
+  await setMemoryEnabled(user.id, true, env);
+
+  let settings = await getUserSettings(user.id, env);
+  assert.deepEqual(settings, {
+    language: "fa",
+    mode: MODES.CODE,
+    selectedModel: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    memoryEnabled: true
+  });
+
+  // A later message may arrive with Telegram language_code=en. It must not replace an explicit fa choice.
+  await upsertUser({ user, chat, language: "en" }, env);
+  await setMemoryEnabled(user.id, false, env);
+  await setSelectedModel(user.id, null, env);
+
+  settings = await getUserSettings(user.id, env);
+  assert.deepEqual(settings, {
+    language: "fa",
+    mode: MODES.CODE,
+    selectedModel: null,
+    memoryEnabled: false
+  });
+});
+
+
+test("preserves mode and model when the first preference writes arrive in a different order", async () => {
+  const env = { IVAI_DB: new PreferenceD1() };
+  await setUserLanguage(88, "fa", env);
+  await setMemoryEnabled(88, true, env);
+  await setSelectedModel(88, "@cf/meta/llama-3.3-70b-instruct-fp8-fast", env);
+  await setUserMode(88, MODES.DEEP, env);
+
+  assert.deepEqual(await getUserSettings(88, env), {
+    language: "fa",
+    mode: MODES.DEEP,
+    selectedModel: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    memoryEnabled: true
+  });
 });
