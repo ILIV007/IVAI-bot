@@ -2,6 +2,18 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.16] - 2026-08-21
+
+### Verified
+
+- Completed a mapped, end-to-end debug review of the Worker, webhook security, required-channel gate, Telegram UX, free-model policy, media, D1/KV state, Mini App, admin API, background jobs and production deployment.
+- Confirmed the deployed Worker health route, public IVAI Terminal shell, production `*/10 * * * *` schedule, D1 `ivai_db` binding, KV `IVAI_KV` binding and aggregate operational state through read-only Cloudflare checks.
+
+### Tests
+
+- Added regression coverage for oversized Telegram media and the guarded Workers AI voice/photo paths. Oversized metadata is rejected before a binary download and each supported medium uses exactly one guarded Workers AI call.
+- Added `docs/DEBUG_PLAN_2026-08-21.md` and its rendered debug map, recording the scope, evidence and result for every review area. The suite contains 54 passing tests.
+
 ## [3.3.15] - 2026-08-21
 
 ### Fixed
@@ -242,6 +254,7 @@ All notable changes to IVAI Bot are documented in this file. The project follows
 
 - Baseline IVAI bot experience on which the v3.3 modular modernization is built.
 
+[3.3.16]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.15...v3.3.16
 [3.3.15]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.14...v3.3.15
 [3.3.14]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.13...v3.3.14
 [3.3.13]: https://github.com/ILIV007/IVAI-bot/compare/v3.3.12...v3.3.13

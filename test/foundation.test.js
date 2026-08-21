@@ -5,6 +5,7 @@ import worker from "../src/index.js";
 import { generateReply } from "../src/ai.js";
 import { processSecretaryReminderBatch } from "../src/secretary.js";
 import { processReengagementBatch } from "../src/reengagement.js";
+import { analyzePhoto, downloadTelegramFile, transcribeVoice } from "../src/media.js";
 import { APP, defaultFreeModelFor, FREE_MODEL_POLICY, LANGUAGE_OPTIONS, MODES, modeOutputLimit } from "../src/config.js";
 import { defaultFreeModels, refreshFreeModelCatalog } from "../src/catalog.js";
 import { getAdminOperationalStats, setUserLanguage } from "../src/storage.js";
@@ -224,8 +225,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.15 release version", () => {
-  assert.equal(APP.version, "3.3.15");
+test("declares the official v3.3.16 release version", () => {
+  assert.equal(APP.version, "3.3.16");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -973,6 +974,52 @@ test("does not duplicate a re-engagement delivery when cron runs overlap", async
     assert.equal(first.claimed + second.claimed, 1);
     assert.equal(first.sent + second.sent, 1);
     assert.equal(calls.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("rejects oversized Telegram media before downloading bytes", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ ok: true, result: { file_path: "voice.ogg", file_size: 8 * 1024 * 1024 + 1 } }), { status: 200 });
+  };
+  try {
+    await assert.rejects(downloadTelegramFile("oversized", baseEnv()), /Media is too large/);
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].url, /getFile$/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("runs one guarded Workers AI call for voice and photo media", async () => {
+  const originalFetch = globalThis.fetch;
+  const aiCalls = [];
+  const binary = new Uint8Array([1, 2, 3, 4]);
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("getFile")) return new Response(JSON.stringify({ ok: true, result: { file_path: "asset.bin", file_size: binary.byteLength } }), { status: 200 });
+    return new Response(binary, { status: 200, headers: { "content-type": "image/jpeg" } });
+  };
+  try {
+    const env = {
+      ...baseEnv(),
+      AI: {
+        async run(model, input) {
+          aiCalls.push({ model, input });
+          return input.audio ? { text: "voice transcript" } : { response: "photo description" };
+        }
+      }
+    };
+    const voice = await transcribeVoice({ fileId: "voice", languageHint: "fa" }, env);
+    const photo = await analyzePhoto({ fileId: "photo", caption: "Describe", language: "en" }, env);
+    assert.equal(voice.text, "voice transcript");
+    assert.equal(photo.text, "photo description");
+    assert.equal(aiCalls.length, 2);
+    assert.equal(aiCalls[0].input.language, "fa");
+    assert.match(aiCalls[1].input.messages[0].content[1].image_url.url, /^data:image\/jpeg;base64,/);
   } finally {
     globalThis.fetch = originalFetch;
   }

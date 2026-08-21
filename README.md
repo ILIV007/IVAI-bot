@@ -1,8 +1,8 @@
-# IVAI Bot v3.3.15 — Free-Tier, Secure Telegram AI Assistant
+# IVAI Bot v3.3.16 — Free-Tier, Secure Telegram AI Assistant
 
 [![Continuous Integration](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.15 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while adding a source-verified free-only model policy, a colored provider-aware model picker, and an atomically claimed 15-day re-engagement delivery path.
+> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.16 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while adding an evidence-led full-system debug map, production health verification, and media-path regression coverage.
 
 ## Product principles
 
@@ -14,6 +14,10 @@
 | **Privacy-aware memory** | Memory is disabled by default, stored with TTL in KV when enabled, and can be inspected or cleared. |
 | **Safe administration** | Admin IDs belong in a Worker Secret; broadcast uses draft → preview → confirmation → queued batches with audit logging. |
 
+## Debug assurance
+
+The current [full debug map](docs/DEBUG_PLAN_2026-08-21.md) records the scope, evidence and outcome for ingress, membership, Telegram UX, AI, media, D1/KV, Mini App, admin, scheduled jobs and production checks. Its rendered [system map](docs/debug-map-2026-08-21.png) provides the corresponding execution flow.
+
 ## Current foundation
 
 | Area | Included in v3.3 foundation |
@@ -24,7 +28,7 @@
 | Memory controls | `/memory on`, `/memory off`, `/memory show`, `/memory clear` |
 | Providers | A conservative Workers AI allowlist spanning GLM, Gemma, GPT-OSS, Granite, Llama and Qwen; the official OpenRouter Free Router plus dynamically verified zero-price `:free` entries; active Groq GPT-OSS/Qwen routes; and free-tier eligible Gemini Flash/Flash-Lite models. Every selected route still retains a sequential free fallback. |
 | Telegram UX | Rich Draft + Rich Message fallback, colored inline buttons, a focused Start surface, a descriptive five-row Menu, message chunking, callback handling, Inline Mode, Guest AI replies, and reaction-based group feedback |
-| Multimodal | Voice transcription and image understanding adapters through Workers AI, guarded by file and quota limits |
+| Multimodal | Voice transcription and image understanding adapters through Workers AI, guarded by file and quota limits. Oversized files are rejected before download; voice and photo paths each have regression coverage for their single guarded AI call. |
 | Admin | Owner/admin roles, Telegram-native admin controls, reviewable broadcast drafts, audit logging, responsive `/admin` Mini App shell, and server-side `initData` validation |
 | IVAI Terminal | A polished navy/blue/jade user Mini App at `/app` with explicit secure-session, reconnect and timeout states; localized English/Persian/Arabic copy, a language-flag chip, compact selected-model state and safe DOM-based blockquote/bold/code rendering stay synchronized after each turn. A cached `setChatMenuButton` configuration exposes it persistently beside the private-chat composer. It uses server-validated Telegram identity, a same-origin JSON API, one shared free AI path per turn, no polling and no permanent transcript by default. |
 | Context routing | Thread/topic, direct-message topic, and business-connection context are preserved for typing, draft, text and media replies |
