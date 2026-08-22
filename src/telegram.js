@@ -28,12 +28,25 @@ export function providerIcon(provider) {
   return { "workers-ai": "🟣", openrouter: "🔵", groq: "🟠", google: "🟢" }[provider] || "⚪";
 }
 
-export function pickWelcomeSticker(random = Math.random) {
+// Use Web Crypto instead of an isolate-level PRNG. Rejection sampling keeps every
+// configured sticker equally likely even when the pack size does not divide 2^32.
+export function secureRandomIndex(length, fillRandomValues = crypto.getRandomValues.bind(crypto)) {
+  const count = Number(length);
+  if (!Number.isSafeInteger(count) || count < 1) return 0;
+  const range = 0x1_0000_0000;
+  const upperBound = range - (range % count);
+  const value = new Uint32Array(1);
+  do {
+    fillRandomValues(value);
+  } while (value[0] >= upperBound);
+  return value[0] % count;
+}
+
+export function pickWelcomeSticker(indexSelector = secureRandomIndex) {
   const stickers = APP.welcomeStickerFileIds || [];
   if (!stickers.length) return null;
-  const value = Number(random());
-  const index = Math.min(stickers.length - 1, Math.max(0, Math.floor((Number.isFinite(value) ? value : 0) * stickers.length)));
-  return stickers[index];
+  const index = Number(indexSelector(stickers.length));
+  return stickers[Number.isSafeInteger(index) && index >= 0 && index < stickers.length ? index : 0];
 }
 
 export function providerLabel(provider, language = "en") {

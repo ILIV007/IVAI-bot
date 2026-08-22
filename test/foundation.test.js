@@ -12,7 +12,7 @@ import { ensureConversationSession, getAdminOperationalStats, getConversationSes
 import { getRequiredChannelMembership } from "../src/membership.js";
 import { renderRichAiText, renderStandardAiText } from "../src/rich-renderer.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
-import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelSelectionText, pickWelcomeSticker, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, stabilizeRtlText, startKeyboard, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
+import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelSelectionText, pickWelcomeSticker, secureRandomIndex, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, stabilizeRtlText, startKeyboard, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
 
 class KV {
   constructor() { this.values = new Map(); }
@@ -226,8 +226,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.32 release version", () => {
-  assert.equal(APP.version, "3.3.32");
+test("declares the official v3.3.33 release version", () => {
+  assert.equal(APP.version, "3.3.33");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -342,8 +342,17 @@ test("renders concise linked response metadata without per-message action button
   assert.equal(stabilizeRtlText("<b>🌐 تنظیمات IVAI</b>\n<b>مدل:</b> GPT-OSS\nپیام فارسی"), "<b>\u200f🌐 تنظیمات IVAI</b>\n<b>\u200fمدل:</b> GPT-OSS\n\u200fپیام فارسی");
   assert.equal(stabilizeRtlText("<b>English</b>\nPlain text"), "<b>English</b>\nPlain text");
   assert.equal(stabilizeRtlText("\u200fمتن فارسی"), "\u200fمتن فارسی");
+  const fill = (number) => (target) => { target[0] = number; return target; };
+  assert.equal(secureRandomIndex(2, fill(0)), 0);
+  assert.equal(secureRandomIndex(2, fill(0xffff_ffff)), 1);
+  let draws = 0;
+  assert.equal(secureRandomIndex(3, (target) => {
+    target[0] = draws++ === 0 ? 0xffff_ffff : 4;
+    return target;
+  }), 1);
+  assert.equal(draws, 2);
   assert.equal(pickWelcomeSticker(() => 0), APP.welcomeStickerFileIds[0]);
-  assert.equal(pickWelcomeSticker(() => 0.999), APP.welcomeStickerFileIds.at(-1));
+  assert.equal(pickWelcomeSticker((length) => length - 1), APP.welcomeStickerFileIds.at(-1));
 });
 
 test("handles a valid start update and sends Telegram output", async () => {

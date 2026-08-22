@@ -2,6 +2,17 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.33] - 2026-08-22
+
+### Fixed
+
+- Replaced the isolate-level `Math.random()` choice for `/start` stickers with Web Crypto `getRandomValues()` and rejection sampling. Every configured sticker now receives an equal selection probability, including packs whose size does not divide the 32-bit random range.
+- Kept the static bot-owned file-ID allow-list and the non-fatal welcome fallback; this correction adds no AI call and no runtime `getStickerSet` request.
+
+### Tests
+
+- Added deterministic boundary and rejection-sampling regression coverage for the random-index selector, while retaining sticker-before-welcome and fallback coverage. The validation suite contains 80 passing tests.
+
 ## [3.3.32] - 2026-08-22
 
 ### Added
