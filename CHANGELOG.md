@@ -2,6 +2,17 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.35] - 2026-08-22
+
+### Fixed
+
+- Separated the persistent UI language from the detected response language in Telegram text conversations. A Persian or Arabic prompt may receive a matching-language response and retain active Session continuity, while status text, thinking UI, errors, long-response notices, and the `🪐 IVAI · Model · Mode` footer follow the saved interface language.
+- Fixed the English-interface regression where a Persian prompt could localize the `Fast` footer label to `سریع`.
+
+### Tests
+
+- Added a Telegram regression scenario that proves a Persian prompt produces a Persian answer while an English UI keeps the footer label `Fast`. The validation suite contains 82 passing tests.
+
 ## [3.3.34] - 2026-08-22
 
 ### Fixed

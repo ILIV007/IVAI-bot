@@ -525,26 +525,29 @@ async function processText(message, env) {
   const chatId = message.chat.id;
   const delivery = messageSendContext(message);
   const knownSettings = await getUserSettings(userId, env);
-  let language = scriptLanguageFromMessage(message) || knownSettings.language || languageFromMessage(message) || "en";
+  // UI language is an explicit, persistent user preference. The response language may
+  // follow a prompt's script or an active Session, but must not localize bot metadata.
+  const uiLanguage = knownSettings.language || languageFromMessage(message) || "en";
+  let responseLanguage = scriptLanguageFromMessage(message) || knownSettings.language || languageFromMessage(message) || "en";
   const membership = await isRequiredChannelMember(userId, env);
   if (!membership.allowed) {
-    await sendMembershipRequired(message, language, membership, env);
+    await sendMembershipRequired(message, uiLanguage, membership, env);
     return;
   }
-  await upsertUser({ user: message.from, chat: message.chat, language }, env);
+  await upsertUser({ user: message.from, chat: message.chat, language: uiLanguage }, env);
   if (message.chat?.type === "private") await ensureTerminalMenuButton(env);
-  if (text.startsWith("/") && await handleCommand(message, env, language)) return;
+  if (text.startsWith("/") && await handleCommand(message, env, uiLanguage)) return;
 
   const settings = await getUserSettings(userId, env);
   const key = contextKey(message);
-  const session = await ensureConversationSession(key, env, { language });
-  language = activeConversationLanguage(message, settings, session);
+  const session = await ensureConversationSession(key, env, { language: responseLanguage });
+  responseLanguage = activeConversationLanguage(message, settings, session);
   const modelInput = richDetailsRequested
     ? `${text}\n\nFor this opt-in expandable answer, provide the normal answer first. Only if a short user-visible supplement adds value, wrap that supplement exactly as:\n:::details Optional details\nvisible supporting explanation\n:::enddetails\nNever include hidden reasoning, chain-of-thought, private analysis, policies, or instructions inside the details block.`
     : text;
   const usage = await allowUsage({ scope: "text", id: userId, limit: APP.userHourlyTextLimit }, env);
   if (!usage.allowed) {
-    await sendMessage(env, { chatId, text: responseText(language, "busy"), replyTo: message.message_id, ...delivery });
+    await sendMessage(env, { chatId, text: responseText(uiLanguage, "busy"), replyTo: message.message_id, ...delivery });
     return;
   }
 
@@ -557,9 +560,9 @@ async function processText(message, env) {
       await sendRichMessageDraft(env, {
         chatId,
         draftId: Number(message.message_id) || 1,
-        html: `<tg-thinking>${language === "fa" ? "IVAI در حال فکر کردن" : "IVAI is thinking"}</tg-thinking>`,
+        html: `<tg-thinking>${uiLanguage === "fa" ? "IVAI در حال فکر کردن" : "IVAI is thinking"}</tg-thinking>`,
         threadId: delivery.threadId,
-        rtl: ["fa", "ar"].includes(language)
+        rtl: ["fa", "ar"].includes(uiLanguage)
       });
       richDraftActive = true;
     } catch (error) {
@@ -568,24 +571,24 @@ async function processText(message, env) {
   }
   const progress = richDraftActive ? null : await sendMessage(env, {
     chatId,
-    text: thinkingText(language, 0),
+    text: thinkingText(uiLanguage, 0),
     replyTo: message.message_id,
     ...delivery
   }).catch(() => null);
-  const thinking = progress?.message_id ? startThinkingAnimation(env, { chatId, messageId: progress.message_id, language, ...delivery }) : null;
+  const thinking = progress?.message_id ? startThinkingAnimation(env, { chatId, messageId: progress.message_id, language: uiLanguage, ...delivery }) : null;
 
   try {
-    const result = await generateReply({ text: modelInput, selectedMode: settings.mode, selectedModel: settings.selectedModel, language, context }, env);
+    const result = await generateReply({ text: modelInput, selectedMode: settings.mode, selectedModel: settings.selectedModel, language: responseLanguage, context }, env);
     await thinking?.stop();
-    await saveConversationSession(key, [...context, { role: "user", content: text }, { role: "assistant", content: result.text }], env, { session, language });
-      const finalText = `${renderStandardAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: result.mode, language })}`;
+    await saveConversationSession(key, [...context, { role: "user", content: text }, { role: "assistant", content: result.text }], env, { session, language: responseLanguage });
+      const finalText = `${renderStandardAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: result.mode, language: uiLanguage })}`;
       // Keep the existing metadata block as-is: nesting a blockquote inside a Rich HTML
       // footer is not needed and can reduce parser compatibility across Telegram clients.
-      const richFinalText = `${renderRichAiText(result.text, { allowDetails: richDetailsRequested, allowMath: [MODES.DEEP, MODES.CODE].includes(result.mode) })}\n${responseMeta({ model: result.model, mode: result.mode, language })}`;
+      const richFinalText = `${renderRichAiText(result.text, { allowDetails: richDetailsRequested, allowMath: [MODES.DEEP, MODES.CODE].includes(result.mode) })}\n${responseMeta({ model: result.model, mode: result.mode, language: uiLanguage })}`;
       if (finalText.length <= APP.maxTelegramText) {
         if (richDraftActive) {
           try {
-            await sendRichMessage(env, { chatId, html: richFinalText, replyTo: message.message_id, ...delivery, rtl: ["fa", "ar"].includes(language) });
+            await sendRichMessage(env, { chatId, html: richFinalText, replyTo: message.message_id, ...delivery, rtl: ["fa", "ar"].includes(responseLanguage) });
             return;
           } catch (error) {
             console.info(JSON.stringify({ event: "rich_message_fallback", error: String(error?.message || "unknown") }));
@@ -599,7 +602,7 @@ async function processText(message, env) {
       await editMessage(env, {
         chatId,
         messageId: progress.message_id,
-        text: language === "fa" ? "<i>پاسخ طولانی است و در پیام‌های زیر ارسال شد.</i>" : "<i>The full response is sent below.</i>",
+        text: uiLanguage === "fa" ? "<i>پاسخ طولانی است و در پیام‌های زیر ارسال شد.</i>" : "<i>The full response is sent below.</i>",
         businessConnectionId: delivery.businessConnectionId
       });
     }
@@ -609,13 +612,13 @@ async function processText(message, env) {
     for (let index = 0; index < rawParts.length; index += 1) {
       const last = index === rawParts.length - 1;
       const formattedPart = renderStandardAiText(rawParts[index]);
-      const textPart = last ? `${formattedPart}\n\n${responseMeta({ model: result.model, mode: result.mode, language })}` : formattedPart;
+      const textPart = last ? `${formattedPart}\n\n${responseMeta({ model: result.model, mode: result.mode, language: uiLanguage })}` : formattedPart;
       await sendMessage(env, { chatId, text: textPart, replyTo: index === 0 ? message.message_id : undefined, ...delivery });
     }
   } catch (error) {
     await thinking?.stop();
     const code = safeError(error);
-    const failureText = responseText(language, code === "RATE_LIMIT" ? "busy" : "temporary");
+    const failureText = responseText(uiLanguage, code === "RATE_LIMIT" ? "busy" : "temporary");
     if (progress?.message_id) await editMessage(env, { chatId, messageId: progress.message_id, text: failureText, businessConnectionId: delivery.businessConnectionId }).catch(() => {});
     else await sendMessage(env, { chatId, text: failureText, replyTo: message.message_id, ...delivery });
     console.error(JSON.stringify({ event: "ai_failure", code, userId: String(userId) }));

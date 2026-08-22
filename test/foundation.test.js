@@ -226,8 +226,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.34 release version", () => {
-  assert.equal(APP.version, "3.3.34");
+test("declares the official v3.3.35 release version", () => {
+  assert.equal(APP.version, "3.3.35");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -1373,6 +1373,44 @@ test("treats a plain Persian greeting as Persian despite a stale English prefere
     }), env);
     assert.equal(response.status, 200);
     assert.match(aiCalls[0].payload.messages[0].content, /Respond in Persian/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("keeps an English footer for a Persian prompt when the UI preference is English", async () => {
+  const originalFetch = globalThis.fetch;
+  const d1 = new PreferenceD1();
+  const user = { id: 884, first_name: "English UI user", language_code: "en" };
+  d1.users.set(String(user.id), { language: "en" });
+  d1.preferences.set(String(user.id), { mode: MODES.FAST, selectedModel: null, memoryEnabled: 0 });
+  const calls = [];
+  const aiCalls = [];
+  const env = {
+    ...baseEnv(),
+    IVAI_DB: d1,
+    AI: {
+      async run(model, payload) {
+        aiCalls.push({ model, payload });
+        return { response: "پاسخ فارسی" };
+      }
+    }
+  };
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 501 } }), { status: 200 });
+  };
+  try {
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+      body: JSON.stringify({ update_id: 1603, message: { message_id: 63, chat: { id: 884, type: "group" }, from: user, text: "سلام" } })
+    }), env);
+    assert.equal(response.status, 200);
+    assert.match(aiCalls[0].payload.messages[0].content, /Respond in Persian/);
+    const final = calls.find((call) => /editMessageText$/.test(call.url));
+    assert.match(final.body.text, /GLM 4\.7 Flash · Fast<\/blockquote>/);
+    assert.doesNotMatch(final.body.text, /سریع/);
   } finally {
     globalThis.fetch = originalFetch;
   }
