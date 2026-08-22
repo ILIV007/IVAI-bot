@@ -226,8 +226,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.27 release version", () => {
-  assert.equal(APP.version, "3.3.27");
+test("declares the official v3.3.28 release version", () => {
+  assert.equal(APP.version, "3.3.28");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -314,8 +314,8 @@ test("renders focused Start copy and a descriptive Menu with live settings and l
   assert.match(menu, /Memory:<\/b> <code>On<\/code>/);
   assert.match(menu, /Control guide/);
   assert.match(menu, /Code<\/b> for programming work/);
-  assert.match(menu, /<code>\/new<\/code> starts a fresh chat and clears only this conversation/);
-  assert.doesNotMatch(menu, /Color guide/);
+  assert.match(menu, /• \/new starts a fresh chat for this conversation\./);
+  assert.doesNotMatch(menu, /<code>\/new<\/code>|Color guide/);
   const languages = languageKeyboard("en").inline_keyboard.flat().map((button) => button.text).join(" ");
   assert.match(languages, /🇬🇧 English/);
   assert.match(languages, /🇮🇷 فارسی/);
@@ -1305,8 +1305,12 @@ test("starts a new Telegram Session with /new without AI work or preference rese
   const kv = new KV();
   const env = { ...baseEnv(), IVAI_KV: kv, AI: { async run() { throw new Error("/new must not call AI"); } } };
   const scope = "42:126679582:main:root";
+  const calls = [];
   await saveConversationSession(scope, [{ role: "user", content: "Old context" }], env, { now: Date.now() });
-  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true, result: { message_id: 777 } }), { status: 200 });
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 777 } }), { status: 200 });
+  };
   try {
     const update = { update_id: 1301, message: { message_id: 51, chat: { id: 42, type: "private" }, from: { id: 126679582, first_name: "Owner" }, text: "/new" } };
     const response = await worker.fetch(new Request("https://worker.test/", {
@@ -1316,6 +1320,9 @@ test("starts a new Telegram Session with /new without AI work or preference rese
     }), env);
     assert.equal(response.status, 200);
     assert.equal(await getConversationSession(scope, env), null);
+    const reply = calls.find((call) => /sendMessage$/.test(call.url));
+    assert.match(reply.body.text, /^<b>🪐 Fresh chat, ready to go!<\/b>\n\n<blockquote>/);
+    assert.match(reply.body.text, /<\/blockquote>$/);
   } finally {
     globalThis.fetch = originalFetch;
   }

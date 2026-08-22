@@ -175,9 +175,9 @@ function helpText(language) {
 }
 
 function newConversationText(language) {
-  if (language === "fa") return "<b>🪐 گفتگوی تازه آماده است!</b>\n\ncontext گفتگوی قبلی پاک شد؛ زبان، مدل، حالت پاسخ و تنظیم حافظه‌ات دقیقاً همان‌طور که بوده‌اند باقی مانده‌اند. از کجا شروع کنیم؟";
-  if (language === "ar") return "<b>🪐 محادثة جديدة جاهزة!</b>\n\nتمت إزالة سياق المحادثة السابقة، بينما بقيت اللغة والنموذج ووضع الرد وإعداد الذاكرة كما هي. من أين نبدأ؟";
-  return "<b>🪐 Fresh chat, ready to go!</b>\n\nYour previous chat context is cleared, while your language, model, response mode and memory setting stay exactly as you left them. What would you like to explore?";
+  if (language === "fa") return "<b>🪐 گفتگوی تازه آماده است!</b>\n\n<blockquote>context گفتگوی قبلی پاک شد؛ زبان، مدل، حالت پاسخ و تنظیم حافظه‌ات دقیقاً همان‌طور که بوده‌اند باقی مانده‌اند. از کجا شروع کنیم؟</blockquote>";
+  if (language === "ar") return "<b>🪐 محادثة جديدة جاهزة!</b>\n\n<blockquote>تمت إزالة سياق المحادثة السابقة، بينما بقيت اللغة والنموذج ووضع الرد وإعداد الذاكرة كما هي. من أين نبدأ؟</blockquote>";
+  return "<b>🪐 Fresh chat, ready to go!</b>\n\n<blockquote>Your previous chat context is cleared, while your language, model, response mode and memory setting stay exactly as you left them. What would you like to explore?</blockquote>";
 }
 
 function getThreadId(message) {

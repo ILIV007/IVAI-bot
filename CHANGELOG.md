@@ -2,6 +2,17 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.28] - 2026-08-22
+
+### Changed
+
+- Simplified the `/new` note at the end of the Menu to one plain-text line. It no longer uses code-style formatting or repeats persistent-setting details.
+- Kept the lively bold `/new` confirmation headline and moved its explanatory body into a Telegram blockquote for a cleaner visual hierarchy.
+
+### Tests
+
+- Added regression assertions for the plain Menu note and the bold-headline-plus-quote `/new` Telegram payload. The validation suite remains at 76 passing tests.
+
 ## [3.3.27] - 2026-08-22
 
 ### Production
