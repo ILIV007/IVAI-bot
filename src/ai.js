@@ -1,45 +1,19 @@
-import { APP, defaultFreeModelFor, FREE_MODEL_POLICY, getBrand, getLanguageOption, MODES, modeOutputLimit } from "./config.js";
+import { APP, defaultFreeModelFor, FREE_MODEL_POLICY, getBrand, getLanguageOption, MODES } from "./config.js";
+import { responseProfile, resolveResponseMode } from "./response-profile.js";
 import { reserveWorkersAiBudget } from "./security.js";
 
-function detectMode(_text, selectedMode) {
-  // Auto is a first-class user-facing mode, not a hidden router for Fast, Deep,
-  // or Code. Only an explicit non-Auto preference changes the visible mode.
-  return selectedMode && selectedMode !== MODES.AUTO ? selectedMode : MODES.AUTO;
-}
-
-function systemInstruction(mode, language) {
+function systemInstruction(profile, language) {
   const brand = getBrand();
   const selectedLanguage = getLanguageOption(language);
   const languageInstruction = `Respond in ${selectedLanguage.label} unless the user explicitly requests another language. Keep UI-facing labels concise and natural for ${selectedLanguage.native}.`;
-  const modeInstruction = {
-    [MODES.FAST]: "Give a concise, accurate, self-contained answer. Prefer one short paragraph or up to three brief bullets. Never stop mid-sentence, mid-list, mid-code block, or before the requested conclusion; summarize instead of leaving an answer unfinished.",
-    [MODES.AUTO]: "Give a complete, appropriately sized answer. Be concise when the request is simple, but never stop mid-sentence, mid-list, mid-code block, or before the requested conclusion. Use compact structure when more detail is needed.",
-    [MODES.DEEP]: "Give a structured, carefully reasoned answer, but avoid hidden chain-of-thought. State concise reasoning and conclusions.",
-    [MODES.CODE]: "Provide correct, secure, production-minded code with a short explanation and fenced code blocks when appropriate.",
-    [MODES.PROMPT]: "Transform the request into a precise reusable prompt. Include an optimized prompt and brief usage notes.",
-    [MODES.GUARD]: "Prioritize safety, clarity, and concise moderation guidance.",
-    [MODES.SECRETARY]: "Turn the request into clear notes, tasks, dates, and next actions. Do not invent commitments.",
-    [MODES.MANAGEMENT]: "Assist with community management using concise, transparent, actionable guidance.",
-    [MODES.THREAD]: "Treat this conversation or Telegram topic as a focused work thread. Keep context scoped to the thread, summarize decisions briefly, and end with the next useful action when appropriate."
-  }[mode] || "Give a helpful, accurate response.";
-  const richFormattingInstruction = [MODES.DEEP, MODES.CODE].includes(mode)
+  const richFormattingInstruction = profile.allowRichMath
     ? "When a mathematical expression improves clarity, use `$...$` for a short inline formula or a fenced `math` block for a short display formula. Use visible `[^note]: text` footnotes only for genuinely provided or clearly qualified notes; never invent sources, citations, hidden reasoning, policies, or internal instructions."
     : "Do not rely on rich mathematical or footnote syntax; keep the response broadly compatible.";
-  return `${brand.name} is a ${brand.voice} assistant. ${brand.rule} ${modeInstruction} ${richFormattingInstruction} ${languageInstruction}`;
+  return `${brand.name} is a ${brand.voice} assistant. ${brand.rule} ${profile.instruction} ${richFormattingInstruction} ${languageInstruction}`;
 }
 
-function workersAiReserveUnits(mode) {
-  // Conservative Neuron reservations based on the maximum allowed output for each user path.
-  // The budget guard favors a graceful free-tier refusal over approaching paid usage.
-  if (mode === MODES.GUARD) return 250;
-  if ([MODES.DEEP, MODES.CODE].includes(mode)) return 800;
-  if (mode === MODES.AUTO) return 550;
-  if (mode === MODES.FAST) return 400;
-  return 450;
-}
-
-function normalizeMessages({ text, context, mode, language }) {
-  const system = { role: "system", content: systemInstruction(mode, language) };
+function normalizeMessages({ text, context, profile, language }) {
+  const system = { role: "system", content: systemInstruction(profile, language) };
   const memory = (context || []).slice(-APP.maxContextMessages).map((entry) => ({
     role: entry.role === "assistant" ? "assistant" : "user",
     content: String(entry.content || "").slice(0, 3000)
@@ -66,7 +40,8 @@ function guardReplyText(raw, language) {
 
 async function runGuard({ text, language }, env) {
   if (!env.AI?.run) throw new Error("Workers AI is not configured");
-  const budget = await reserveWorkersAiBudget(workersAiReserveUnits(MODES.GUARD), env);
+  const profile = responseProfile(MODES.GUARD);
+  const budget = await reserveWorkersAiBudget(profile.workersAiReserve, env);
   if (!budget.allowed) throw new Error("Workers AI free quota guard blocked Guard Mode");
   const model = FREE_MODEL_POLICY.workersAi.guard[0];
   const result = await env.AI.run(model, {
@@ -79,17 +54,17 @@ async function runGuard({ text, language }, env) {
   return { text: guardReplyText(raw, language), provider: "workers-ai", model };
 }
 
-async function runWorkersAi({ messages, mode, selectedModel }, env) {
+async function runWorkersAi({ messages, profile, selectedModel }, env) {
   if (!env.AI?.run) throw new Error("Workers AI is not configured");
-  const budget = await reserveWorkersAiBudget(workersAiReserveUnits(mode), env);
+  const budget = await reserveWorkersAiBudget(profile.workersAiReserve, env);
   if (!budget.allowed) throw new Error("Workers AI free quota guard blocked the request");
   const model = FREE_MODEL_POLICY.workersAi.text.includes(selectedModel)
     ? selectedModel
-    : defaultFreeModelFor("workers-ai", mode);
+    : defaultFreeModelFor("workers-ai", profile.mode);
   const result = await env.AI.run(model, {
     messages,
-    max_tokens: modeOutputLimit(mode),
-    temperature: mode === MODES.CODE ? 0.2 : 0.55
+    max_tokens: profile.maxOutputTokens,
+    temperature: profile.temperature
   });
   const text = result?.response || result?.result?.response || result?.choices?.[0]?.message?.content;
   if (!String(text || "").trim()) throw new Error("Workers AI returned an empty response");
@@ -100,11 +75,11 @@ function isOpenRouterFreeModel(model) {
   return model === "openrouter/free" || String(model || "").endsWith(":free");
 }
 
-async function runOpenRouter({ messages, mode, selectedModel }, env) {
+async function runOpenRouter({ messages, profile, selectedModel }, env) {
   if (!env.OPENROUTER_API_KEY) throw new Error("OpenRouter is not configured");
   const model = isOpenRouterFreeModel(selectedModel)
     ? selectedModel
-    : defaultFreeModelFor("openrouter", mode);
+    : defaultFreeModelFor("openrouter", profile.mode);
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -113,7 +88,7 @@ async function runOpenRouter({ messages, mode, selectedModel }, env) {
       "http-referer": "https://t.me/IVAI_Llm_bot",
       "x-title": "IVAI"
     },
-    body: JSON.stringify({ model, messages, max_tokens: modeOutputLimit(mode), temperature: mode === MODES.CODE ? 0.2 : 0.55 })
+    body: JSON.stringify({ model, messages, max_tokens: profile.maxOutputTokens, temperature: profile.temperature })
   });
   if (!response.ok) throw new Error(`OpenRouter failed: ${response.status}`);
   const payload = await response.json();
@@ -122,15 +97,15 @@ async function runOpenRouter({ messages, mode, selectedModel }, env) {
   return { text: String(text).trim(), provider: "openrouter", model: payload.model || model };
 }
 
-async function runGroq({ messages, mode, selectedModel }, env) {
+async function runGroq({ messages, profile, selectedModel }, env) {
   if (!env.GROQ_API_KEY) throw new Error("Groq is not configured");
   const model = FREE_MODEL_POLICY.groq.includes(selectedModel)
     ? selectedModel
-    : defaultFreeModelFor("groq", mode);
+    : defaultFreeModelFor("groq", profile.mode);
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { authorization: `Bearer ${env.GROQ_API_KEY}`, "content-type": "application/json" },
-    body: JSON.stringify({ model, messages, max_tokens: Math.min(modeOutputLimit(mode), 1024), temperature: 0.55 })
+    body: JSON.stringify({ model, messages, max_tokens: Math.min(profile.maxOutputTokens, 1024), temperature: profile.temperature })
   });
   if (!response.ok) throw new Error(`Groq failed: ${response.status}`);
   const payload = await response.json();
@@ -139,11 +114,11 @@ async function runGroq({ messages, mode, selectedModel }, env) {
   return { text: String(text).trim(), provider: "groq", model };
 }
 
-async function runGoogle({ messages, mode, selectedModel }, env) {
+async function runGoogle({ messages, profile, selectedModel }, env) {
   if (!env.GOOGLE_API_KEY) throw new Error("Google AI Studio is not configured");
   const model = FREE_MODEL_POLICY.google.includes(selectedModel)
     ? selectedModel
-    : defaultFreeModelFor("google", mode);
+    : defaultFreeModelFor("google", profile.mode);
   const system = messages.find((message) => message.role === "system")?.content || "";
   const contents = messages.filter((message) => message.role !== "system").map((message) => ({
     role: message.role === "assistant" ? "model" : "user",
@@ -155,7 +130,7 @@ async function runGoogle({ messages, mode, selectedModel }, env) {
     body: JSON.stringify({
       systemInstruction: { parts: [{ text: system }] },
       contents,
-      generationConfig: { maxOutputTokens: modeOutputLimit(mode), temperature: 0.55 }
+      generationConfig: { maxOutputTokens: profile.maxOutputTokens, temperature: profile.temperature }
     })
   });
   if (!response.ok) throw new Error(`Google AI Studio failed: ${response.status}`);
@@ -166,9 +141,9 @@ async function runGoogle({ messages, mode, selectedModel }, env) {
 }
 
 export async function generateReply({ text, selectedMode, selectedModel, language, context }, env) {
-  const mode = detectMode(text, selectedMode);
-  if (mode === MODES.GUARD) return { ...(await runGuard({ text, language }, env)), mode };
-  const messages = normalizeMessages({ text, context, mode, language });
+  const profile = responseProfile(selectedMode);
+  if (profile.mode === MODES.GUARD) return { ...(await runGuard({ text, language }, env)), mode: profile.mode };
+  const messages = normalizeMessages({ text, context, profile, language });
   const preferred = selectedModel?.startsWith("@cf/") ? runWorkersAi
     : isOpenRouterFreeModel(selectedModel) ? runOpenRouter
       : FREE_MODEL_POLICY.groq.includes(selectedModel) ? runGroq
@@ -178,7 +153,7 @@ export async function generateReply({ text, selectedMode, selectedModel, languag
   const failures = [];
   for (const attempt of attempts) {
     try {
-      return { ...(await attempt({ messages, mode, selectedModel }, env)), mode };
+      return { ...(await attempt({ messages, profile, selectedModel }, env)), mode: profile.mode };
     } catch (error) {
       failures.push(String(error.message || error).slice(0, 100));
     }
@@ -186,6 +161,8 @@ export async function generateReply({ text, selectedMode, selectedModel, languag
   throw new Error(`No free AI provider is currently available: ${failures.join(" | ")}`);
 }
 
-export function getDetectedMode(text, selectedMode) {
-  return detectMode(text, selectedMode);
+// Retained for compatibility with existing callers/tests; `_text` is deliberately
+// not a routing signal because Auto is a first-class response mode.
+export function getDetectedMode(_text, selectedMode) {
+  return resolveResponseMode(selectedMode);
 }

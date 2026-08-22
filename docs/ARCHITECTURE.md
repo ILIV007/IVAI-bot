@@ -9,7 +9,8 @@ IVAI is a single Cloudflare Worker that receives Telegram updates over a secret-
 | `index.js` | Worker fetch entry point and scheduled handler | Rejects invalid webhook calls before routing; runs bounded background batches. |
 | `security.js` | Webhook validation, update deduplication, rate/quota checks, roles | D1-backed atomic runtime guards. |
 | `router.js` | Commands, callbacks, text/media updates, inline, Guest, reactions | Selects the minimum path necessary for each update. |
-| `ai.js` | Provider policy, prompt assembly, sequential fallback | Workers AI primary; allowlisted free providers only. |
+| `response-profile.js` | Authoritative response-mode contract | Resolves the visible Mode, instruction, bounded output budget, temperature, Workers AI reservation and Rich Math eligibility. Auto remains Auto and never silently becomes Fast/Deep/Code. |
+| `ai.js` | Provider execution, prompt assembly, sequential fallback | Consumes one Response Profile per turn; Workers AI primary; allowlisted free providers only. |
 | `catalog.js` | Free-model catalog and picker | KV cache; selected model validation. |
 | `telegram.js` | Telegram API calls, Rich Draft/Message fallback, UI and context forwarding | Preserves business and topic identifiers. |
 | `storage.js` | User preferences, conversations, tasks, delivery state, audit data | D1 for relational state, KV for bounded memory/cache. |
@@ -35,11 +36,22 @@ sequenceDiagram
     S-->>W: Allow or reject
     W->>R: Route update type and context
     R->>K: Read preferences, selected model, bounded memory
+    R->>R: Resolve Response Profile (visible Mode + budget)
     R->>A: One allowlisted model request
     A-->>R: Response or provider failure
     R->>K: Persist permitted state and audit outcome
     R->>T: Rich response or standard fallback
 ```
+
+## Response-profile contract
+
+A turn has two intentionally separate choices. **Response Mode** is the user-facing behavior (`Auto`, `Fast`, `Deep`, `Code`, and supported specialist modes); it determines the system instruction, bounded output budget, temperature, Workers AI reservation, and the footer label. **Model/provider routing** determines only which eligible free endpoint receives that one request. A selected model can pin routing, while Auto clears that pin and preserves `Auto` as the visible Mode.
+
+`response-profile.js` is the sole owner of this contract. This avoids mode-specific output limits, instructions, temperature, and rich-math rules drifting across providers. Provider fallback remains sequential and occurs only after a failure; the normal path still makes one AI call.
+
+## Session and reset contract
+
+Telegram `/new` and Terminal `/app/new` now share the same Agent-default reset: clear the scoped Session, set `mode=auto`, clear `selected_model`, and set `memory_enabled=0` in one D1 preference update. The interface language remains a display preference. Telegram and Terminal Sessions remain separate so each surface retains only its own bounded conversation context.
 
 ## Scheduled lifecycle
 

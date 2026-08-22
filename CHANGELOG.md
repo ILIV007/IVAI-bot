@@ -2,6 +2,25 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.42] - 2026-08-22
+
+### Changed
+
+- Added `response-profile.js` as the single source of truth for the response contract. It resolves the visible Mode, mode instruction, bounded output budget, temperature, Workers AI reservation, and Rich Math eligibility once per turn before provider routing begins.
+- Refactored every text provider to consume the same immutable Response Profile, preventing Auto/Fast/Deep/Code rules from drifting between Workers AI, OpenRouter, Groq, and Google.
+- Preserved the strict v3.3.41 distinction: Auto stays visibly `Auto`; only free model/provider routing is automatic. The normal path remains one AI call, and fallback remains sequential only after a provider failure.
+- Aligned Terminal `/app/new` with Telegram `/new`. Both clear their own scoped Session and restore Agent defaults atomically: Auto, no selected model pin, and Memory off. The interface language is retained.
+- Updated Terminal localized New Chat messages to accurately describe the shared Agent-default reset.
+
+### Tests
+
+- Added an end-to-end authenticated Terminal reset regression that seeds Code mode, a selected model, enabled Memory, and an old Terminal Session; it verifies no AI call, Auto/no-model/Memory-off settings in the response and D1, and an empty scoped Session.
+- Existing Auto/Fast, explicit Deep, provider-fallback, footer, Telegram `/new`, and Terminal tests retain coverage of the centralized contract. The validation suite contains 86 passing tests.
+
+### Documentation
+
+- Updated README, `docs/ARCHITECTURE.md`, and `docs/CURRENT_RELEASE_STATUS.md` with the Response Profile and shared reset contracts.
+
 ## [3.3.41] - 2026-08-22
 
 ### Changed

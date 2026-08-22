@@ -1,6 +1,6 @@
 export const APP = Object.freeze({
   name: "IVAI",
-  version: "3.3.41",
+  version: "3.3.42",
   terminalAppUrl: "https://ivai-bot.ivai-bot.workers.dev/app",
   // Bot-owned file IDs from the IVAILlmBot pack; refresh deliberately when that pack changes.
   welcomeStickerFileIds: Object.freeze([

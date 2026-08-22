@@ -1,7 +1,7 @@
 import { generateReply } from "./ai.js";
 import { APP, SUPPORTED_LANGUAGE_CODES } from "./config.js";
 import { allowUsage, safeError } from "./security.js";
-import { conversationKey, ensureConversationSession, getConversationSession, getUserSettings, saveConversationSession, startNewConversationSession, upsertUser } from "./storage.js";
+import { conversationKey, ensureConversationSession, getConversationSession, getUserSettings, resetUserAgentPreferences, saveConversationSession, startNewConversationSession, upsertUser } from "./storage.js";
 import { getVerifiedWebAppUser } from "./webapp-auth.js";
 import { getRequiredChannelMembership } from "./membership.js";
 
@@ -91,8 +91,12 @@ export async function handleAppRequest(request, env) {
 
   const key = terminalConversationKey(actor.telegramUser.id);
   if (url.pathname === "/app/new") {
-    await startNewConversationSession(key, env);
-    return json({ ok: true, settings: publicSettings(actor.settings) });
+    await Promise.all([
+      resetUserAgentPreferences(actor.telegramUser.id, env),
+      startNewConversationSession(key, env)
+    ]);
+    const settings = { ...(await getUserSettings(actor.telegramUser.id, env)), language: actor.settings.language };
+    return json({ ok: true, settings: publicSettings(settings) });
   }
 
   if (url.pathname !== "/app/chat") return json({ ok: false, code: "NOT_FOUND" }, 404);

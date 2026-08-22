@@ -226,8 +226,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.41 release version", () => {
-  assert.equal(APP.version, "3.3.41");
+test("declares the official v3.3.42 release version", () => {
+  assert.equal(APP.version, "3.3.42");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -1748,9 +1748,12 @@ test("starts a new Telegram Session with /start without an AI call", async () =>
   }
 });
 
-test("resets the authenticated Terminal Session through /app/new without an AI call", async () => {
+test("resets the authenticated Terminal Session and Agent defaults through /app/new without an AI call", async () => {
   const kv = new KV();
-  const env = { ...baseEnv(), IVAI_KV: kv, AI: { async run() { throw new Error("/app/new must not call AI"); } } };
+  const d1 = new PreferenceD1();
+  d1.users.set("126679582", { language: "en" });
+  d1.preferences.set("126679582", { mode: MODES.CODE, selectedModel: "@cf/meta/llama-3.2-1b-instruct", memoryEnabled: 1 });
+  const env = { ...baseEnv(), IVAI_DB: d1, IVAI_KV: kv, AI: { async run() { throw new Error("/app/new must not call AI"); } } };
   const scope = "126679582:126679582:terminal:root";
   await saveConversationSession(scope, [{ role: "user", content: "Terminal old context" }], env, { now: Date.now() });
   const response = await worker.fetch(new Request("https://worker.test/app/new", {
@@ -1759,8 +1762,11 @@ test("resets the authenticated Terminal Session through /app/new without an AI c
     body: "{}"
   }), env);
   assert.equal(response.status, 200);
-  assert.equal((await response.json()).ok, true);
+  const body = await response.json();
+  assert.equal(body.ok, true);
+  assert.deepEqual(body.settings, { language: "en", mode: MODES.AUTO, selectedModel: null, memoryEnabled: false });
   assert.equal(await getConversationSession(scope, env), null);
+  assert.deepEqual(await getUserSettings(126679582, env), { language: "en", mode: MODES.AUTO, selectedModel: null, memoryEnabled: false });
 });
 
 test("does not resurrect a reset Session when an older AI turn finishes later", async () => {
