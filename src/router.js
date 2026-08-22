@@ -906,10 +906,18 @@ async function processCallback(query, env) {
     }
     await setUserMode(userId, mode, env);
     const settings = await getUserSettings(userId, env);
+    // A standalone confirmation remains visible even if the user has scrolled
+    // past the Menu or Telegram folds an edited message into chat history.
+    await sendMessage(env, {
+      chatId,
+      text: modeChangedText(mode, language),
+      replyTo: messageId,
+      ...messageSendContext(query.message)
+    });
     await editMessage(env, {
       chatId,
       messageId,
-      text: `${modeChangedText(mode, language)}\n\n${menuText(language, settings)}`,
+      text: menuText(language, settings),
       keyboard: mainKeyboard(language, query.message)
     });
     return;

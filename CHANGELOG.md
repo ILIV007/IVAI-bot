@@ -2,6 +2,21 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.39] - 2026-08-22
+
+### Fixed
+
+- Changed Menu mode feedback from an in-place Menu edit to a separate visible Telegram message. After selecting Auto, Fast, Deep, or Code, IVAI now sends the localized confirmation as a reply to the current Menu and then redraws that Menu without burying the result in the edited text.
+- Preserved the v3.3.38 Auto-route reset: the standalone Auto confirmation includes `Model route: Auto` after it atomically clears a pinned model.
+
+### Tests
+
+- Updated the Menu mode regression to require a distinct `sendMessage` confirmation, verify its reply target and call order before `editMessageText`, and ensure the refreshed Menu contains no duplicated confirmation. The validation suite contains 85 passing tests.
+
+### Documentation
+
+- Updated README and `docs/CURRENT_RELEASE_STATUS.md` to state the standalone confirmation behavior.
+
 ## [3.3.38] - 2026-08-22
 
 ### Fixed

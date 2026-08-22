@@ -226,8 +226,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.38 release version", () => {
-  assert.equal(APP.version, "3.3.38");
+test("declares the official v3.3.39 release version", () => {
+  assert.equal(APP.version, "3.3.39");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -1314,7 +1314,7 @@ class PreferenceD1 {
   }
 }
 
-test("confirms each Menu response mode change and persists the selected mode", async () => {
+test("sends each Menu mode confirmation as a separate message before redrawing the Menu", async () => {
   const originalFetch = globalThis.fetch;
   const d1 = new PreferenceD1();
   const calls = [];
@@ -1341,13 +1341,17 @@ test("confirms each Menu response mode change and persists the selected mode", a
         })
       }), env);
       assert.equal(response.status, 200);
+      const confirmation = calls.find((call) => /sendMessage$/.test(call.url));
       const edit = calls.find((call) => /editMessageText$/.test(call.url));
-      assert.match(edit.body.text, /Response mode changed/);
-      assert.match(edit.body.text, new RegExp(`Active mode:<\\/b> <code>${label}<\\/code>`));
+      assert.match(confirmation.body.text, /Response mode changed/);
+      assert.match(confirmation.body.text, new RegExp(`Active mode:<\\/b> <code>${label}<\\/code>`));
+      assert.equal(confirmation.body.reply_parameters.message_id, 70 + offset);
+      assert.ok(calls.indexOf(confirmation) < calls.indexOf(edit));
+      assert.doesNotMatch(edit.body.text, /Response mode changed/);
       const settings = await getUserSettings(885, env);
       assert.equal(settings.mode, mode);
       assert.equal(settings.selectedModel, mode === MODES.AUTO ? null : "@cf/meta/llama-3.2-1b-instruct");
-      if (mode === MODES.AUTO) assert.match(edit.body.text, /Model route:<\/b> <code>Auto<\/code>/);
+      if (mode === MODES.AUTO) assert.match(confirmation.body.text, /Model route:<\/b> <code>Auto<\/code>/);
     }
   } finally {
     globalThis.fetch = originalFetch;
