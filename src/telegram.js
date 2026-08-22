@@ -68,6 +68,21 @@ function modelMatchesScope(model, scope) {
   return selected === "all" || model.provider === selected || model.category === selected;
 }
 
+// Callback payloads must fit Telegram's 64-byte limit, but catalog order can change
+// while a picker is open. A compact 64-bit deterministic token keeps each button tied
+// to the displayed model ID rather than to a stale array index.
+export function modelPickToken(modelId = "") {
+  const value = String(modelId);
+  let first = 0x811c9dc5;
+  let second = 0x9e3779b9;
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    first = Math.imul(first ^ code, 0x01000193) >>> 0;
+    second = Math.imul(second ^ code, 0x85ebca6b) >>> 0;
+  }
+  return `m${first.toString(36)}${second.toString(36)}`;
+}
+
 function categoryIcon(category) {
   return { fast: "⚡", deep: "🧠", code: "⌘" }[category] || "✦";
 }
@@ -152,10 +167,9 @@ export function modelPickerKeyboard(models, { page = 0, selectedModel, language 
   ];
   for (let index = 0; index < pageModels.length; index += 2) {
     rows.push(pageModels.slice(index, index + 2).map((model, offset) => {
-      const absoluteIndex = start + index + offset;
       const selected = model.id === selectedModel;
       const label = `${selected ? "✓ " : ""}${providerIcon(model.provider)} ${shortModelLabel(model.name)} ${categoryIcon(model.category)}`;
-      return button(label.slice(0, 64), `model:pick:${absoluteIndex}:${activeScope}:${safePage}`, selected ? "success" : undefined);
+      return button(label.slice(0, 64), `model:pick:${modelPickToken(model.id)}:${activeScope}:${safePage}`, selected ? "success" : undefined);
     }));
   }
   const nav = [];

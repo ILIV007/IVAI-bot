@@ -29,7 +29,7 @@ import {
   upsertUser,
   writeAdminAudit
 } from "./storage.js";
-import { adminKeyboard, answerCallback, editMessage, ensureTerminalMenuButton, escapeHtml, languageKeyboard, languageMenuText, menuText, modelPickerKeyboard, modelPickerText, modelSelectionText, modeKeyboard, modeLabel, pickWelcomeSticker, requiredMembershipKeyboard, requiredMembershipText, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendSticker, sendTyping, settingsKeyboard, splitText, startKeyboard, startThinkingAnimation, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
+import { adminKeyboard, answerCallback, editMessage, ensureTerminalMenuButton, escapeHtml, languageKeyboard, languageMenuText, menuText, modelPickerKeyboard, modelPickerText, modelPickToken, modelSelectionText, modeKeyboard, modeLabel, pickWelcomeSticker, requiredMembershipKeyboard, requiredMembershipText, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendSticker, sendTyping, settingsKeyboard, splitText, startKeyboard, startThinkingAnimation, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
 import { renderRichAiText, renderStandardAiText } from "./rich-renderer.js";
 
 const COMMAND_MODE = Object.freeze({
@@ -806,12 +806,25 @@ async function processCallback(query, env) {
     return;
   }
   if (data.startsWith("model:pick:")) {
-    const [indexText, requestedScope = "all", requestedPage = "0"] = data.slice("model:pick:".length).split(":");
-    const index = Number(indexText);
+    const [selectionToken, requestedScope = "all", requestedPage = "0"] = data.slice("model:pick:".length).split(":");
     const scope = pickerScope(requestedScope);
     const catalog = scopedCatalog(await getFreeModelCatalog(env), scope);
-    const model = catalog[index];
-    if (!model) return;
+    // Numeric tokens are accepted only for pickers sent before v3.3.34. New buttons
+    // use the stable ID-derived token so a catalog refresh cannot redirect a selection.
+    const model = /^\d+$/.test(selectionToken)
+      ? catalog[Number(selectionToken)]
+      : catalog.find((entry) => modelPickToken(entry.id) === selectionToken);
+    if (!model) {
+      const settings = await getUserSettings(userId, env);
+      const view = await modelPickerView(language, settings.selectedModel, env, 0, scope);
+      const notice = language === "fa"
+        ? "فهرست مدل‌ها تغییر کرده است. لطفاً مدل را دوباره انتخاب کنید."
+        : language === "ar"
+          ? "تغيّرت قائمة النماذج. يرجى اختيار النموذج مرة أخرى."
+          : "The model list changed. Please choose the model again.";
+      await editMessage(env, { chatId, messageId, text: `${notice}\n\n${view.text}`, keyboard: view.keyboard });
+      return;
+    }
     await setSelectedModel(userId, model.id, env);
     const view = await modelPickerView(language, model.id, env, Number.isFinite(Number(requestedPage)) ? Number(requestedPage) : 0, scope);
     await editMessage(env, { chatId, messageId, text: modelSelectionText(model, language), keyboard: view.keyboard });

@@ -2,6 +2,17 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.34] - 2026-08-22
+
+### Fixed
+
+- Replaced fragile catalog-index callback payloads in the Telegram model picker with compact, deterministic tokens derived from each displayed free model ID. A model choice now remains tied to the displayed model even if the free catalog changes while the picker is open.
+- Retained compatibility with numeric callbacks already sent by earlier picker messages. If an old or expired picker cannot resolve a model, IVAI now reopens the current picker with a localized explanation instead of silently doing nothing.
+
+### Tests
+
+- Extended the callback regression test to prove that a picker selection persists to `user_preferences`; added stale-token recovery coverage. The validation suite contains 81 passing tests.
+
 ## [3.3.33] - 2026-08-22
 
 ### Fixed

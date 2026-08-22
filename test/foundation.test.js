@@ -12,7 +12,7 @@ import { ensureConversationSession, getAdminOperationalStats, getConversationSes
 import { getRequiredChannelMembership } from "../src/membership.js";
 import { renderRichAiText, renderStandardAiText } from "../src/rich-renderer.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
-import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelSelectionText, pickWelcomeSticker, secureRandomIndex, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, stabilizeRtlText, startKeyboard, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
+import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelPickToken, modelSelectionText, pickWelcomeSticker, secureRandomIndex, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, stabilizeRtlText, startKeyboard, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
 
 class KV {
   constructor() { this.values = new Map(); }
@@ -226,8 +226,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.33 release version", () => {
-  assert.equal(APP.version, "3.3.33");
+test("declares the official v3.3.34 release version", () => {
+  assert.equal(APP.version, "3.3.34");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -294,10 +294,10 @@ test("presents the requested Start controls and five-row Menu hierarchy", () => 
   for (const scope of ["all", "fast", "deep", "code"]) {
     assert.ok(picker.some((button) => button.callback_data === `model:view:${scope}` && button.style === "danger"));
   }
-  assert.ok(picker.some((button) => button.callback_data === "model:pick:0:all:0" && button.style === "success"));
+  assert.ok(picker.some((button) => button.callback_data === `model:pick:${modelPickToken(pickerModels[0].id)}:all:0` && button.style === "success"));
   assert.ok(picker.some((button) => button.callback_data === "model:auto:all" && button.style === "primary"));
   const providerFiltered = modelPickerKeyboard(pickerModels, { scope: "google" }).inline_keyboard.flat();
-  assert.ok(providerFiltered.some((button) => button.callback_data === "model:pick:0:google:0" && /Gemini/.test(button.text)));
+  assert.ok(providerFiltered.some((button) => button.callback_data === `model:pick:${modelPickToken(pickerModels[3].id)}:google:0` && /Gemini/.test(button.text)));
   assert.match(modelPickerText(pickerModels, { selectedModel: "@cf/zai-org/glm-4.7-flash", language: "en" }), /Cloudflare/);
   assert.match(modelSelectionText(pickerModels[0], "en"), /Provider:/);
   assert.equal(thinkingText("en", 0), "<i>IVAI is thinking.</i>");
@@ -898,18 +898,67 @@ test("opens a callback-driven model picker and selects a displayed free model", 
     const update = {
       update_id: 904,
       callback_query: {
-        id: "picker-1", from: { id: 7, first_name: "Picker" }, data: "model:pick:0:all:0",
+        id: "picker-1", from: { id: 7, first_name: "Picker" }, data: `model:pick:${modelPickToken("@cf/zai-org/glm-4.7-flash")}:all:0`,
         message: { message_id: 20, chat: { id: 42, type: "private" }, from: { id: 8285612628, is_bot: true } }
+      }
+    };
+    const selectedWrites = [];
+    const env = {
+      ...baseEnv(),
+      IVAI_DB: {
+        prepare(sql) {
+          return {
+            bind(...params) {
+              return {
+                first: async () => null,
+                run: async () => {
+                  if (/UPDATE\s+user_preferences\s+SET\s+selected_model/i.test(sql)) selectedWrites.push(params);
+                  return { meta: { changes: 1 } };
+                }
+              };
+            }
+          };
+        }
       }
     };
     const response = await worker.fetch(new Request("https://worker.test/", {
       method: "POST", headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" }, body: JSON.stringify(update)
-    }), baseEnv());
+    }), env);
     assert.equal(response.status, 200);
     const edit = calls.find((call) => /editMessageText$/.test(call.url));
     assert.match(edit.body.text, /Model selected/);
     assert.match(edit.body.text, /Provider:/);
     assert.equal(edit.body.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === "model:auto:all"), true);
+    assert.deepEqual(selectedWrites, [["@cf/zai-org/glm-4.7-flash", "7"]]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("recovers the model picker when a stale model token is clicked", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 92 } }), { status: 200 });
+  };
+  try {
+    const update = {
+      update_id: 905,
+      callback_query: {
+        id: "picker-stale", from: { id: 8, first_name: "Picker" }, data: "model:pick:mstale:all:0",
+        message: { message_id: 21, chat: { id: 42, type: "private" }, from: { id: 8285612628, is_bot: true } }
+      }
+    };
+    const env = baseEnv();
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST", headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" }, body: JSON.stringify(update)
+    }), env);
+    assert.equal(response.status, 200);
+    const edit = calls.find((call) => /editMessageText$/.test(call.url));
+    assert.match(edit.body.text, /model list changed/i);
+    assert.ok(edit.body.reply_markup.inline_keyboard.flat().some((button) => String(button.callback_data || "").startsWith("model:pick:m")));
+    assert.equal((await getUserSettings(8, env)).selectedModel, null);
   } finally {
     globalThis.fetch = originalFetch;
   }
