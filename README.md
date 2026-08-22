@@ -7,6 +7,20 @@
 > **Use IVAI on Telegram:** [@IVAI_Llm_bot](https://t.me/IVAI_Llm_bot)
 > **Channel on Telegram:** [@ILIVIR3](https://t.me/ILIVIR3)
 
+## Learn with IVAI on Telegram
+
+[**@ILIVIR3**](https://t.me/ILIVIR3) is the public learning and discovery channel for this project. Its curated posts cover **software development, IT, technology, AI, open-source projects, practical programming resources, and hardware exploration**. IVAI Bot is the free Telegram companion that helps turn those topics into an active learning workflow.
+
+| Learn in the channel | Continue with IVAI Bot |
+|---|---|
+| Discover a project, tool, lesson, video, repository, or technical idea. | Ask for a clear explanation, a beginner-friendly breakdown, a comparison, a study plan, code help, or a next practical exercise. |
+| Follow Persian-language and international resources across AI, development, IT, open source, and maker hardware. | Use **Fast** for quick questions, **Deep** for analysis, **Code** for implementation work, and **Terminal** for a focused chat workspace. |
+| Keep track of topics worth revisiting. | Use `/task` for a reminder, `/new` for a clean topic, `/lang` to change the interface language, and `/models` to select an available free route. |
+
+> **A practical learning loop:** open a post in [@ILIVIR3](https://t.me/ILIVIR3), paste a harmless excerpt or describe the topic to [@IVAI_Llm_bot](https://t.me/IVAI_Llm_bot), ask one focused question, then request a small project or exercise. IVAI does not claim direct access to channel-history; share the context you want it to discuss.
+
+For Persian-speaking learners, the detailed [Telegram learning guide (FA)](docs/TELEGRAM_LEARNING_GUIDE_FA.md) provides ready-to-use prompts, a seven-step study loop, and safe usage notes.
+
 ## Product principles
 
 | Principle | Implementation |
@@ -130,6 +144,7 @@ npm test
 | [IVAI Terminal proposal (FA)](docs/USER_TERMINAL_MINI_APP_PROPOSAL_FA.md) | Security boundary, low-cost architecture, UI design, and rollout plan for the public terminal Mini App. |
 | [Telegram real-world test plan (FA)](docs/TELEGRAM_REAL_WORLD_TEST_PLAN_FA.md) | Executed checks, Telegram acceptance scenarios, recovery behavior and safe failure reporting. |
 | [Public launch readiness (FA)](docs/PUBLIC_LAUNCH_READINESS_2026-08-22_FA.md) | Current launch gates, synchronized public commands and owner-only final checks. |
+| [Telegram learning guide (FA)](docs/TELEGRAM_LEARNING_GUIDE_FA.md) | Channel-to-bot learning loop, ready-to-use prompts, study flow, and safe usage notes. |
 | [Required channel access](docs/REQUIRED_CHANNEL_ACCESS_FA.md) | Required channel policy, bot administrator prerequisite, join/recheck flow and acceptance checks. |
 | [Terminal engineering review (FA)](docs/TERMINAL_ENGINEERING_REVIEW_2026-08-21_FA.md) | Root cause, v3.3.8 hotfix, security review, quality checks and final Telegram acceptance scenario. |
 | [Full project engineering review (FA)](docs/PROJECT_ENGINEERING_REVIEW_2026-08-21_FA.md) | v3.3.9 code, queue, security, test, CI and GitHub review with remaining real-world acceptance checks. |

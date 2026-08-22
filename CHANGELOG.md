@@ -13,6 +13,10 @@ All notable changes to IVAI Bot are documented in this file. The project follows
 
 - Added deterministic boundary and rejection-sampling regression coverage for the random-index selector, while retaining sticker-before-welcome and fallback coverage. The validation suite contains 80 passing tests.
 
+### Documentation
+
+- Added a public Telegram learning section to the README and a Persian learning guide linking the `@ILIVIR3` discovery channel to free, practical IVAI Bot workflows for study, analysis, code practice, and reminders.
+
 ## [3.3.32] - 2026-08-22
 
 ### Added
