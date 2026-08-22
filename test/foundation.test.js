@@ -226,8 +226,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.36 release version", () => {
-  assert.equal(APP.version, "3.3.36");
+test("declares the official v3.3.37 release version", () => {
+  assert.equal(APP.version, "3.3.37");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -1344,6 +1344,45 @@ test("confirms each Menu response mode change and persists the selected mode", a
       assert.match(edit.body.text, new RegExp(`Active mode:<\\/b> <code>${label}<\\/code>`));
       assert.equal((await getUserSettings(885, env)).mode, mode);
     }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("keeps an idempotent Menu callback webhook successful when Telegram reports an unchanged edit", async () => {
+  const originalFetch = globalThis.fetch;
+  const d1 = new PreferenceD1();
+  const calls = [];
+  const env = { ...baseEnv(), IVAI_DB: d1 };
+  globalThis.fetch = async (url, init) => {
+    const method = String(url).split("/").at(-1);
+    calls.push({ method, body: JSON.parse(init.body) });
+    if (method === "editMessageText") {
+      return new Response(JSON.stringify({
+        ok: false,
+        description: "Bad Request: message is not modified: specified new message content and reply markup are exactly the same as a current content and reply markup of the message"
+      }), { status: 400 });
+    }
+    return new Response(JSON.stringify({ ok: true, result: true }), { status: 200 });
+  };
+  try {
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+      body: JSON.stringify({
+        update_id: 1614,
+        callback_query: {
+          id: "mode-auto-noop",
+          from: { id: 886, first_name: "No-op tester", language_code: "en" },
+          data: "mode:auto",
+          message: { message_id: 74, chat: { id: 886, type: "private" }, from: { id: 8285612628, is_bot: true } }
+        }
+      })
+    }), env);
+    assert.equal(response.status, 200);
+    assert.ok(calls.some((call) => call.method === "answerCallbackQuery"));
+    assert.ok(calls.some((call) => call.method === "editMessageText"));
+    assert.equal((await getUserSettings(886, env)).mode, MODES.AUTO);
   } finally {
     globalThis.fetch = originalFetch;
   }

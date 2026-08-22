@@ -3,7 +3,7 @@
 **Last documentation review:** 22 August 2026  
 **Source of truth:** the `main` branch, [`CHANGELOG.md`](../CHANGELOG.md), the CI result for the current commit, and the production Workers Build connected to `main`.
 
-This document is the concise operational companion to the project’s historical research, audit, debugging, and launch-readiness notes. Historical documents remain useful evidence for why a control exists; they do not supersede the current code or this release summary.
+This document is the concise operational companion to the project’s historical research, audit, debugging, and launch-readiness notes. Release v3.3.37 adds idempotent handling for Telegram no-op message edits, so duplicate callback/menu refreshes no longer become retry-triggering webhook failures. Historical documents remain useful evidence for why a control exists; they do not supersede the current code or this release summary.
 
 ## Release posture
 
@@ -16,6 +16,7 @@ This document is the concise operational companion to the project’s historical
 | Language contract | A prompt may set the answer and active-Session language. Persistent interface preference controls the Menu, progress text, errors, notices, and the `🪐 IVAI · Model · Mode` footer. An English UI therefore retains `Fast`, even when a prompt and answer are Persian. |
 | Conversation privacy | Active Sessions are short-lived and bounded to three complete turns, a 30-minute idle TTL, and a two-hour absolute lifetime. Memory Off clears existing context but preserves continuity for the new active Session. |
 | `/start` experience | A uniformly selected sticker from the bot-owned `IVAILlmBot` pack is sent before the normal welcome. It is non-fatal and adds no AI request or runtime sticker-set lookup. |
+| Telegram edit resilience | Telegram's `message is not modified` response from an unchanged `editMessageText` call is treated as a successful idempotent no-op. It does not enter the generic webhook-failure path or trigger a needless retry; every other edit error is still re-thrown. |
 | Mini App | The Terminal at `/app` validates Telegram `initData` server-side, uses a separate short-lived Session, and shares the same free AI path without polling. The normal private-chat menu button is the primary entry point; a BotFather Main Mini App remains optional. |
 | Scheduled work | A bounded ten-minute cron handles cleanup, Secretary reminders, broadcasts, and consent-controlled re-engagement. Each delivery uses a D1 claim/lease to avoid duplication. |
 
@@ -35,6 +36,7 @@ This document is the concise operational companion to the project’s historical
 |---|---|---|
 | New user or learner | [`README.md`](../README.md) and [Telegram learning guide (FA)](TELEGRAM_LEARNING_GUIDE_FA.md) | [Telegram real-world test plan (FA)](TELEGRAM_REAL_WORLD_TEST_PLAN_FA.md) for expected behavior |
 | Operator | [Deployment checklist](DEPLOYMENT_CHECKLIST.md) | [Production configuration status (FA)](PRODUCTION_CONFIGURATION_STATUS_2026-08-22_FA.md), [Security policy](../SECURITY.md), and the security rotation checklist kept outside source control |
+| Community owner | [Public launch marketing checklist (FA)](TELEGRAM_PUBLIC_LAUNCH_MARKETING_CHECKLIST_FA.md) | [Public launch smoke test (FA)](PUBLIC_LAUNCH_SMOKE_TEST_FA.md), current health/build evidence, and the destination's explicit posting rules |
 | Contributor | [`CONTRIBUTING.md`](../CONTRIBUTING.md) and [Architecture](ARCHITECTURE.md) | [`CHANGELOG.md`](../CHANGELOG.md), [Provider research](PROVIDER_RESEARCH_2026-08-20.md), and [Telegram API review notes](TELEGRAM_API_REVIEW_NOTES.md) |
 | Historical reviewer | [Public launch readiness (FA)](PUBLIC_LAUNCH_READINESS_2026-08-22_FA.md) | [Project engineering review (FA)](PROJECT_ENGINEERING_REVIEW_2026-08-21_FA.md) and [Terminal engineering review (FA)](TERMINAL_ENGINEERING_REVIEW_2026-08-21_FA.md) |
 

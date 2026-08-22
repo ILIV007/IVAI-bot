@@ -2,6 +2,22 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.37] - 2026-08-22
+
+### Fixed
+
+- Treated Telegram's `message is not modified` response from an unchanged `editMessageText` call as an explicit idempotent no-op. Replayed Menu/callback refreshes no longer enter the generic webhook failure path, return HTTP 500, or provoke an unnecessary Telegram retry.
+- Kept the handling deliberately narrow: all other Telegram edit failures are re-thrown and retain normal retry/error behavior.
+
+### Tests
+
+- Added a transport regression that simulates Telegram's HTTP 400 no-op response and proves that the edit resolves safely. The focused Start, sticker fallback, model-picker, stale-picker, mode-confirmation and English-footer suite passes 7/7; the full validation suite contains 84 passing tests.
+
+### Documentation
+
+- Added `docs/TELEGRAM_PUBLIC_LAUNCH_MARKETING_CHECKLIST_FA.md`, a manual, permission-first public-introduction checklist for the official channel and third-party Telegram communities. It includes approved factual claims, membership disclosure, anti-spam controls, Go/No-Go gates, 24-hour monitoring and short Persian/English templates; it performs no automatic outreach or posting.
+- Updated README and the canonical current-release status with the v3.3.37 operational behavior and marketing-checklist link.
+
 ## [3.3.36] - 2026-08-22
 
 ### Added

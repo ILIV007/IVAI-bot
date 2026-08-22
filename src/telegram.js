@@ -435,15 +435,26 @@ export async function sendMessage(env, { chatId, text, replyTo, keyboard, disabl
 }
 
 export async function editMessage(env, { chatId, messageId, text, keyboard, businessConnectionId }) {
-  return telegram(env, "editMessageText", {
-    chat_id: chatId,
-    message_id: messageId,
+  try {
+    return await telegram(env, "editMessageText", {
+      chat_id: chatId,
+      message_id: messageId,
       text: stabilizeRtlText(text.slice(0, APP.maxTelegramText)),
-    parse_mode: "HTML",
-    disable_web_page_preview: true,
-    business_connection_id: businessConnectionId || undefined,
-    reply_markup: keyboard
-  });
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+      business_connection_id: businessConnectionId || undefined,
+      reply_markup: keyboard
+    });
+  } catch (error) {
+    // Telegram treats an unchanged edit as a 400. It is an idempotent callback no-op,
+    // not an application failure, and should not cause webhook retries or error noise.
+    const detail = String(error?.message || "");
+    if (/message is not modified|message content and reply markup are exactly the same/i.test(detail)) {
+      console.info(JSON.stringify({ event: "telegram_edit_noop" }));
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function answerCallback(env, callbackQueryId, text = "", { showAlert = false } = {}) {
