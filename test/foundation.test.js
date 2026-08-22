@@ -11,6 +11,7 @@ import { defaultFreeModels, refreshFreeModelCatalog } from "../src/catalog.js";
 import { ensureConversationSession, getAdminOperationalStats, getConversationSession, getUserSettings, saveConversationSession, setMemoryEnabled, setSelectedModel, setUserLanguage, setUserMode, startNewConversationSession, upsertUser } from "../src/storage.js";
 import { getRequiredChannelMembership } from "../src/membership.js";
 import { renderRichAiText, renderStandardAiText } from "../src/rich-renderer.js";
+import { renderAppPage } from "../src/app-page.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
 import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelPickToken, modelSelectionText, pickWelcomeSticker, secureRandomIndex, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, stabilizeRtlText, startKeyboard, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
 
@@ -226,8 +227,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.44 release version", () => {
-  assert.equal(APP.version, "3.3.44");
+test("declares the official v3.3.45 release version", () => {
+  assert.equal(APP.version, "3.3.45");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -331,8 +332,14 @@ test("presents the requested Start controls and five-row Menu hierarchy", () => 
   assert.ok(picker.some((button) => button.callback_data === "model:auto:all" && button.style === "primary"));
   const providerFiltered = modelPickerKeyboard(pickerModels, { scope: "google" }).inline_keyboard.flat();
   assert.ok(providerFiltered.some((button) => button.callback_data === `model:pick:${modelPickToken(pickerModels[3].id)}:google:0` && /Gemini/.test(button.text)));
-  assert.match(modelPickerText(pickerModels, { selectedModel: "@cf/zai-org/glm-4.7-flash", language: "en" }), /Cloudflare/);
-  assert.match(modelSelectionText(pickerModels[0], "en"), /Provider:/);
+  const pinnedPicker = modelPickerText(pickerModels, { selectedModel: "@cf/zai-org/glm-4.7-flash", language: "en" });
+  assert.match(pinnedPicker, /Cloudflare/);
+  assert.match(pinnedPicker, /Model route/);
+  assert.match(pinnedPicker, /Response mode stays separate/);
+  const selectedCopy = modelSelectionText(pickerModels[0], "en", MODES.AUTO);
+  assert.match(selectedCopy, /Provider:/);
+  assert.match(selectedCopy, /Model route pinned/);
+  assert.match(selectedCopy, /Response mode:<\/b> <code>Auto<\/code> \(unchanged\)/);
   assert.equal(thinkingText("en", 0), "<i>IVAI is thinking.</i>");
   assert.equal(thinkingText("en", 2), "<i>IVAI is thinking...</i>");
   assert.equal(modeLabel(MODES.DEEP, "en"), "Deep");
@@ -346,7 +353,7 @@ test("renders focused Start copy and a descriptive Menu with live settings and l
   assert.doesNotMatch(welcomeText("en"), /Free-only routes|one AI call per request|Send a message to begin/);
   const menu = menuText("en", { mode: MODES.DEEP, selectedModel: "@cf/zai-org/glm-4.7-flash", memoryEnabled: true });
   assert.match(menu, /Response mode:<\/b> <code>Deep<\/code>/);
-  assert.match(menu, /Model:<\/b> <code>GLM 4\.7 Flash<\/code>/);
+  assert.match(menu, /Model route:<\/b> <code>Pinned · GLM 4\.7 Flash<\/code>/);
   assert.match(menu, /Memory:<\/b> <code>On<\/code>/);
   assert.match(menu, /Control guide/);
   assert.match(menu, /Code<\/b> for programming work/);
@@ -725,6 +732,14 @@ test("denies an authenticated Terminal session to a user outside the required ch
   } finally { globalThis.fetch = originalFetch; }
 });
 
+test("renders Terminal Route independently from Response Mode", () => {
+  const page = renderAppPage("test-nonce");
+  assert.match(page, /ROUTE · AUTO/);
+  assert.match(page, /route:'ROUTE'/);
+  assert.match(page, /PINNED ·/);
+  assert.doesNotMatch(page, /MODEL · AUTO/);
+});
+
 test("runs exactly one free AI path for an authenticated Terminal chat turn", async () => {
   const calls = [];
   const env = { ...baseEnv(), AI: { async run(model, payload) { calls.push({ model, payload }); return { response: "Terminal reply." }; } } };
@@ -738,7 +753,7 @@ test("runs exactly one free AI path for an authenticated Terminal chat turn", as
   assert.equal(body.ok, true);
   assert.equal(body.text, "Terminal reply.");
   assert.equal(body.mode, MODES.AUTO);
-  assert.deepEqual(body.settings, { language: "en", mode: MODES.AUTO, selectedModel: null, memoryEnabled: false });
+  assert.deepEqual(body.settings, { language: "en", mode: MODES.AUTO, modelRoute: "auto", selectedModel: null, memoryEnabled: false });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].model, "@cf/zai-org/glm-4.7-flash");
 });
@@ -992,8 +1007,9 @@ test("opens a callback-driven model picker and selects a displayed free model", 
     }), env);
     assert.equal(response.status, 200);
     const edit = calls.find((call) => /editMessageText$/.test(call.url));
-    assert.match(edit.body.text, /Model selected/);
+    assert.match(edit.body.text, /Model route pinned/);
     assert.match(edit.body.text, /Provider:/);
+    assert.match(edit.body.text, /Response mode:<\/b> <code>Auto<\/code> \(unchanged\)/);
     assert.equal(edit.body.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === "model:auto:all"), true);
     assert.deepEqual(selectedWrites, [["@cf/zai-org/glm-4.7-flash", "7"]]);
   } finally {
@@ -1496,6 +1512,34 @@ test("clears a selected provider model when the /auto command enables Auto mode"
   }
 });
 
+test("switches only the model route to Auto when /model off is used", async () => {
+  const originalFetch = globalThis.fetch;
+  const d1 = new PreferenceD1();
+  const env = { ...baseEnv(), IVAI_DB: d1 };
+  d1.preferences.set("888", { mode: MODES.DEEP, selectedModel: "@cf/meta/llama-3.2-1b-instruct", memoryEnabled: 0 });
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 508 } }), { status: 200 });
+  };
+  try {
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+      body: JSON.stringify({ update_id: 1616, message: { message_id: 76, chat: { id: 888, type: "private" }, from: { id: 888, first_name: "Route tester", language_code: "en" }, text: "/model off" } })
+    }), env);
+    assert.equal(response.status, 200);
+    const settings = await getUserSettings(888, env);
+    assert.equal(settings.mode, MODES.DEEP);
+    assert.equal(settings.selectedModel, null);
+    const confirmation = calls.find((call) => /sendMessage$/.test(call.url));
+    assert.match(confirmation.body.text, /Model route is now Auto/);
+    assert.match(confirmation.body.text, /Response mode:<\/b> <code>Deep<\/code> \(unchanged\)/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("keeps an idempotent Menu callback webhook successful when Telegram reports an unchanged edit", async () => {
   const originalFetch = globalThis.fetch;
   const d1 = new PreferenceD1();
@@ -1832,7 +1876,7 @@ test("resets the authenticated Terminal Session and Agent defaults through /app/
   assert.equal(response.status, 200);
   const body = await response.json();
   assert.equal(body.ok, true);
-  assert.deepEqual(body.settings, { language: "en", mode: MODES.AUTO, selectedModel: null, memoryEnabled: false });
+  assert.deepEqual(body.settings, { language: "en", mode: MODES.AUTO, modelRoute: "auto", selectedModel: null, memoryEnabled: false });
   assert.equal(await getConversationSession(scope, env), null);
   assert.deepEqual(await getUserSettings(126679582, env), { language: "en", mode: MODES.AUTO, selectedModel: null, memoryEnabled: false });
 });

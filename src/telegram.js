@@ -185,27 +185,34 @@ export function modelPickerKeyboard(models, { page = 0, selectedModel, language 
   return { inline_keyboard: rows };
 }
 
+export function modelRouteLabel(selectedModel, language = "en") {
+  if (!selectedModel) return language === "fa" ? "خودکار" : language === "ar" ? "تلقائي" : "Auto";
+  const label = shortModelLabel(selectedModel);
+  return language === "fa" ? `دستی · ${label}` : language === "ar" ? `مثبّت · ${label}` : `Pinned · ${label}`;
+}
+
 export function modelPickerText(models, { selectedModel, language = "en", scope = "all" } = {}) {
   const activeScope = modelScope(scope);
   const scopedModels = models.filter((model) => modelMatchesScope(model, activeScope));
   const selected = models.find((model) => model.id === selectedModel);
-  const current = selected ? `${providerIcon(selected.provider)} <code>${escapeHtml(shortModelLabel(selected.name))}</code>` : (language === "fa" ? "🔀 <code>Auto</code>" : language === "ar" ? "🔀 <code>تلقائي</code>" : "🔀 <code>Auto</code>");
+  const current = selected ? `${providerIcon(selected.provider)} <code>${escapeHtml(modelRouteLabel(selected.name, language))}</code>` : `🔀 <code>${escapeHtml(modelRouteLabel(null, language))}</code>`;
   const view = activeScope === "all" ? (language === "fa" ? "همهٔ مدل‌های رایگان" : language === "ar" ? "كل النماذج المجانية" : "all free models") : `${categoryIcon(activeScope)} ${escapeHtml(activeScope === "workers-ai" || activeScope === "openrouter" || activeScope === "groq" || activeScope === "google" ? providerLabel(activeScope, language) : modelCategoryLabel(activeScope, language))}`;
-  if (language === "fa") return `<b>🎛 انتخاب مدل AI رایگان</b>\n\n<b>مدل فعال:</b> ${current}\n<b>نمایش:</b> ${view} · <code>${scopedModels.length}</code> مدل\n\nرنگ هر emoji پروایدر را مشخص می‌کند: 🟣 Cloudflare · 🔵 OpenRouter · 🟠 Groq · 🟢 Gemini\n⚡ سریع، 🧠 تحلیلی و ⌘ کدنویسی را فیلتر می‌کنند. مدل انتخابی فقط در اولویت است؛ fallback رایگان همیشه فعال می‌ماند.`;
-  if (language === "ar") return `<b>🎛 اختيار نموذج AI مجاني</b>\n\n<b>النموذج النشط:</b> ${current}\n<b>العرض:</b> ${view} · <code>${scopedModels.length}</code> نموذج\n\nلون كل emoji يعرّف الموفر: 🟣 Cloudflare · 🔵 OpenRouter · 🟠 Groq · 🟢 Gemini\n⚡ للسرعة و🧠 للتحليل و⌘ للبرمجة. النموذج المختار له الأولوية فقط، ويبقى fallback المجاني نشطًا.`;
-  return `<b>🎛 Free AI model picker</b>\n\n<b>Active model:</b> ${current}\n<b>Viewing:</b> ${view} · <code>${scopedModels.length}</code> models\n\nEach colored provider emoji identifies the route: 🟣 Cloudflare · 🔵 OpenRouter · 🟠 Groq · 🟢 Gemini\nUse ⚡ for quick work, 🧠 for analysis, and ⌘ for code. A selected model is preferred only; the free fallback remains active.`;
+  if (language === "fa") return `<b>🎛 مسیر مدل AI رایگان</b>\n\n<b>مسیر مدل:</b> ${current}\n<b>نمایش:</b> ${view} · <code>${scopedModels.length}</code> مدل\n\nرنگ هر emoji پروایدر را مشخص می‌کند: 🟣 Cloudflare · 🔵 OpenRouter · 🟠 Groq · 🟢 Gemini\n⚡ سریع، 🧠 تحلیلی و ⌘ کدنویسی فقط فیلتر فهرست مدل هستند. انتخاب مدل فقط مسیر مدل را دستی می‌کند؛ حالت پاسخ جداگانه و بدون تغییر می‌ماند. fallback رایگان همیشه فعال است.`;
+  if (language === "ar") return `<b>🎛 مسار نموذج AI مجاني</b>\n\n<b>مسار النموذج:</b> ${current}\n<b>العرض:</b> ${view} · <code>${scopedModels.length}</code> نموذج\n\nلون كل emoji يعرّف الموفر: 🟣 Cloudflare · 🔵 OpenRouter · 🟠 Groq · 🟢 Gemini\n⚡ و🧠 و⌘ مرشحات لقائمة النماذج فقط. اختيار نموذج يثبّت المسار فقط؛ يبقى وضع الرد منفصلاً ودون تغيير. يبقى fallback المجاني نشطًا.`;
+  return `<b>🎛 Free AI model route</b>\n\n<b>Model route:</b> ${current}\n<b>Viewing:</b> ${view} · <code>${scopedModels.length}</code> models\n\nEach colored provider emoji identifies the route: 🟣 Cloudflare · 🔵 OpenRouter · 🟠 Groq · 🟢 Gemini\n⚡, 🧠, and ⌘ filter the model list only. Selecting a model pins the route only; Response mode stays separate and unchanged. The free fallback remains active.`;
 }
 
-export function modelSelectionText(model, language = "en") {
+export function modelSelectionText(model, language = "en", mode = MODES.AUTO) {
   const name = escapeHtml(shortModelLabel(model.name || model.id));
   const provider = escapeHtml(providerLabel(model.provider, language));
   const category = escapeHtml(modelCategoryLabel(model.category, language));
   const useCase = escapeHtml(modelUseCase(model.category, language));
   const context = Number(model.contextLength) > 0 ? ` · <code>${Number(model.contextLength).toLocaleString()}</code>` : "";
   const headline = `${providerIcon(model.provider)} <b>${name}</b>`;
-  if (language === "fa") return `<b>✓ مدل انتخاب شد</b>\n\n${headline}\n<b>پروایدر:</b> ${provider}\n<b>دسته:</b> <code>${category}</code> · ${useCase}${context}\n\nاین مدل در اولویت است و اگر موقتاً در دسترس نباشد، fallback رایگان به‌صورت خودکار ادامه می‌دهد.`;
-  if (language === "ar") return `<b>✓ تم اختيار النموذج</b>\n\n${headline}\n<b>الموفر:</b> ${provider}\n<b>الفئة:</b> <code>${category}</code> · ${useCase}${context}\n\nيأخذ هذا النموذج الأولوية. إذا لم يكن متاحًا مؤقتًا، يستمر fallback المجاني تلقائيًا.`;
-  return `<b>✓ Model selected</b>\n\n${headline}\n<b>Provider:</b> ${provider}\n<b>Best for:</b> <code>${category}</code> · ${useCase}${context}\n\nThis model is preferred. If it is temporarily unavailable, the free fallback continues automatically.`;
+  const responseMode = escapeHtml(modeLabel(mode, language));
+  if (language === "fa") return `<b>✓ مسیر مدل دستی شد</b>\n\n${headline}\n<b>پروایدر:</b> ${provider}\n<b>دسته:</b> <code>${category}</code> · ${useCase}${context}\n<b>حالت پاسخ:</b> <code>${responseMode}</code> (بدون تغییر)\n\nاین انتخاب فقط مسیر مدل را در اولویت می‌گذارد. اگر موقتاً در دسترس نباشد، fallback رایگان خودکار ادامه می‌دهد.`;
+  if (language === "ar") return `<b>✓ تم تثبيت مسار النموذج</b>\n\n${headline}\n<b>الموفر:</b> ${provider}\n<b>الفئة:</b> <code>${category}</code> · ${useCase}${context}\n<b>وضع الرد:</b> <code>${responseMode}</code> (دون تغيير)\n\nهذا الاختيار يثبّت مسار النموذج فقط. إذا لم يكن متاحًا مؤقتًا، يستمر fallback المجاني تلقائيًا.`;
+  return `<b>✓ Model route pinned</b>\n\n${headline}\n<b>Provider:</b> ${provider}\n<b>Best for:</b> <code>${category}</code> · ${useCase}${context}\n<b>Response mode:</b> <code>${responseMode}</code> (unchanged)\n\nThis selection pins only the model route. If it is temporarily unavailable, the free fallback continues automatically.`;
 }
 
 export function languageKeyboard(selectedCode = "en", page = 0, pageSize = 6) {
@@ -489,11 +496,11 @@ export function welcomeText(language = "en") {
 
 export function menuText(language = "en", settings = {}) {
   const mode = escapeHtml(modeLabel(settings.mode || MODES.AUTO, language));
-  const model = escapeHtml(settings.selectedModel ? shortModelLabel(settings.selectedModel) : "Auto");
+  const model = escapeHtml(modelRouteLabel(settings.selectedModel, language));
   const memory = settings.memoryEnabled ? (language === "fa" ? "روشن" : language === "ar" ? "مفعّلة" : "On") : (language === "fa" ? "خاموش" : language === "ar" ? "متوقفة" : "Off");
-  if (language === "fa") return `<b>🎛 منوی IVAI</b>\n\n<b>وضعیت شما</b>\n<b>حالت پاسخ:</b> <code>${mode}</code>\n<b>مدل:</b> <code>${model}</code>\n<b>حافظه:</b> <code>${memory}</code>\n\n<b>راهنمای کنترل‌ها</b>\n• <b>Auto</b> مسیر رایگان مناسب را انتخاب می‌کند.\n• <b>Fast</b> برای پاسخ سریع، <b>Deep</b> برای تحلیل دقیق و <b>Code</b> برای برنامه‌نویسی است.\n• <b>IVAI Terminal</b> فضای گفتگوی سبک درون Telegram است.\n• <b>Pick model</b> یک مدل رایگان را در اولویت می‌گذارد؛ fallback رایگان فعال می‌ماند.\n• <b>Settings</b> حافظه را مدیریت می‌کند و <b>Language</b> زبان پاسخ‌ها و رابط را تغییر می‌دهد.\n\n• /new گفتگوی تازه‌ای برای همین گفتگو شروع می‌کند.\n\nیک بخش را انتخاب کنید.`;
-  if (language === "ar") return `<b>🎛 قائمة IVAI</b>\n\n<b>حالتك</b>\n<b>وضع الرد:</b> <code>${mode}</code>\n<b>النموذج:</b> <code>${model}</code>\n<b>الذاكرة:</b> <code>${memory}</code>\n\n<b>دليل التحكم</b>\n• <b>Auto</b> يختار المسار المجاني المناسب.\n• <b>Fast</b> للرد السريع، و<b>Deep</b> للتحليل، و<b>Code</b> للبرمجة.\n• <b>IVAI Terminal</b> مساحة دردشة خفيفة داخل Telegram.\n• <b>Pick model</b> يعطي الأولوية لنموذج مجاني مع استمرار fallback المجاني.\n• <b>Settings</b> لإدارة الذاكرة و<b>Language</b> لتغيير لغة الواجهة والردود.\n\n• /new يبدأ محادثة جديدة لهذه الدردشة.\n\nاختر أحد الأقسام.`;
-  return `<b>🎛 IVAI menu</b>\n\n<b>Your status</b>\n<b>Response mode:</b> <code>${mode}</code>\n<b>Model:</b> <code>${model}</code>\n<b>Memory:</b> <code>${memory}</code>\n\n<b>Control guide</b>\n• <b>Auto</b> chooses the suitable free route.\n• <b>Fast</b> is for speed, <b>Deep</b> for deeper analysis, and <b>Code</b> for programming work.\n• <b>IVAI Terminal</b> is the lightweight chat workspace inside Telegram.\n• <b>Pick model</b> prioritizes one free model while the free fallback remains active.\n• <b>Settings</b> manages memory, while <b>Language</b> changes reply and interface language.\n\n• /new starts a fresh chat for this conversation.\n\nChoose a section to continue.`;
+  if (language === "fa") return `<b>🎛 منوی IVAI</b>\n\n<b>وضعیت شما</b>\n<b>حالت پاسخ:</b> <code>${mode}</code>\n<b>مسیر مدل:</b> <code>${model}</code>\n<b>حافظه:</b> <code>${memory}</code>\n\n<b>راهنمای کنترل‌ها</b>\n• <b>Auto</b> یک حالت پاسخ مستقل است و footer همیشه Auto می‌ماند. تا وقتی مسیر مدل خودکار است، IVAI مدل/پروایدر رایگان را انتخاب می‌کند.\n• <b>Fast</b> برای پاسخ سریع، <b>Deep</b> برای تحلیل دقیق و <b>Code</b> برای برنامه‌نویسی است.\n• <b>Pick model</b> فقط مسیر مدل را دستی می‌کند و حالت پاسخ را تغییر نمی‌دهد؛ fallback رایگان فعال می‌ماند.\n• <b>IVAI Terminal</b> همین تنظیمات را نمایش می‌دهد.\n• <b>Settings</b> حافظه را مدیریت می‌کند و <b>Language</b> زبان پاسخ‌ها و رابط را تغییر می‌دهد.\n\n• /new گفتگوی تازه‌ای برای همین گفتگو شروع می‌کند.\n\nیک بخش را انتخاب کنید.`;
+  if (language === "ar") return `<b>🎛 قائمة IVAI</b>\n\n<b>حالتك</b>\n<b>وضع الرد:</b> <code>${mode}</code>\n<b>مسار النموذج:</b> <code>${model}</code>\n<b>الذاكرة:</b> <code>${memory}</code>\n\n<b>دليل التحكم</b>\n• <b>Auto</b> وضع رد مستقل ويبقى ظاهرًا في التذييل. ما دام مسار النموذج تلقائيًا، يختار IVAI نموذجًا/موفرًا مجانيًا.\n• <b>Fast</b> للرد السريع، و<b>Deep</b> للتحليل، و<b>Code</b> للبرمجة.\n• <b>Pick model</b> يثبّت مسار النموذج فقط ولا يغيّر وضع الرد؛ ويبقى fallback المجاني نشطًا.\n• <b>IVAI Terminal</b> يعرض الإعدادات نفسها.\n• <b>Settings</b> لإدارة الذاكرة و<b>Language</b> لتغيير لغة الواجهة والردود.\n\n• /new يبدأ محادثة جديدة لهذه الدردشة.\n\nاختر أحد الأقسام.`;
+  return `<b>🎛 IVAI menu</b>\n\n<b>Your status</b>\n<b>Response mode:</b> <code>${mode}</code>\n<b>Model route:</b> <code>${model}</code>\n<b>Memory:</b> <code>${memory}</code>\n\n<b>Control guide</b>\n• <b>Auto</b> is an independent response mode and always stays Auto in the footer. While the model route is Auto, IVAI chooses an eligible free model/provider.\n• <b>Fast</b> is for speed, <b>Deep</b> for deeper analysis, and <b>Code</b> for programming work.\n• <b>Pick model</b> pins only the model route and does not change Response mode; the free fallback remains active.\n• <b>IVAI Terminal</b> shows the same settings.\n• <b>Settings</b> manages memory, while <b>Language</b> changes reply and interface language.\n\n• /new starts a fresh chat for this conversation.\n\nChoose a section to continue.`;
 }
 
 export function shortModelLabel(model = "") {

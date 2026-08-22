@@ -30,7 +30,7 @@ import {
   upsertUser,
   writeAdminAudit
 } from "./storage.js";
-import { adminKeyboard, answerCallback, editMessage, ensureTerminalMenuButton, escapeHtml, languageKeyboard, languageMenuText, menuText, modelPickerKeyboard, modelPickerText, modelPickToken, modelSelectionText, modeKeyboard, modeLabel, pickWelcomeSticker, requiredMembershipKeyboard, requiredMembershipText, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendSticker, sendTyping, settingsKeyboard, splitText, startKeyboard, startThinkingAnimation, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
+import { adminKeyboard, answerCallback, editMessage, ensureTerminalMenuButton, escapeHtml, languageKeyboard, languageMenuText, menuText, modelPickerKeyboard, modelPickerText, modelPickToken, modelRouteLabel, modelSelectionText, modeKeyboard, modeLabel, pickWelcomeSticker, requiredMembershipKeyboard, requiredMembershipText, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendSticker, sendTyping, settingsKeyboard, splitText, startKeyboard, startThinkingAnimation, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
 import { renderRichAiText, renderStandardAiText } from "./rich-renderer.js";
 
 const COMMAND_MODE = Object.freeze({
@@ -391,7 +391,13 @@ async function handleCommand(message, env, language) {
   }
   if (command === "/model" && args[0] === "off") {
     await setSelectedModel(userId, null, env);
-    await sendMessage(env, { chatId, text: language === "fa" ? "✓ انتخاب مدل برداشته شد؛ Auto policy فعال است." : "✓ Model lock removed; Auto policy is active.", replyTo: message.message_id });
+    const mode = escapeHtml(modeLabel(settings.mode, language));
+    const text = language === "fa"
+      ? `✓ مسیر مدل خودکار شد. <b>حالت پاسخ:</b> <code>${mode}</code> (بدون تغییر)`
+      : language === "ar"
+        ? `✓ أصبح مسار النموذج تلقائيًا. <b>وضع الرد:</b> <code>${mode}</code> (دون تغيير)`
+        : `✓ Model route is now Auto. <b>Response mode:</b> <code>${mode}</code> (unchanged)`;
+    await sendMessage(env, { chatId, text, replyTo: message.message_id });
     return true;
   }
   if (command === "/pick") {
@@ -401,7 +407,7 @@ async function handleCommand(message, env, language) {
       return true;
     }
     await setSelectedModel(userId, model.id, env);
-    await sendMessage(env, { chatId, text: `${responseText(language, "saved")} <code>${escapeHtml(model.id)}</code>`, replyTo: message.message_id });
+    await sendMessage(env, { chatId, text: modelSelectionText(model, language, settings.mode), replyTo: message.message_id });
     return true;
   }
   if (command === "/refreshmodels") {
@@ -474,7 +480,7 @@ async function handleCommand(message, env, language) {
   }
   if (command === "/debug") {
     const stats = await getUserDebugStats(userId, env);
-    await sendMessage(env, { chatId, text: `<b>IVAI Status</b>\nMode: <code>${escapeHtml(settings.mode)}</code>\nModel: <code>${escapeHtml(settings.selectedModel || "auto")}</code>\nMemory: <code>${settings.memoryEnabled ? "on" : "off"}</code>\nFeedback: <code>${stats.feedbackCount}</code>`, replyTo: message.message_id });
+    await sendMessage(env, { chatId, text: `<b>IVAI Status</b>\nResponse mode: <code>${escapeHtml(settings.mode)}</code>\nModel route: <code>${escapeHtml(modelRouteLabel(settings.selectedModel, "en"))}</code>\nMemory: <code>${settings.memoryEnabled ? "on" : "off"}</code>\nFeedback: <code>${stats.feedbackCount}</code>`, replyTo: message.message_id });
     return true;
   }
   if (command === "/active") {
@@ -846,9 +852,10 @@ async function processCallback(query, env) {
       await editMessage(env, { chatId, messageId, text: `${notice}\n\n${view.text}`, keyboard: view.keyboard });
       return;
     }
+    const settings = await getUserSettings(userId, env);
     await setSelectedModel(userId, model.id, env);
     const view = await modelPickerView(language, model.id, env, Number.isFinite(Number(requestedPage)) ? Number(requestedPage) : 0, scope);
-    await editMessage(env, { chatId, messageId, text: modelSelectionText(model, language), keyboard: view.keyboard });
+    await editMessage(env, { chatId, messageId, text: modelSelectionText(model, language, settings.mode), keyboard: view.keyboard });
     return;
   }
   if (data === "model:auto" || data.startsWith("model:auto:")) {
@@ -870,7 +877,7 @@ async function processCallback(query, env) {
   if (data === "model:noop") return;
   if (data === "menu:settings" || data === "settings:open") {
     const settings = await getUserSettings(userId, env);
-    const text = `<b>${language === "fa" ? "تنظیمات IVAI" : "IVAI settings"}</b>\n\n${language === "fa" ? "حالت" : "Mode"}: <code>${escapeHtml(modeLabel(settings.mode, language))}</code>\n${language === "fa" ? "مدل" : "Model"}: <code>${escapeHtml(settings.selectedModel || "Auto")}</code>\n${language === "fa" ? "حافظه" : "Memory"}: <code>${settings.memoryEnabled ? "on" : "off"}</code>`;
+    const text = `<b>${language === "fa" ? "تنظیمات IVAI" : language === "ar" ? "إعدادات IVAI" : "IVAI settings"}</b>\n\n${language === "fa" ? "حالت پاسخ" : language === "ar" ? "وضع الرد" : "Response mode"}: <code>${escapeHtml(modeLabel(settings.mode, language))}</code>\n${language === "fa" ? "مسیر مدل" : language === "ar" ? "مسار النموذج" : "Model route"}: <code>${escapeHtml(modelRouteLabel(settings.selectedModel, language))}</code>\n${language === "fa" ? "حافظه" : language === "ar" ? "الذاكرة" : "Memory"}: <code>${settings.memoryEnabled ? "on" : "off"}</code>`;
     await editMessage(env, { chatId, messageId, text, keyboard: settingsKeyboard(language, settings.memoryEnabled) });
     return;
   }

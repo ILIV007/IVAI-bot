@@ -45,17 +45,17 @@ sequenceDiagram
 
 ## Response-profile contract
 
-A turn has two intentionally separate choices. **Response Mode** is the user-facing behavior (`Auto`, `Fast`, `Deep`, `Code`, and supported specialist modes); it determines the system instruction, bounded output budget, temperature, Workers AI reservation, and the footer label. **Model/provider routing** determines only which eligible free endpoint receives that one request. A selected model can pin routing, while Auto clears that pin and preserves `Auto` as the visible Mode.
+A turn has two intentionally separate choices. **Response Mode** is the user-facing behavior (`Auto`, `Fast`, `Deep`, `Code`, and supported specialist modes); it determines the system instruction, bounded output budget, temperature, Workers AI reservation, and the footer label. **Model/provider routing** determines only which eligible free endpoint receives that one request. The route is `Auto` when no selected model exists, or `Pinned` when a user-selected free model is preferred. Selecting a model never alters Response Mode. Selecting Mode Auto via Menu or `/auto` resets both Mode and route defaults; `/model off` resets only the route and leaves Mode unchanged. Telegram Menu, Settings and picker—and the Terminal chips—expose both pieces of state independently so an Auto footer is never mistaken for a hidden Fast/Deep/Code choice.
 
 `response-profile.js` is the sole owner of this contract. This avoids mode-specific output limits, instructions, temperature, and rich-math rules drifting across providers. Provider fallback remains sequential and occurs only after a failure; the normal path still makes one AI call.
 
 ## Session and reset contract
 
-Telegram `/new` and Terminal `/app/new` now share the same Agent-default reset: clear the scoped Session, set `mode=auto`, clear `selected_model`, and set `memory_enabled=0` in one D1 preference update. The interface language remains a display preference. Telegram and Terminal Sessions remain separate so each surface retains only its own bounded conversation context.
+Telegram `/new` and Terminal `/app/new` now share the same Agent-default reset: clear the scoped Session, set `mode=auto`, clear `selected_model` (Auto route), and set `memory_enabled=0` in one D1 preference update. The interface language remains a display preference. Telegram and Terminal Sessions remain separate so each surface retains only its own bounded conversation context.
 
 ## Scheduled lifecycle
 
-The Worker runs every ten minutes. A single scheduled invocation performs only small bounded work: expired-state cleanup, a safe broadcast batch, due Secretary reminders, and a maximum of five re-engagement check-ins. Each delivery workflow claims work atomically in D1 before sending it, so concurrent Worker executions cannot deliberately send a duplicate delivery.
+The Worker runs every ten minutes. A single scheduled invocation performs only small bounded work: expired-state cleanup, a safe broadcast batch, due Secretary reminders, and a maximum of five re-engagement check-ins. Each bounded step has an independent failure boundary, so a temporary failure in one workflow is logged as `cron_step_failure` without skipping later work. Each delivery workflow claims work atomically in D1 before sending it, so concurrent Worker executions cannot deliberately send a duplicate delivery.
 
 ## Data ownership and retention
 

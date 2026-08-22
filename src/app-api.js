@@ -74,6 +74,7 @@ function publicSettings(settings) {
   return {
     language: settings.language,
     mode: settings.mode,
+    modelRoute: settings.selectedModel ? "pinned" : "auto",
     selectedModel: settings.selectedModel || null,
     memoryEnabled: Boolean(settings.memoryEnabled)
   };

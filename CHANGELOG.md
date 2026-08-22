@@ -2,6 +2,23 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.45] - 2026-08-22
+
+### Changed
+
+- Completed the compatibility follow-up for the Auto architecture across Telegram and Terminal. **Response mode** and **Model route** now appear as independent state: Mode controls answer style/footer; route is `Auto` or `Pinned`.
+- Updated Menu, Settings, model picker, model-selection confirmation, `/pick`, `/model off`, and `/debug` so a selected model is explicitly described as a pinned route that does not change Response Mode.
+- Added `modelRoute` to the authenticated Terminal settings response and changed the Terminal status chip from ambiguous `MODEL` to explicit `ROUTE`, with `AUTO` or `PINNED · model` state.
+- Clarified catalog Fast/Deep/Code controls as model-list filters, not implicit response-mode switches.
+
+### Tests
+
+- Added regressions for Terminal Route chips and `/model off` preserving the active response Mode while returning routing to Auto. The validation suite contains 90 passing tests.
+
+### Documentation
+
+- Updated README, current release status and architecture contract with the Mode/Route invariant and its reset rules.
+
 ## [3.3.44] - 2026-08-22
 
 ### Fixed
