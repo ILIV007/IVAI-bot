@@ -1,16 +1,18 @@
-# آمادگی افتتاح عمومی IVAI
+# بازبینی آمادگی افتتاح عمومی IVAI — snapshot تاریخی v3.3.31
 
-**تاریخ بررسی:** ۲۲ اوت ۲۰۲۶  
-**نسخهٔ release candidate:** `v3.3.31`  
-**تصمیم فنی:** آماده برای افتتاح عمومی، با دو بررسی انسانیِ غیرمسدودکننده.
+**تاریخ بررسی:** ۲۲ اوت ۲۰۲۶
+**نسخهٔ release candidate در زمان بررسی:** `v3.3.31`
+**تصمیم فنی در زمان بررسی:** آماده برای افتتاح عمومی، با دو بررسی انسانیِ غیرمسدودکننده.
+
+> این فایل evidence تاریخیِ gateهای launch در v3.3.31 است. برای وضعیت عملیاتی و قابلیت‌های release فعلی، ابتدا [`CURRENT_RELEASE_STATUS.md`](CURRENT_RELEASE_STATUS.md) و سپس [`CHANGELOG.md`](../CHANGELOG.md) را بخوانید.
 
 ## Gateهای فنی
 
 | Gate | نتیجه | شواهد |
 |---|---|---|
 | Worker production | موفق | Health endpoint پاسخ `IVAI Worker is ready` داد. |
-| Regression suite | موفق | ۷۹ از ۷۹ تست موفق است. |
-| CI GitHub | موفق | آخرین run روی `main` سبز است. |
+| Regression suite | موفق | ۷۹ از ۷۹ تست در زمان snapshot موفق بود. |
+| CI GitHub | موفق | آخرین run روی `main` در زمان snapshot سبز بود. |
 | Dependency audit | موفق | `pnpm audit --prod` آسیب‌پذیری شناخته‌شده نشان نداد. |
 | Telegram webhook | موفق | URL روی Worker است، `pending_update_count` برابر صفر است و secret validation در Worker فعال است. |
 | Updateهای لازم | موفق | `message`، `edited_message`، `inline_query`، `chosen_inline_result`، `callback_query`، `message_reaction`، `business_message` و `guest_message` فعال هستند. |

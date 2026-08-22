@@ -2,7 +2,7 @@
 
 [![Continuous Integration](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.36 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while keeping `/start` stickers uniformly selected, model-picker callbacks bound to stable model-ID tokens, UI metadata independent from the language of a user prompt, and every Auto/Fast/Deep/Code mode selection visibly confirmed in the Menu. These controls remain free-only, make no extra AI call, and retain graceful Telegram fallbacks.
+> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. In v3.3.36, `/start` stickers are uniformly selected, model-picker callbacks are bound to stable model-ID tokens, UI metadata is independent from prompt language, and every Auto/Fast/Deep/Code Menu choice is visibly confirmed. These controls remain free-only, make no extra AI call, and retain graceful Telegram fallbacks. See the [current release status](docs/CURRENT_RELEASE_STATUS.md) for the canonical operational snapshot.
 >
 > **Use IVAI on Telegram:** [@IVAI_Llm_bot](https://t.me/IVAI_Llm_bot)
 > **Channel on Telegram:** [@ILIVIR3](https://t.me/ILIVIR3)
@@ -27,7 +27,7 @@ For Persian-speaking learners, the detailed [Telegram learning guide (FA)](docs/
 |---|---|
 | **Free-only operation** | Every model must pass the `FREE_MODEL_POLICY`; no paid fallback, Telegram Stars, or paid broadcast route exists. |
 | **Low resource consumption** | One model call by default, sequential fallback only after a failure, compact context, strict media limits, cache/TTL storage, and per-user quotas. |
-| **English-first** | English is the default for all new users and admin UX. Persian is available through `/lang` or Persian-language detection; fallback messages seed each Persian paragraph with a safe RTL mark while Rich Messages use Telegram-native `is_rtl`. |
+| **English-first** | English is the default for all new users and admin UX. `/lang` changes the persistent interface preference. Persian/Arabic script detection may set the answer and active-Session language without changing an English Menu, status text, or footer; fallback messages seed each RTL paragraph with a safe mark while Rich Messages use Telegram-native `is_rtl`. |
 | **Privacy-aware memory** | Every active conversation keeps a bounded, TTL-limited context for natural multi-turn chat. The optional Memory preference never disables that active Session; `/new`, `/start`, `/memory off`, and `/memory clear` reset it explicitly. |
 | **Safe administration** | Admin IDs belong in a Worker Secret; broadcast uses draft → preview → confirmation → queued batches with audit logging. |
 
@@ -35,16 +35,16 @@ For Persian-speaking learners, the detailed [Telegram learning guide (FA)](docs/
 
 The current [full debug map](docs/DEBUG_PLAN_2026-08-21.md) records the scope, evidence and outcome for ingress, membership, Telegram UX, AI, media, D1/KV, Mini App, admin, scheduled jobs and production checks. Its rendered [system map](docs/debug-map-2026-08-21.png) provides the corresponding execution flow. The separate [multimodal model audit](docs/MULTIMODAL_MODEL_AUDIT_2026-08-21.md) records the official pricing, free-tier guardrails and live compatibility checks for voice and image handling.
 
-## Current foundation
+## Current capabilities
 
-| Area | Included in v3.3 foundation |
+| Area | Included in v3.3.36 |
 |---|---|
 | Core commands | `/start`, `/new`, `/menu`, `/help`, `/terminal`, `/auto`, `/fast`, `/deep`, `/code`, `/guard`, `/lang`, `/notify on|off`, `/debug`, `/reset` |
 | Secretary | `/task title`, `/task in 30m | title`, `/task <ISO-8601-with-offset> | title`, `/tasks`, `/done <id>`, `/cancel <id>`; reminders are delivered in a small free cron batch |
-| Model controls | `/models`, `/refreshmodels`, `/pick <number>`, `/model off` with a unified free-only picker. It offers 🟣 Cloudflare, 🔵 OpenRouter, 🟠 Groq and 🟢 Gemini filters, use-case filters for Fast/Deep/Code, preserved pagination, selected-state highlighting and provider/use-case details after selection. |
+| Model controls | `/models`, `/refreshmodels`, `/pick <number>`, `/model off` with a unified free-only picker. It offers 🟣 Cloudflare, 🔵 OpenRouter, 🟠 Groq and 🟢 Gemini filters, use-case filters for Fast/Deep/Code, preserved pagination, selected-state highlighting and provider/use-case details after selection. Menu buttons carry stable model-ID tokens and a stale picker safely reloads instead of silently discarding a choice. |
 | Memory controls | `/memory on`, `/memory off`, `/memory show`, `/memory clear`; every active Session retains at most three complete turns, expires after 30 minutes of inactivity and cannot outlive two hours. Memory Off resets existing context but never breaks continuity of new turns inside the active Session. `/new` and `/start` begin a new Session without changing user settings. |
 | Providers | A conservative Workers AI allowlist spanning GLM, Gemma, GPT-OSS, Granite, Llama and Qwen; the official OpenRouter Free Router plus dynamically verified zero-price `:free` entries; active Groq GPT-OSS/Qwen routes; and free-tier eligible Gemini Flash/Flash-Lite models. Every selected route still retains a sequential free fallback. |
-| Telegram UX | Rich Draft + Rich Message fallback, safe tables and opt-in details, bounded visible footnotes, Deep/Code-only allow-listed LaTeX math, colored inline buttons, a focused Start surface, a descriptive five-row Menu, message chunking, callback handling, Inline Mode, Guest AI replies, and reaction-based group feedback |
+| Telegram UX | Rich Draft + Rich Message fallback, safe tables and opt-in details, bounded visible footnotes, Deep/Code-only allow-listed LaTeX math, colored inline buttons, a focused Start surface, a descriptive five-row Menu, visible confirmation after each Auto/Fast/Deep/Code selection, message chunking, callback handling, Inline Mode, Guest AI replies, and reaction-based group feedback |
 | Multimodal | Voice transcription uses `@cf/openai/whisper-large-v3-turbo`; photo understanding uses live-validated `@cf/meta/llama-4-scout-17b-16e-instruct`, with Gemma 4 fallback. Downloads are capped at 8 MiB, networked for at most 15 seconds, capped at four requests per user/day, and use one guarded Workers AI call. Photo output is limited to 320 tokens. |
 | Admin | Owner/admin roles, Telegram-native admin controls, reviewable broadcast drafts, audit logging, responsive `/admin` Mini App shell, and server-side `initData` validation |
 | IVAI Terminal | A polished navy/blue/jade user Mini App at `/app` with explicit secure-session, reconnect, timeout and New Chat states; localized English/Persian/Arabic copy, a language-flag chip, compact selected-model state and safe DOM-based blockquote/bold/code rendering stay synchronized after each turn. A cached `setChatMenuButton` configuration exposes it persistently beside the private-chat composer. It uses server-validated Telegram identity, a same-origin JSON API, a separate short-lived Terminal Session, one shared free AI path per turn, no polling and no permanent transcript by default. |
@@ -62,6 +62,9 @@ src/
 ├── router.js         # Commands, callbacks, Inline Mode, text and media routing
 ├── ai.js             # Free-only provider policy and sequential fallback
 ├── catalog.js        # Cached OpenRouter free-model catalog and model picking
+├── config.js         # Product constants, limits, free policy and version
+├── membership.js     # Required-channel membership verification
+├── rich-renderer.js  # Allow-listed rich Telegram response rendering
 ├── media.js          # Telegram download, Whisper transcription, image analysis
 ├── security.js       # Webhook check, owner role, dedupe, quotas
 ├── storage.js        # D1/KV persistence
@@ -125,7 +128,7 @@ npm test
 3. Register actual values as Worker Secrets.
 4. Deploy the Worker.
 5. Set the Telegram webhook with a random `secret_token` that matches `TELEGRAM_WEBHOOK_SECRET`; subscribe only to needed update types.
-6. Enable Inline Mode in BotFather. Configure the **Main Mini App** and the bot menu button with the deployed value of `APP.terminalAppUrl`; keep `/admin` as the separate role-protected operations panel. The public entry point for users is [@IVAI_Llm_bot](https://t.me/IVAI_Llm_bot).
+6. Enable Inline Mode in BotFather. Configure the private-chat bot menu button with the deployed value of `APP.terminalAppUrl`; keep `/admin` as the separate role-protected operations panel. Configuring the **Main Mini App** with the same URL is optional and adds a profile-level Telegram entry point. The public entry point for users is [@IVAI_Llm_bot](https://t.me/IVAI_Llm_bot).
 7. Validate `/start`, `/help`, language picker, model picker, private Rich Draft/fallback, text, inline query, Guest reply, reaction feedback, Business/Thread context, role checks, broadcast preview, `/task in 30m | reminder test`, and `/notify off` on a staging chat before production use. Cron reminders and inactive-user check-ins are batch-delivered within roughly ten minutes of eligibility.
 8. After the code is live, refresh the Telegram webhook with `guest_message` and `message_reaction` in `allowed_updates`; enable Guest Mode and Inline Mode in BotFather. See `docs/TELEGRAM_FEATURE_MATRIX_FA.md`.
 
@@ -135,20 +138,22 @@ npm test
 
 | Resource | Purpose |
 |---|---|
+| [Current release status](docs/CURRENT_RELEASE_STATUS.md) | Canonical v3.3.36 operating snapshot, validation gates, user-visible behavior, and how to read historical records. |
 | [Architecture](docs/ARCHITECTURE.md) | Module boundaries, request lifecycle, scheduled lifecycle, and data ownership. |
 | [Deployment checklist](docs/DEPLOYMENT_CHECKLIST.md) | Required D1 migrations, secrets, webhook updates, and acceptance checks. |
 | [Telegram feature matrix (FA)](docs/TELEGRAM_FEATURE_MATRIX_FA.md) | Telegram capability coverage and remaining BotFather actions. |
-| [Production configuration status (FA)](docs/PRODUCTION_CONFIGURATION_STATUS_2026-08-22_FA.md) | Verified webhook, Worker binding, Mini App access and remaining client-side configuration status. |
+| [Production configuration status (FA)](docs/PRODUCTION_CONFIGURATION_STATUS_2026-08-22_FA.md) | Historical v3.3.27 production snapshot: webhook, Worker bindings, Mini App access and client-side configuration state. |
 | [Re-engagement and language decision](docs/REENGAGEMENT_AND_LANGUAGE_DECISION.md) | Consent, delivery limits, and language-selection rationale. |
 | [Provider research](docs/PROVIDER_RESEARCH_2026-08-20.md) | Source-backed model eligibility, deprecation review, provider limits, and safe fallback policy. |
 | [IVAI Terminal proposal (FA)](docs/USER_TERMINAL_MINI_APP_PROPOSAL_FA.md) | Security boundary, low-cost architecture, UI design, and rollout plan for the public terminal Mini App. |
 | [Telegram real-world test plan (FA)](docs/TELEGRAM_REAL_WORLD_TEST_PLAN_FA.md) | Executed checks, Telegram acceptance scenarios, recovery behavior and safe failure reporting. |
-| [Public launch readiness (FA)](docs/PUBLIC_LAUNCH_READINESS_2026-08-22_FA.md) | Current launch gates, synchronized public commands and owner-only final checks. |
+| [Public launch readiness (FA)](docs/PUBLIC_LAUNCH_READINESS_2026-08-22_FA.md) | Historical v3.3.31 launch-readiness review and owner-only final checks; use Current release status for the live snapshot. |
+| [Public launch smoke test (FA)](docs/PUBLIC_LAUNCH_SMOKE_TEST_FA.md) | Short manual Go/No-Go verification for Telegram, Mini App, required membership, modes, model picker, language and production health. |
 | [Telegram learning guide (FA)](docs/TELEGRAM_LEARNING_GUIDE_FA.md) | Channel-to-bot learning loop, ready-to-use prompts, study flow, and safe usage notes. |
 | [Required channel access](docs/REQUIRED_CHANNEL_ACCESS_FA.md) | Required channel policy, bot administrator prerequisite, join/recheck flow and acceptance checks. |
 | [Terminal engineering review (FA)](docs/TERMINAL_ENGINEERING_REVIEW_2026-08-21_FA.md) | Root cause, v3.3.8 hotfix, security review, quality checks and final Telegram acceptance scenario. |
 | [Full project engineering review (FA)](docs/PROJECT_ENGINEERING_REVIEW_2026-08-21_FA.md) | v3.3.9 code, queue, security, test, CI and GitHub review with remaining real-world acceptance checks. |
-| [Production check notes (FA)](docs/PRODUCTION_CHECK_NOTES_2026-08-21.md) | Read-only production endpoint, Terminal recovery and API-surface verification for v3.3.10. |
+| [Production check notes (FA)](docs/PRODUCTION_CHECK_NOTES_2026-08-21.md) | Historical v3.3.10 read-only endpoint, Terminal recovery and API-surface verification. |
 | [Repository automation sources](docs/REPOSITORY_AUTOMATION_SOURCES_2026-08-21.md) | Official sources behind pnpm CI and Dependabot hygiene. |
 | [Telegram rich formatting research](docs/TELEGRAM_RICH_FORMATTING_RESEARCH_2026-08-21.md) | Official rich-message, HTML and quote-formatting research behind v3.3.11. |
 | [Changelog](CHANGELOG.md) | Release-level changes through v3.3.36. |

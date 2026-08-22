@@ -23,6 +23,7 @@ Run every migration exactly once and in the listed order. Never edit an applied 
 | 2 | `db/0002_runtime_guards.sql` | Atomic update deduplication and quota counters. |
 | 3 | `db/0003_secretary_reminders.sql` | Task reminder delivery state and indexes. |
 | 4 | `db/0004_reengagement.sql` | Re-engagement consent and delivery state. |
+| 5 | `db/0005_broadcast_claims.sql` | Atomic broadcast delivery lease and claim index. |
 
 ## 3. Register Worker Secrets
 
@@ -59,10 +60,11 @@ Enable Guest Mode and Inline Mode in BotFather after the deployment is live. The
 | Test | Expected result |
 |---|---|
 | Unauthenticated webhook POST | Returns `401`; no update is processed. |
-| `/start` in a new private chat | English-first welcome and main mode keyboard. |
-| `/lang` | Displays the paginated language picker and persists a selected option. |
+| `/start` in a new private chat | One non-fatal random pack sticker arrives before the English-first welcome and main mode keyboard. |
+| Menu mode buttons | Auto, Fast, Deep, and Code persist the choice and visibly confirm the active mode before redrawing the Menu. |
+| `/lang` | Displays the paginated language picker and persists a selected option. A Persian prompt may receive a Persian answer without localizing an English interface footer. |
 | `/notify off` then `/notify on` | Updates re-engagement consent without an AI call. |
-| `/models`, `/pick 1`, `/model off` | Lists only allowed free models, locks a valid selection, then returns to automatic selection. |
+| `/models`, `/pick 1`, `/model off` | Lists only allowed free models, locks a valid selection, then returns to automatic selection. A stale picker safely reloads instead of silently losing a model choice. |
 | `/memory on`, `/memory show`, `/memory clear` | Uses short-lived context and permits user-controlled clearing. |
 | Voice or photo | Enforces file and quota limits before Workers AI processing. |
 | Inline query | Returns an inline result; an empty query does not invoke a provider. |

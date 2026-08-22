@@ -12,6 +12,10 @@ All notable changes to IVAI Bot are documented in this file. The project follows
 
 - Added an integration regression covering all four user-facing mode callbacks, their confirmation message, and persisted mode preference. The validation suite contains 83 passing tests.
 
+### Documentation
+
+- Added `docs/CURRENT_RELEASE_STATUS.md` as the canonical live-release snapshot and aligned the README, deployment checklist, and historical launch snapshot with current sticker, model-picker, language-footer, mode-confirmation, migration, and optional Main Mini App behavior.
+
 ## [3.3.35] - 2026-08-22
 
 ### Fixed
