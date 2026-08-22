@@ -2,6 +2,21 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.46] - 2026-08-22
+
+### Fixed
+
+- Completed the Mode/Route separation inside provider execution. Previously, an Auto model route could still choose a provider-specific default model based on the active Response Mode. Automatic model selection is now mode-independent across Workers AI, OpenRouter, Groq and Google; Response Mode affects only the immutable response profile.
+- Preserved the free-only, one-call normal path and sequential-on-failure fallback contract. A pinned free model remains preferred exactly as before.
+
+### Tests
+
+- Added a regression that verifies every automatic provider route resolves to the same default model for Auto, Fast, Deep and Code. The validation suite contains 90 passing tests.
+
+### Documentation
+
+- Updated the release and architecture contracts to state that an automatic route is independent of Response Mode at both UI and provider-execution layers.
+
 ## [3.3.45] - 2026-08-22
 
 ### Changed

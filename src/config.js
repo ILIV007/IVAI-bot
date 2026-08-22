@@ -1,6 +1,6 @@
 export const APP = Object.freeze({
   name: "IVAI",
-  version: "3.3.45",
+  version: "3.3.46",
   terminalAppUrl: "https://ivai-bot.ivai-bot.workers.dev/app",
   // Bot-owned file IDs from the IVAILlmBot pack; refresh deliberately when that pack changes.
   welcomeStickerFileIds: Object.freeze([
@@ -153,22 +153,13 @@ export const FREE_MODEL_POLICY = Object.freeze({
   ])
 });
 
-export function defaultFreeModelFor(provider, mode = MODES.AUTO) {
-  if (provider === "workers-ai") {
-    return [MODES.DEEP, MODES.CODE].includes(mode)
-      ? FREE_MODEL_POLICY.workersAi.text[1]
-      : FREE_MODEL_POLICY.workersAi.text[0];
-  }
-  if (provider === "google") {
-    if ([MODES.DEEP, MODES.CODE].includes(mode)) return FREE_MODEL_POLICY.google[0];
-    if (mode === MODES.FAST) return FREE_MODEL_POLICY.google[2];
-    return FREE_MODEL_POLICY.google[1];
-  }
-  if (provider === "groq") {
-    return [MODES.DEEP, MODES.CODE].includes(mode)
-      ? FREE_MODEL_POLICY.groq[1]
-      : FREE_MODEL_POLICY.groq[0];
-  }
+// Automatic model selection belongs to the Model Route only. Response Mode
+// controls the profile (instruction, output budget, temperature, and Rich Math),
+// never the provider/model selected for an automatic route.
+export function defaultFreeModelFor(provider) {
+  if (provider === "workers-ai") return FREE_MODEL_POLICY.workersAi.text[0];
+  if (provider === "google") return FREE_MODEL_POLICY.google[1];
+  if (provider === "groq") return FREE_MODEL_POLICY.groq[0];
   if (provider === "openrouter") return FREE_MODEL_POLICY.openRouter[0];
   return null;
 }

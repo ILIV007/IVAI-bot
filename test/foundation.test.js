@@ -180,14 +180,24 @@ test("uses D1 atomic guards for dedupe and quotas when available", async () => {
   assert.equal((await reserveWorkersAiBudget(1, env)).allowed, false);
 });
 
-test("keeps Worker AI below the published free allocation and excludes paid-only models", () => {
+test("keeps Worker AI below the published free allocation and keeps automatic routes independent from Response Mode", () => {
   assert.equal(APP.systemDailyWorkersAiBudget, 8000);
   assert.ok(APP.systemDailyWorkersAiBudget < 10_000);
   assert.ok(!FREE_MODEL_POLICY.workersAi.text.includes("@cf/zai-org/glm-5.2"));
   assert.ok(!FREE_MODEL_POLICY.groq.includes("llama-3.1-8b-instant"));
-  assert.equal(defaultFreeModelFor("workers-ai", MODES.FAST), "@cf/zai-org/glm-4.7-flash");
-  assert.equal(defaultFreeModelFor("groq", MODES.DEEP), "openai/gpt-oss-120b");
-  assert.equal(defaultFreeModelFor("google", MODES.FAST), "gemini-3.5-flash");
+
+  const automaticRoutes = {
+    "workers-ai": "@cf/zai-org/glm-4.7-flash",
+    groq: "openai/gpt-oss-20b",
+    google: "gemini-3.6-flash",
+    openrouter: "openrouter/free"
+  };
+  for (const [provider, model] of Object.entries(automaticRoutes)) {
+    assert.equal(defaultFreeModelFor(provider), model);
+    for (const mode of [MODES.AUTO, MODES.FAST, MODES.DEEP, MODES.CODE]) {
+      assert.equal(defaultFreeModelFor(provider, mode), model);
+    }
+  }
 });
 
 test("runs Guard Mode through Llama Guard with exactly one classifier call", async () => {
@@ -227,8 +237,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.45 release version", () => {
-  assert.equal(APP.version, "3.3.45");
+test("declares the official v3.3.46 release version", () => {
+  assert.equal(APP.version, "3.3.46");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {

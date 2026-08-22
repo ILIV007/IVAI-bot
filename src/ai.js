@@ -60,7 +60,7 @@ async function runWorkersAi({ messages, profile, selectedModel }, env) {
   if (!budget.allowed) throw new Error("Workers AI free quota guard blocked the request");
   const model = FREE_MODEL_POLICY.workersAi.text.includes(selectedModel)
     ? selectedModel
-    : defaultFreeModelFor("workers-ai", profile.mode);
+    : defaultFreeModelFor("workers-ai");
   const result = await env.AI.run(model, {
     messages,
     max_tokens: profile.maxOutputTokens,
@@ -79,7 +79,7 @@ async function runOpenRouter({ messages, profile, selectedModel }, env) {
   if (!env.OPENROUTER_API_KEY) throw new Error("OpenRouter is not configured");
   const model = isOpenRouterFreeModel(selectedModel)
     ? selectedModel
-    : defaultFreeModelFor("openrouter", profile.mode);
+    : defaultFreeModelFor("openrouter");
   const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -101,7 +101,7 @@ async function runGroq({ messages, profile, selectedModel }, env) {
   if (!env.GROQ_API_KEY) throw new Error("Groq is not configured");
   const model = FREE_MODEL_POLICY.groq.includes(selectedModel)
     ? selectedModel
-    : defaultFreeModelFor("groq", profile.mode);
+    : defaultFreeModelFor("groq");
   const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { authorization: `Bearer ${env.GROQ_API_KEY}`, "content-type": "application/json" },
@@ -118,7 +118,7 @@ async function runGoogle({ messages, profile, selectedModel }, env) {
   if (!env.GOOGLE_API_KEY) throw new Error("Google AI Studio is not configured");
   const model = FREE_MODEL_POLICY.google.includes(selectedModel)
     ? selectedModel
-    : defaultFreeModelFor("google", profile.mode);
+    : defaultFreeModelFor("google");
   const system = messages.find((message) => message.role === "system")?.content || "";
   const contents = messages.filter((message) => message.role !== "system").map((message) => ({
     role: message.role === "assistant" ? "model" : "user",
