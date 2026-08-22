@@ -2,6 +2,23 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.29] - 2026-08-22
+
+### Fixed
+
+- Restored bounded short-term context for every active Telegram and IVAI Terminal Session, including when the optional Memory preference is off. A second turn now receives the immediately preceding user and assistant turns, so facts such as a name remain available during the active Session.
+- Corrected language precedence so a Persian-script prompt overrides a stale English preference for the active conversation. The detected language is retained inside the bounded Session, keeping neutral follow-up prompts in the same conversation coherent.
+- Corrected Persian-script detection for the common Persian `ی` and `ک` characters, which could previously classify an otherwise Persian message as Arabic.
+
+### Privacy and safety
+
+- Sessions remain isolated by Telegram chat/topic and by Terminal, retain no more than three complete turns, expire after 30 minutes of inactivity, and cannot outlive two hours. `/new`, `/start`, `/memory off`, and `/memory clear` explicitly discard their current Session scope.
+- The optional Memory preference no longer suppresses the active Session; it only controls the user preference while the current short-lived conversational context remains available for natural multi-turn use.
+
+### Tests
+
+- Added end-to-end two-turn Persian regression scenarios for both Telegram and IVAI Terminal with Memory Off. They assert the second model call receives the earlier name turn and the Persian language instruction. The validation suite contains 78 passing tests.
+
 ## [3.3.28] - 2026-08-22
 
 ### Changed

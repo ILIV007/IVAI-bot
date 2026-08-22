@@ -1,8 +1,8 @@
-# IVAI Bot v3.3.28 — Free-Tier, Secure Telegram AI Assistant
+# IVAI Bot v3.3.29 — Free-Tier, Secure Telegram AI Assistant
 
 [![Continuous Integration](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.28 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while refining the focused `/new` experience in the Menu and its confirmation reply.
+> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.29 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while restoring coherent short-term context and language continuity within every active conversation Session.
 >
 > **Use IVAI on Telegram:** [@IVAI_Llm_bot](https://t.me/IVAI_Llm_bot)
 > **Channel on Telegram:** [@ILIVIR3](https://t.me/ILIVIR3)
@@ -14,7 +14,7 @@
 | **Free-only operation** | Every model must pass the `FREE_MODEL_POLICY`; no paid fallback, Telegram Stars, or paid broadcast route exists. |
 | **Low resource consumption** | One model call by default, sequential fallback only after a failure, compact context, strict media limits, cache/TTL storage, and per-user quotas. |
 | **English-first** | English is the default for all new users and admin UX. Persian is available through `/lang` or Persian-language detection. |
-| **Privacy-aware memory** | Memory is disabled by default, stored with TTL in KV when enabled, and can be inspected or cleared. |
+| **Privacy-aware memory** | Every active conversation keeps a bounded, TTL-limited context for natural multi-turn chat. The optional Memory preference never disables that active Session; `/new`, `/start`, `/memory off`, and `/memory clear` reset it explicitly. |
 | **Safe administration** | Admin IDs belong in a Worker Secret; broadcast uses draft → preview → confirmation → queued batches with audit logging. |
 
 ## Debug assurance
@@ -28,7 +28,7 @@ The current [full debug map](docs/DEBUG_PLAN_2026-08-21.md) records the scope, e
 | Core commands | `/start`, `/new`, `/menu`, `/help`, `/terminal`, `/auto`, `/fast`, `/deep`, `/code`, `/guard`, `/lang`, `/notify on|off`, `/debug`, `/reset` |
 | Secretary | `/task title`, `/task in 30m | title`, `/task <ISO-8601-with-offset> | title`, `/tasks`, `/done <id>`, `/cancel <id>`; reminders are delivered in a small free cron batch |
 | Model controls | `/models`, `/refreshmodels`, `/pick <number>`, `/model off` with a unified free-only picker. It offers 🟣 Cloudflare, 🔵 OpenRouter, 🟠 Groq and 🟢 Gemini filters, use-case filters for Fast/Deep/Code, preserved pagination, selected-state highlighting and provider/use-case details after selection. |
-| Memory controls | `/memory on`, `/memory off`, `/memory show`, `/memory clear`; opt-in Session context retains at most three complete turns, expires after 30 minutes of inactivity and cannot outlive two hours. `/new` and `/start` begin a new Session without changing user settings. |
+| Memory controls | `/memory on`, `/memory off`, `/memory show`, `/memory clear`; every active Session retains at most three complete turns, expires after 30 minutes of inactivity and cannot outlive two hours. Memory Off resets existing context but never breaks continuity of new turns inside the active Session. `/new` and `/start` begin a new Session without changing user settings. |
 | Providers | A conservative Workers AI allowlist spanning GLM, Gemma, GPT-OSS, Granite, Llama and Qwen; the official OpenRouter Free Router plus dynamically verified zero-price `:free` entries; active Groq GPT-OSS/Qwen routes; and free-tier eligible Gemini Flash/Flash-Lite models. Every selected route still retains a sequential free fallback. |
 | Telegram UX | Rich Draft + Rich Message fallback, safe tables and opt-in details, bounded visible footnotes, Deep/Code-only allow-listed LaTeX math, colored inline buttons, a focused Start surface, a descriptive five-row Menu, message chunking, callback handling, Inline Mode, Guest AI replies, and reaction-based group feedback |
 | Multimodal | Voice transcription uses `@cf/openai/whisper-large-v3-turbo`; photo understanding uses live-validated `@cf/meta/llama-4-scout-17b-16e-instruct`, with Gemma 4 fallback. Downloads are capped at 8 MiB, networked for at most 15 seconds, capped at four requests per user/day, and use one guarded Workers AI call. Photo output is limited to 320 tokens. |
@@ -135,7 +135,7 @@ npm test
 | [Production check notes (FA)](docs/PRODUCTION_CHECK_NOTES_2026-08-21.md) | Read-only production endpoint, Terminal recovery and API-surface verification for v3.3.10. |
 | [Repository automation sources](docs/REPOSITORY_AUTOMATION_SOURCES_2026-08-21.md) | Official sources behind pnpm CI and Dependabot hygiene. |
 | [Telegram rich formatting research](docs/TELEGRAM_RICH_FORMATTING_RESEARCH_2026-08-21.md) | Official rich-message, HTML and quote-formatting research behind v3.3.11. |
-| [Changelog](CHANGELOG.md) | Release-level changes through v3.3.28. |
+| [Changelog](CHANGELOG.md) | Release-level changes through v3.3.29. |
 | [Contributing](CONTRIBUTING.md) | Free-only, privacy, testing, and migration rules for contributors. |
 | [Security policy](SECURITY.md) | Private reporting process for vulnerabilities and exposed credentials. |
 

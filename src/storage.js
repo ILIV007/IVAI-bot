@@ -335,7 +335,11 @@ function safeSessionMessages(value) {
     : [];
 }
 
-function makeConversationSession(messages, now) {
+function safeSessionLanguage(value) {
+  return typeof value === "string" && /^[a-z]{2}(?:-[A-Z]{2})?$/.test(value) ? value : null;
+}
+
+function makeConversationSession(messages, now, language = null) {
   const createdAt = Number(now);
   return {
     id: sessionId(),
@@ -343,6 +347,7 @@ function makeConversationSession(messages, now) {
     lastActivityAt: createdAt,
     idleExpiresAt: createdAt + APP.conversationSessionIdleSeconds * 1000,
     expiresAt: createdAt + APP.conversationSessionAbsoluteSeconds * 1000,
+    language: safeSessionLanguage(language),
     messages: safeSessionMessages(messages)
   };
 }
@@ -387,7 +392,7 @@ export async function getConversationSession(scope, env, { now = Date.now() } = 
     if (raw) {
       const parsed = JSON.parse(raw);
       if (isLiveConversationSession(parsed, now)) {
-        return { ...parsed, messages: safeSessionMessages(parsed.messages) };
+        return { ...parsed, language: safeSessionLanguage(parsed.language), messages: safeSessionMessages(parsed.messages) };
       }
       await env.IVAI_KV.delete(key);
     }
@@ -407,7 +412,7 @@ export async function getConversationSession(scope, env, { now = Date.now() } = 
 
 /**
  * Starts a new conversation by invalidating the current scope. The first successful
- * AI response creates the replacement session, so Memory off remains zero-storage.
+ * AI response creates a fresh bounded active Session for the new conversation.
  */
 export async function startNewConversationSession(scope, env) {
   if (!env.IVAI_KV) return;
@@ -418,13 +423,14 @@ export async function startNewConversationSession(scope, env) {
 }
 
 /**
- * Ensures that a memory-enabled turn has one active Session before model work begins.
- * The returned ID is used as an optimistic concurrency guard when the response is saved.
+ * Ensures that every conversational turn has one bounded active Session before model work.
+ * This short-lived context is independent of the optional Memory preference. The returned ID
+ * is used as an optimistic concurrency guard when the response is saved.
  */
-export async function ensureConversationSession(scope, env, { now = Date.now() } = {}) {
+export async function ensureConversationSession(scope, env, { now = Date.now(), language = null } = {}) {
   const current = await getConversationSession(scope, env, { now });
   if (current) return current;
-  const created = makeConversationSession([], now);
+  const created = makeConversationSession([], now, language);
   return await writeConversationSession(scope, created, env, now);
 }
 
@@ -433,14 +439,14 @@ export async function ensureConversationSession(scope, env, { now = Date.now() }
  * /start that arrives while the model is producing therefore wins and cannot be
  * overwritten by the older response.
  */
-export async function saveConversationSession(scope, messages, env, { session = null, now = Date.now() } = {}) {
+export async function saveConversationSession(scope, messages, env, { session = null, now = Date.now(), language = null } = {}) {
   if (!env.IVAI_KV) return null;
   try {
     const active = await getConversationSession(scope, env, { now });
     if (session && (!active || active.id !== session.id)) return null;
     const next = active
-      ? { ...active, lastActivityAt: Number(now), idleExpiresAt: Number(now) + APP.conversationSessionIdleSeconds * 1000, messages: safeSessionMessages(messages) }
-      : makeConversationSession(messages, now);
+      ? { ...active, lastActivityAt: Number(now), idleExpiresAt: Number(now) + APP.conversationSessionIdleSeconds * 1000, language: safeSessionLanguage(language) || active.language || null, messages: safeSessionMessages(messages) }
+      : makeConversationSession(messages, now, language);
     return await writeConversationSession(scope, next, env, now);
   } catch {
     return null;

@@ -23,8 +23,20 @@ function isValidPrompt(value) {
 
 function terminalConversationKey(userId) {
   // Keep terminal history separate from the private Telegram chat while reusing
-  // the same short, opt-in, TTL-bounded memory store.
+  // the same short-lived, TTL-bounded active Session store.
   return conversationKey({ chatId: userId, userId, threadId: "terminal" });
+}
+
+function scriptLanguageFromText(value) {
+  const text = String(value || "");
+  if (/[\u0600-\u06ff]/.test(text)) return /[\u0600-\u06ff]/.test(text) && /[\u0621-\u064a]/.test(text) && !/[\u067e\u0686\u0698\u06af\u06a9\u06cc]/.test(text) ? "ar" : "fa";
+  if (/[\u0400-\u04ff]/.test(text)) return "ru";
+  if (/[\u0900-\u097f]/.test(text)) return "hi";
+  return null;
+}
+
+function activeTerminalLanguage(prompt, settings, session) {
+  return scriptLanguageFromText(prompt) || session?.language || settings.language || "en";
 }
 
 function responseText(language, key) {
@@ -88,26 +100,27 @@ export async function handleAppRequest(request, env) {
   if (!usage.allowed) return json({ ok: false, code: "RATE_LIMIT", message: responseText(actor.settings.language, "busy"), remaining: 0 }, 429);
 
   const prompt = text.trim();
-  const session = actor.settings.memoryEnabled ? await ensureConversationSession(key, env) : null;
+  const initialLanguage = scriptLanguageFromText(prompt) || actor.settings.language;
+  const session = await ensureConversationSession(key, env, { language: initialLanguage });
+  const language = activeTerminalLanguage(prompt, actor.settings, session);
   const context = session?.messages || [];
   try {
     const result = await generateReply({
       text: prompt,
       selectedMode: actor.settings.mode,
       selectedModel: actor.settings.selectedModel,
-      language: actor.settings.language,
+      language,
       context
     }, env);
-    if (actor.settings.memoryEnabled) {
-      await saveConversationSession(key, [...context, { role: "user", content: prompt }, { role: "assistant", content: result.text }], env, { session });
-    }
+    await saveConversationSession(key, [...context, { role: "user", content: prompt }, { role: "assistant", content: result.text }], env, { session, language });
+    const activeSettings = { ...actor.settings, language };
     return json({
       ok: true,
       text: result.text,
       model: result.model,
       mode: result.mode,
-      language: actor.settings.language,
-      settings: publicSettings(actor.settings),
+      language,
+      settings: publicSettings(activeSettings),
       remaining: usage.remaining
     });
   } catch (error) {
@@ -116,7 +129,7 @@ export async function handleAppRequest(request, env) {
     return json({
       ok: false,
       code,
-      message: responseText(actor.settings.language, code === "RATE_LIMIT" ? "busy" : "temporary"),
+      message: responseText(scriptLanguageFromText(text) || actor.settings.language, code === "RATE_LIMIT" ? "busy" : "temporary"),
       remaining: usage.remaining
     }, code === "RATE_LIMIT" ? 429 : 503);
   }

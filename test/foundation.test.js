@@ -226,8 +226,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.28 release version", () => {
-  assert.equal(APP.version, "3.3.28");
+test("declares the official v3.3.29 release version", () => {
+  assert.equal(APP.version, "3.3.29");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -1113,6 +1113,7 @@ class PreferenceD1 {
     return {
       bind: (...params) => ({
         first: async () => {
+          if (sql.includes("INTO runtime_counters")) return { value: Number(params[3] || 0) };
           if (!sql.includes("FROM users u LEFT JOIN user_preferences")) return null;
           const user = this.users.get(String(params[0]));
           if (!user) return null;
@@ -1210,6 +1211,80 @@ class PreferenceD1 {
     return { meta: { changes: 0 } };
   }
 }
+
+test("keeps active Persian Session context when Memory is Off", async () => {
+  const originalFetch = globalThis.fetch;
+  const d1 = new PreferenceD1();
+  const user = { id: 881, first_name: "Ilya", language_code: "en" };
+  const chat = { id: 882, type: "private" };
+  // Reproduce a user whose persisted UI preference is English but who starts
+  // this active conversation in Persian with Memory Off.
+  d1.users.set(String(user.id), { language: "en" });
+  d1.preferences.set(String(user.id), { mode: MODES.AUTO, selectedModel: null, memoryEnabled: 0 });
+  const aiCalls = [];
+  const env = {
+    ...baseEnv(),
+    IVAI_DB: d1,
+    AI: {
+      async run(model, payload) {
+        aiCalls.push({ model, payload });
+        return { response: aiCalls.length === 1 ? "خوشحالم ایلیا." : "اسم شما ایلیا است." };
+      }
+    }
+  };
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true, result: { message_id: 501 } }), { status: 200 });
+  try {
+    for (const [updateId, messageId, text] of [
+      [1601, 61, "اسم من ایلیا هست"],
+      [1602, 62, "اسم من چیه؟"]
+    ]) {
+      const response = await worker.fetch(new Request("https://worker.test/", {
+        method: "POST",
+        headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+        body: JSON.stringify({ update_id: updateId, message: { message_id: messageId, chat, from: user, text } })
+      }), env);
+      assert.equal(response.status, 200);
+    }
+    assert.equal(aiCalls.length, 2);
+    assert.match(aiCalls[0].payload.messages[0].content, /Respond in Persian/);
+    assert.match(aiCalls[1].payload.messages[0].content, /Respond in Persian/);
+    assert.ok(aiCalls[1].payload.messages.some((entry) => entry.role === "user" && entry.content === "اسم من ایلیا هست"));
+    assert.ok(aiCalls[1].payload.messages.some((entry) => entry.role === "assistant" && entry.content === "خوشحالم ایلیا."));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("keeps active Persian Terminal context when Memory is Off", async () => {
+  const d1 = new PreferenceD1();
+  const user = { id: 883, first_name: "Ilya", language_code: "en" };
+  d1.users.set(String(user.id), { language: "en" });
+  d1.preferences.set(String(user.id), { mode: MODES.AUTO, selectedModel: null, memoryEnabled: 0 });
+  const aiCalls = [];
+  const env = {
+    ...baseEnv(),
+    IVAI_DB: d1,
+    AI: {
+      async run(model, payload) {
+        aiCalls.push({ model, payload });
+        return { response: aiCalls.length === 1 ? "خوشحالم ایلیا." : "اسم شما ایلیا است." };
+      }
+    }
+  };
+  const initData = signedWebAppInitData(user);
+  for (const text of ["اسم من ایلیا هست", "اسم من چیه؟"]) {
+    const response = await worker.fetch(new Request("https://worker.test/app/chat", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-telegram-init-data": initData },
+      body: JSON.stringify({ text })
+    }), env);
+    assert.equal(response.status, 200);
+  }
+  assert.equal(aiCalls.length, 2);
+  assert.match(aiCalls[1].payload.messages[0].content, /Respond in Persian/);
+  assert.ok(aiCalls[1].payload.messages.some((entry) => entry.role === "user" && entry.content === "اسم من ایلیا هست"));
+  assert.ok(aiCalls[1].payload.messages.some((entry) => entry.role === "assistant" && entry.content === "خوشحالم ایلیا."));
+});
 
 test("keeps an explicit Persian language and selected settings across sequential preference writes", async () => {
   const env = { IVAI_DB: new PreferenceD1() };

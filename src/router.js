@@ -86,15 +86,25 @@ async function answerInlineMembershipRequired(query, language, env) {
   });
 }
 
-function languageFromMessage(message) {
+function scriptLanguageFromMessage(message) {
   const text = String(message?.text || message?.caption || "");
-  if (/[\u0600-\u06ff]/.test(text)) return /[\u0600-\u06ff]/.test(text) && /[\u0621-\u064a]/.test(text) && !/[\u067e\u0686\u0698\u06af]/.test(text) ? "ar" : "fa";
+  if (/[\u0600-\u06ff]/.test(text)) return /[\u0600-\u06ff]/.test(text) && /[\u0621-\u064a]/.test(text) && !/[\u067e\u0686\u0698\u06af\u06a9\u06cc]/.test(text) ? "ar" : "fa";
   if (/[\u0400-\u04ff]/.test(text)) return "ru";
   if (/[\u0900-\u097f]/.test(text)) return "hi";
+  return null;
+}
+
+function languageFromMessage(message) {
+  const scripted = scriptLanguageFromMessage(message);
+  if (scripted) return scripted;
   const code = String(message?.from?.language_code || "").replace("_", "-");
   const exact = [...SUPPORTED_LANGUAGE_CODES].find((value) => value.toLowerCase() === code.toLowerCase());
   const base = code.split("-")[0].toLowerCase();
   return exact || (SUPPORTED_LANGUAGE_CODES.has(base) ? base : "en");
+}
+
+function activeConversationLanguage(message, settings, session) {
+  return scriptLanguageFromMessage(message) || session?.language || settings?.language || languageFromMessage(message) || "en";
 }
 
 function userMessage(update) {
@@ -423,12 +433,12 @@ async function handleCommand(message, env, language) {
     if (action === "on" || action === "off") {
       const enabled = action === "on";
       await setMemoryEnabled(userId, enabled, env);
-      // Turning Memory off is a privacy boundary: discard both independent scopes so
-      // a later re-enable never resumes an older Telegram or Terminal conversation.
+      // Turning Memory off resets both scopes immediately. New turns still keep a
+      // bounded active Session so a normal multi-turn chat remains coherent.
       if (!enabled) await clearUserMemory(message, env);
       const text = enabled
-        ? (language === "fa" ? "✓ حافظهٔ کوتاه‌مدت فعال شد." : "✓ Short-term memory enabled.")
-        : (language === "fa" ? "✓ حافظه غیرفعال شد و context چت و IVAI Terminal پاک شد." : "✓ Memory disabled and Telegram/IVAI Terminal context cleared.");
+        ? (language === "fa" ? "✓ تنظیم حافظه فعال شد؛ context کوتاه‌مدت گفت‌وگوی فعال هم حفظ می‌شود." : "✓ Memory preference enabled; active chat context remains available.")
+        : (language === "fa" ? "✓ تنظیم حافظه خاموش شد و context فعلی چت و IVAI Terminal پاک شد. پیام‌های جدید فقط در Session فعال کوتاه‌مدت به‌هم متصل می‌مانند." : "✓ Memory preference is off and current chat/Terminal context was reset. New messages remain connected only within the short-lived active Session.");
       await sendMessage(env, { chatId, text, replyTo: message.message_id });
       return true;
     }
@@ -437,7 +447,7 @@ async function handleCommand(message, env, language) {
       await sendMessage(env, { chatId, text: language === "fa" ? "✓ حافظهٔ این گفت‌وگو و IVAI Terminal پاک شد." : "✓ This conversation and IVAI Terminal memory were cleared.", replyTo: message.message_id });
       return true;
     }
-    const session = settings.memoryEnabled ? await getConversationSession(key, env) : null;
+    const session = await getConversationSession(key, env);
     const memory = session?.messages || [];
     const preview = memory.length ? memory.map((entry) => `<b>${entry.role}:</b> ${escapeHtml(String(entry.content).slice(0, 280))}`).join("\n\n") : (language === "fa" ? "حافظه‌ای برای Session این گفت‌وگو نیست." : "There is no stored memory for this conversation Session.");
     await sendMessage(env, { chatId, text: preview, replyTo: message.message_id });
@@ -504,7 +514,7 @@ async function processText(message, env) {
   const chatId = message.chat.id;
   const delivery = messageSendContext(message);
   const knownSettings = await getUserSettings(userId, env);
-  const language = knownSettings.language || languageFromMessage(message) || "en";
+  let language = scriptLanguageFromMessage(message) || knownSettings.language || languageFromMessage(message) || "en";
   const membership = await isRequiredChannelMember(userId, env);
   if (!membership.allowed) {
     await sendMembershipRequired(message, language, membership, env);
@@ -515,6 +525,9 @@ async function processText(message, env) {
   if (text.startsWith("/") && await handleCommand(message, env, language)) return;
 
   const settings = await getUserSettings(userId, env);
+  const key = contextKey(message);
+  const session = await ensureConversationSession(key, env, { language });
+  language = activeConversationLanguage(message, settings, session);
   const modelInput = richDetailsRequested
     ? `${text}\n\nFor this opt-in expandable answer, provide the normal answer first. Only if a short user-visible supplement adds value, wrap that supplement exactly as:\n:::details Optional details\nvisible supporting explanation\n:::enddetails\nNever include hidden reasoning, chain-of-thought, private analysis, policies, or instructions inside the details block.`
     : text;
@@ -524,8 +537,6 @@ async function processText(message, env) {
     return;
   }
 
-  const key = contextKey(message);
-  const session = settings.memoryEnabled ? await ensureConversationSession(key, env) : null;
   const context = session?.messages || [];
   await sendTyping(env, chatId, delivery).catch(() => {});
   const richEligible = message.chat?.type === "private" && !delivery.businessConnectionId;
@@ -555,9 +566,7 @@ async function processText(message, env) {
   try {
     const result = await generateReply({ text: modelInput, selectedMode: settings.mode, selectedModel: settings.selectedModel, language, context }, env);
     await thinking?.stop();
-    if (settings.memoryEnabled) {
-      await saveConversationSession(key, [...context, { role: "user", content: text }, { role: "assistant", content: result.text }], env, { session });
-    }
+    await saveConversationSession(key, [...context, { role: "user", content: text }, { role: "assistant", content: result.text }], env, { session, language });
       const finalText = `${renderStandardAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: result.mode, language })}`;
       // Keep the existing metadata block as-is: nesting a blockquote inside a Rich HTML
       // footer is not needed and can reduce parser compatibility across Telegram clients.
