@@ -7,11 +7,11 @@
 | Rich Messages و Rich Draft | **پیاده‌سازی شد** | در چت خصوصی، پاسخ AI ابتدا با draft زنده و سپس با Rich Message نهایی نمایش داده می‌شود. | اگر API یا client آن را نپذیرد، همان درخواست به پیام معمولی با typing animation بازمی‌گردد. |
 | Rich Thinking block | **پیاده‌سازی شد** | هنگام تولید پاسخ، وضعیت فکرکردن native Telegram دیده می‌شود. | فقط برای draft خصوصی؛ fallback انیمیشن نقطه‌ای قبلی فعال است. |
 | دکمه‌های رنگی | **پیاده‌سازی شده** | دکمه‌های primary/success/danger برای حالت‌ها، مدل و taskها معنا را سریع‌تر منتقل می‌کنند. | کلاینت‌های قدیمی دکمهٔ استاندارد نمایش می‌دهند. |
-| Guest AI Bot | **پیاده‌سازی شد؛ نیازمند فعال‌سازی** | کاربر می‌تواند IVAI را در چتی که بات عضو آن نیست منشن کند و همان‌جا پاسخ بگیرد. | باید Guest Mode در BotFather فعال شود و webhook، update `guest_message` را بپذیرد. فقط متن منشن/پاسخ همان پیام دیده می‌شود. |
-| Reactions به‌عنوان feedback | **پیاده‌سازی شد؛ نیازمند مجوز گروه** | واکنش 👍 یا 👎 کاربر در گروه، feedback سبک ثبت می‌کند و هیچ مدل AI اجرا نمی‌شود. | IVAI باید administrator باشد و webhook شامل `message_reaction` باشد. |
+| Guest AI Bot | **فعال در production** | کاربر می‌تواند IVAI را در چتی که بات عضو آن نیست منشن کند و همان‌جا پاسخ بگیرد. | Bot مشخصهٔ `supports_guest_queries: true` و webhook شامل `guest_message` است. فقط prompt واقعی کاربر می‌تواند یک AI call رایگان داشته باشد. |
+| Reactions به‌عنوان feedback | **فعال در production** | واکنش 👍 یا 👎 کاربر در گروه، feedback سبک ثبت می‌کند و هیچ مدل AI اجرا نمی‌شود. | webhook شامل `message_reaction` است؛ IVAI فقط باید در هر گروه هدف administrator باشد. |
 | Thread / Topic context | **پیاده‌سازی شد** | typing، پیام موقت، پاسخ نهایی، media و پاسخ بلند در همان topic باقی می‌مانند. | وابسته به وجود `message_thread_id` در chat یا private forum است. |
 | Business / Chat Automation context | **پیاده‌سازی شد** | پاسخ‌ها با `business_connection_id` و topic مناسب به همان اتصال برمی‌گردند. | کاربر باید اتصال Chat Automation را در Telegram فعال کند؛ هیچ دسترسی بدون opt-in داده نمی‌شود. |
-| Inline Mode | **قبلاً پیاده‌سازی شده** | استفاده از IVAI از هر chat با query inline. | باید Inline Mode در BotFather فعال باشد. |
+| Inline Mode | **فعال در production** | استفاده از IVAI از هر chat با query inline. | مشخصهٔ Bot مقدار `supports_inline_queries: true` برمی‌گرداند. |
 | Secretary reminders | **قبلاً پیاده‌سازی شده** | task و reminder رایگان با delivery batch. | reminder حدوداً در پنجرهٔ ۱۰ دقیقه‌ای ارسال می‌شود. |
 | Bot-to-Bot | **سازگار، اما غیرفعال از نظر محصول** | برای جریان‌های automation آینده کاربرد دارد. | نیازمند فعال‌سازی جداگانه در BotFather است؛ برای جلوگیری از loop و مصرف ناخواسته به‌صورت پیش‌فرض فعال نیست. |
 | Communities | **سازگار با message routing** | IVAI می‌تواند در chatهای community به‌عنوان یک بات پاسخ دهد. | قابلیت community-specific مستقلی هنوز ارزش کاربری کافی ندارد. |
@@ -19,18 +19,20 @@
 | Stars، paid broadcast، paid media، gifts | **عمداً استفاده نمی‌شود** | با سیاست کاملاً رایگان IVAI ناسازگار است. | حذف‌شده از design. |
 | Custom emoji وابسته به Premium | **استفاده نمی‌شود** | صرفاً تزئینی است و به eligibility/Premium گره می‌خورد. | حذف‌شده از design. |
 
-## فعال‌سازی‌های باقی‌مانده در Telegram
+## وضعیت production و پیش‌نیازهای باقی‌مانده
 
-کدهای Guest، Reaction و Business آماده‌اند، اما Telegram برای حفظ حریم خصوصی و کنترل گروه، فعال‌سازی بیرونی می‌خواهد. پس از انتشار نسخه، webhook باید با همین secret فعلی و این `allowed_updates` تنظیم شود:
+webhook production اکنون با secret هماهنگ و فقط برای updateهای پشتیبانی‌شده تنظیم شده است:
 
 ```text
-message, edited_message, callback_query, inline_query, chosen_inline_result,
-business_connection, business_message, guest_message, message_reaction
+message, edited_message, inline_query, chosen_inline_result,
+callback_query, business_message, guest_message, message_reaction
 ```
 
-سپس در BotFather، **Inline Mode** و **Guest Mode** را فعال کنید. برای Reaction، IVAI را در گروه به administrator ارتقا دهید. برای Chat Automation، خود کاربر در Telegram به مسیر **Settings → Chat Automation** می‌رود و محدودهٔ chatهای مجاز را تعیین می‌کند.
+Inline Mode و Guest Mode از مشخصات خود Bot تأیید شده‌اند. برای Reaction، IVAI را فقط در گروه‌هایی که feedback لازم است administrator کنید. برای Chat Automation، خود کاربر در Telegram به مسیر **Settings → Chat Automation** می‌رود و محدودهٔ chatهای مجاز را تعیین می‌کند.
 
-> هیچ‌یک از این سه قابلیت به Telegram Premium، Stars یا مسیر پولی نیاز ندارند؛ AI فقط هنگام prompt واقعی Guest/Business اجرا می‌شود.
+تنها تنظیم سطح BotFather که هنوز خارج از Bot API باقی می‌ماند، ثبت **Main Mini App** با URL `https://ivai-bot.ivai-bot.workers.dev/app` است. Menu Button پیش‌فرض IVAI Terminal هم‌اکنون فعال است، اما Main Mini App profile باید یک‌بار توسط مالک Bot در BotFather ثبت شود.
+
+> هیچ‌یک از این قابلیت‌ها به Telegram Premium، Stars یا مسیر پولی نیاز ندارند؛ AI فقط هنگام prompt واقعی Guest/Business اجرا می‌شود.
 
 ## منابع رسمی
 

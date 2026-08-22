@@ -2,6 +2,19 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.27] - 2026-08-22
+
+### Production
+
+- Rotated the Telegram webhook secret in the Worker and refreshed the production webhook without pending updates. The webhook now receives only supported update types, including `guest_message` and `message_reaction`.
+- Verified Telegram production capability flags for Inline queries, Guest queries and Business connections. Verified the default IVAI Terminal Menu Button targets the public `/app` URL.
+- Recorded the remaining BotFather-only Main Mini App profile setting and a safe client acceptance checklist in `docs/PRODUCTION_CONFIGURATION_STATUS_2026-08-22_FA.md`.
+
+### Fixed
+
+- Synchronized the package metadata version with the application release version, eliminating the stale `3.3.17` package declaration.
+- Updated the Telegram feature matrix and README to reflect actual production readiness, the broadcast-claim migration and the current free-only capability boundary.
+
 ## [3.3.26] - 2026-08-21
 
 ### Fixed

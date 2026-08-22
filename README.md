@@ -1,8 +1,8 @@
-# IVAI Bot v3.3.26 — Free-Tier, Secure Telegram AI Assistant
+# IVAI Bot v3.3.27 — Free-Tier, Secure Telegram AI Assistant
 
 [![Continuous Integration](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.26 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while hardening broadcast delivery claims and Mini App session validation.
+> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.27 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while synchronizing release metadata and activating the production webhook for Guest queries and reaction feedback.
 >
 > **Use IVAI on Telegram:** [@IVAI_Llm_bot](https://t.me/IVAI_Llm_bot)
 > **Channel on Telegram:** [@ILIVIR3](https://t.me/ILIVIR3)
@@ -65,6 +65,7 @@ db/0001_initial_schema.sql  # D1 base schema
 db/0002_runtime_guards.sql  # Atomic dedupe and quota guards
 db/0003_secretary_reminders.sql # Task reminder delivery state and indexes
 db/0004_reengagement.sql # Consent and delivery state for inactivity check-ins
+db/0005_broadcast_claims.sql # Atomic delivery lease and claim index for broadcast
 test/                       # Node regression suites for Worker, broadcast and scheduled delivery
 legacy/TeleLLMBot.v3.2.reference.js # Archived v3.2 reference; not the production entrypoint
 wrangler.jsonc               # Binding-only Worker configuration
@@ -123,6 +124,7 @@ npm test
 | [Architecture](docs/ARCHITECTURE.md) | Module boundaries, request lifecycle, scheduled lifecycle, and data ownership. |
 | [Deployment checklist](docs/DEPLOYMENT_CHECKLIST.md) | Required D1 migrations, secrets, webhook updates, and acceptance checks. |
 | [Telegram feature matrix (FA)](docs/TELEGRAM_FEATURE_MATRIX_FA.md) | Telegram capability coverage and remaining BotFather actions. |
+| [Production configuration status (FA)](docs/PRODUCTION_CONFIGURATION_STATUS_2026-08-22_FA.md) | Verified webhook, Worker binding, Mini App access and remaining client-side configuration status. |
 | [Re-engagement and language decision](docs/REENGAGEMENT_AND_LANGUAGE_DECISION.md) | Consent, delivery limits, and language-selection rationale. |
 | [Provider research](docs/PROVIDER_RESEARCH_2026-08-20.md) | Source-backed model eligibility, deprecation review, provider limits, and safe fallback policy. |
 | [IVAI Terminal proposal (FA)](docs/USER_TERMINAL_MINI_APP_PROPOSAL_FA.md) | Security boundary, low-cost architecture, UI design, and rollout plan for the public terminal Mini App. |
@@ -133,7 +135,7 @@ npm test
 | [Production check notes (FA)](docs/PRODUCTION_CHECK_NOTES_2026-08-21.md) | Read-only production endpoint, Terminal recovery and API-surface verification for v3.3.10. |
 | [Repository automation sources](docs/REPOSITORY_AUTOMATION_SOURCES_2026-08-21.md) | Official sources behind pnpm CI and Dependabot hygiene. |
 | [Telegram rich formatting research](docs/TELEGRAM_RICH_FORMATTING_RESEARCH_2026-08-21.md) | Official rich-message, HTML and quote-formatting research behind v3.3.11. |
-| [Changelog](CHANGELOG.md) | Release-level changes through v3.3.26. |
+| [Changelog](CHANGELOG.md) | Release-level changes through v3.3.27. |
 | [Contributing](CONTRIBUTING.md) | Free-only, privacy, testing, and migration rules for contributors. |
 | [Security policy](SECURITY.md) | Private reporting process for vulnerabilities and exposed credentials. |
 

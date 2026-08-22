@@ -1,6 +1,6 @@
 {
   "name": "ivai-bot",
-  "version": "3.3.17",
+  "version": "3.3.27",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.21.0",

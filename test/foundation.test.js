@@ -226,8 +226,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.26 release version", () => {
-  assert.equal(APP.version, "3.3.26");
+test("declares the official v3.3.27 release version", () => {
+  assert.equal(APP.version, "3.3.27");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
