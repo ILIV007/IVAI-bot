@@ -2,6 +2,19 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.31] - 2026-08-22
+
+### Fixed
+
+- Seeded every Persian and Arabic paragraph sent through standard `sendMessage` and `editMessageText` with a safe Unicode right-to-left mark after its opening HTML tags. This stabilizes Menu, settings, and fallback messages that begin with an emoji or Latin term such as `IVAI`, while native Rich Messages continue to use Telegram's `is_rtl` field.
+- Preserved the existing LTR isolate around the compact `IVAI · Model · Mode` footer, preventing English model metadata from reversing inside RTL replies.
+- Rebalanced the three Start-row labels to comparable practical lengths: open menu, open IVAI, and language.
+
+### Tests and documentation
+
+- Added assertions for Start labels and RLM placement in rich HTML paragraphs, including mixed Persian/Latin lines. The validation suite remains at 79 passing tests.
+- Added `docs/RTL_BIDI_IMPLEMENTATION_NOTES_2026-08-22.md`, grounded in the Telegram Bot API and Unicode UAX #9.
+
 ## [3.3.30] - 2026-08-22
 
 ### Fixed

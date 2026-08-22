@@ -12,7 +12,7 @@ import { ensureConversationSession, getAdminOperationalStats, getConversationSes
 import { getRequiredChannelMembership } from "../src/membership.js";
 import { renderRichAiText, renderStandardAiText } from "../src/rich-renderer.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
-import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelSelectionText, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, startKeyboard, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
+import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelSelectionText, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, stabilizeRtlText, startKeyboard, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
 
 class KV {
   constructor() { this.values = new Map(); }
@@ -226,8 +226,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.30 release version", () => {
-  assert.equal(APP.version, "3.3.30");
+test("declares the official v3.3.31 release version", () => {
+  assert.equal(APP.version, "3.3.31");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -276,6 +276,9 @@ test("presents the requested Start controls and five-row Menu hierarchy", () => 
   assert.equal(start[0][1].style, "success");
   assert.equal(start[0][2].callback_data, "menu:language");
   assert.equal(start[0][2].style, "danger");
+  assert.deepEqual(start[0].map((button) => button.text), ["📋 Open menu", "⌘ Open IVAI", "🌐 Language"]);
+  const persianStart = startKeyboard("fa", { includeTerminal: true }).inline_keyboard[0];
+  assert.deepEqual(persianStart.map((button) => button.text), ["📋 بازکردن منو", "⌘ بازکردن IVAI", "🌐 تغییر زبان"]);
 
   const pickerModels = [
     { id: "@cf/zai-org/glm-4.7-flash", name: "GLM 4.7 Flash", provider: "workers-ai", category: "fast", contextLength: 131072 },
@@ -336,6 +339,9 @@ test("renders concise linked response metadata without per-message action button
   const arabicMeta = responseMeta({ model: "@cf/zai-org/glm-4.7-flash", mode: "fast", language: "ar" });
   assert.match(persianMeta, /<blockquote>\u2066🪐 <a href="https:\/\/t\.me\/IVAI_Llm_bot">IVAI<\/a> · GLM 4\.7 Flash · سریع\u2069<\/blockquote>/);
   assert.match(arabicMeta, /<blockquote>\u2066🪐 <a href="https:\/\/t\.me\/IVAI_Llm_bot">IVAI<\/a> · GLM 4\.7 Flash · Fast\u2069<\/blockquote>/);
+  assert.equal(stabilizeRtlText("<b>🌐 تنظیمات IVAI</b>\n<b>مدل:</b> GPT-OSS\nپیام فارسی"), "<b>\u200f🌐 تنظیمات IVAI</b>\n<b>\u200fمدل:</b> GPT-OSS\n\u200fپیام فارسی");
+  assert.equal(stabilizeRtlText("<b>English</b>\nPlain text"), "<b>English</b>\nPlain text");
+  assert.equal(stabilizeRtlText("\u200fمتن فارسی"), "\u200fمتن فارسی");
 });
 
 test("handles a valid start update and sends Telegram output", async () => {

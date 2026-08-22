@@ -10,6 +10,16 @@ export function escapeHtml(value = "") {
     .replaceAll('"', "&quot;");
 }
 
+// Standard sendMessage/editMessageText have no is_rtl flag. Seed every RTL
+// paragraph with RLM after its opening HTML tags, without altering the user or
+// model content itself. Rich Messages keep using Telegram's native is_rtl flag.
+export function stabilizeRtlText(value = "") {
+  return String(value).split("\n").map((line) => {
+    if (!/[\u0600-\u06ff]/.test(line) || line.includes("\u200f")) return line;
+    return line.replace(/^(\s*(?:<(?!\/)[^>]+>\s*)*)/, "$1\u200f");
+  }).join("\n");
+}
+
 function button(text, callbackData, style) {
   return { text, callback_data: callbackData, ...(style ? { style } : {}) };
 }
@@ -85,14 +95,14 @@ export function modeKeyboard(language = "en", { includeTerminal = false } = {}) 
 export function startKeyboard(language = "en", { includeTerminal = false } = {}) {
   const fa = language === "fa";
   const ar = language === "ar";
-  const terminalLabel = fa ? "⌘ سایت IVAI" : ar ? "⌘ موقع IVAI" : "⌘ IVAI Terminal";
+  const terminalLabel = fa ? "⌘ بازکردن IVAI" : ar ? "⌘ افتح IVAI" : "⌘ Open IVAI";
   const terminal = includeTerminal
     ? { text: terminalLabel, web_app: { url: APP.terminalAppUrl }, style: "success" }
     : { text: terminalLabel, url: APP.terminalAppUrl, style: "success" };
   return { inline_keyboard: [[
-    button(fa ? "📋 منو" : ar ? "📋 القائمة" : "📋 Menu", "menu:main", "primary"),
+    button(fa ? "📋 بازکردن منو" : ar ? "📋 افتح القائمة" : "📋 Open menu", "menu:main", "primary"),
     terminal,
-    button(fa ? "🌐 زبان" : ar ? "🌐 اللغة" : "🌐 Language", "menu:language", "danger")
+    button(fa ? "🌐 تغییر زبان" : ar ? "🌐 تغيير اللغة" : "🌐 Language", "menu:language", "danger")
   ]] };
 }
 
@@ -360,7 +370,7 @@ export async function sendMessage(env, { chatId, text, replyTo, keyboard, disabl
   for (let index = 0; index < parts.length; index += 1) {
     finalMessage = await telegram(env, "sendMessage", {
       chat_id: chatId,
-      text: parts[index],
+      text: stabilizeRtlText(parts[index]),
       parse_mode: parseMode || undefined,
       disable_web_page_preview: disablePreview,
       message_thread_id: threadId || undefined,
@@ -380,7 +390,7 @@ export async function editMessage(env, { chatId, messageId, text, keyboard, busi
   return telegram(env, "editMessageText", {
     chat_id: chatId,
     message_id: messageId,
-    text: text.slice(0, APP.maxTelegramText),
+      text: stabilizeRtlText(text.slice(0, APP.maxTelegramText)),
     parse_mode: "HTML",
     disable_web_page_preview: true,
     business_connection_id: businessConnectionId || undefined,
