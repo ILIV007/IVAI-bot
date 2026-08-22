@@ -226,8 +226,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.43 release version", () => {
-  assert.equal(APP.version, "3.3.43");
+test("declares the official v3.3.44 release version", () => {
+  assert.equal(APP.version, "3.3.44");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -1128,6 +1128,41 @@ test("offers the selected practical language set through a paginated language pi
   const picker = languageKeyboard("es", 0).inline_keyboard.flat();
   assert.ok(picker.some((button) => button.callback_data === "lang:set:es" && button.style === "success"));
   assert.ok(picker.some((button) => button.callback_data === "lang:page:1"));
+});
+
+test("continues bounded cron work when the broadcast lookup fails", async () => {
+  const prepared = [];
+  const env = {
+    ...baseEnv(),
+    IVAI_DB: {
+      prepare(sql) {
+        prepared.push(sql);
+        const statement = {
+          bind() { return statement; },
+          run: async () => ({ meta: { changes: 0 } }),
+          first: async () => null,
+          all: async () => {
+            if (sql.includes("broadcast_campaigns")) throw new Error("broadcast lookup unavailable");
+            return { results: [] };
+          }
+        };
+        return statement;
+      }
+    }
+  };
+  const waits = [];
+  const originalError = console.error;
+  console.error = () => {};
+  try {
+    worker.scheduled({}, env, { waitUntil(promise) { waits.push(promise); } });
+    assert.equal(waits.length, 1);
+    await waits[0];
+    assert.ok(prepared.some((sql) => sql.includes("broadcast_campaigns")));
+    assert.ok(prepared.some((sql) => sql.includes("FROM tasks")));
+    assert.ok(prepared.some((sql) => sql.includes("user_reengagement")));
+  } finally {
+    console.error = originalError;
+  }
 });
 
 test("sends one localized re-engagement message after an atomic claim", async () => {

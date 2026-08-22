@@ -3,7 +3,7 @@
 **Last documentation review:** 22 August 2026  
 **Source of truth:** the `main` branch, [`CHANGELOG.md`](../CHANGELOG.md), the CI result for the current commit, and the production Workers Build connected to `main`.
 
-This document is the concise operational companion to the project’s historical research, audit, debugging, and launch-readiness notes. Release v3.3.43 completes the production hardening of `response-profile.js`: a provider-parity regression now proves the same Auto profile—visible Mode, complete-answer instruction and bounded output budget—reaches OpenRouter, Groq and Google as well as Workers AI. Auto remains a first-class Mode while model/provider routing stays separate. Terminal `/app/new` shares Telegram `/new`'s Agent-default reset. It retains the v3.3.39 separate Mode confirmation and v3.3.37 idempotent handling for Telegram no-op message edits. Historical documents remain useful evidence for why a control exists; they do not supersede the current code or this release summary.
+This document is the concise operational companion to the project’s historical research, audit, debugging, and launch-readiness notes. Release v3.3.44 isolates each bounded Worker cron step: runtime-guard cleanup, broadcast lookup/batches, Secretary reminders and re-engagement now fail independently. A temporary failure is compactly logged as `cron_step_failure` and no longer prevents later scheduled work in the same run. It retains provider-parity hardening, Auto as a first-class Mode, and the shared Telegram/Terminal Agent-default reset. Historical documents remain useful evidence for why a control exists; they do not supersede the current code or this release summary.
 
 ## Release posture
 
@@ -18,7 +18,7 @@ This document is the concise operational companion to the project’s historical
 | `/start` experience | A uniformly selected sticker from the bot-owned `IVAILlmBot` pack is sent before the normal welcome. It is non-fatal and adds no AI request or runtime sticker-set lookup. |
 | Telegram edit resilience | Telegram's `message is not modified` response from an unchanged `editMessageText` call is treated as a successful idempotent no-op. It does not enter the generic webhook-failure path or trigger a needless retry; every other edit error is still re-thrown. |
 | Mini App | The Terminal at `/app` validates Telegram `initData` server-side, uses a separate short-lived Session, and shares the same free AI path and Response Profile contract without polling. Its Mode chip is driven by persisted settings, so Auto remains visibly `AUTO` while the server independently chooses an eligible free model/provider. Terminal New Chat and Telegram `/new` both reset the Agent to Auto, no model pin and Memory off while retaining UI language. |
-| Scheduled work | A bounded ten-minute cron handles cleanup, Secretary reminders, broadcasts, and consent-controlled re-engagement. Each delivery uses a D1 claim/lease to avoid duplication. |
+| Scheduled work | A bounded ten-minute cron handles cleanup, broadcasts, Secretary reminders, and consent-controlled re-engagement. Each step is failure-isolated, so a temporary failure is compactly logged as `cron_step_failure` without skipping later bounded work. Each delivery still uses a D1 claim/lease to avoid duplication. |
 
 ## Release validation
 

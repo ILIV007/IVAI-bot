@@ -2,6 +2,21 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.44] - 2026-08-22
+
+### Fixed
+
+- Isolated every bounded Worker cron step behind a narrow error boundary. Runtime-guard cleanup, broadcast lookup/batches, Secretary reminders and re-engagement now continue independently when another step has a temporary failure.
+- Added a compact `cron_step_failure` log with the failing step and sanitized error text, rather than allowing one exception to reject the entire scheduled invocation and skip later work.
+
+### Tests
+
+- Added a scheduled-runtime regression that forces the broadcast lookup to fail and verifies the Worker still runs the Secretary and re-engagement queries. The validation suite contains 88 passing tests.
+
+### Documentation
+
+- Updated README and current release status with the failure-isolated cron contract.
+
 ## [3.3.43] - 2026-08-22
 
 ### Tests

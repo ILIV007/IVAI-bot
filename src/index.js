@@ -27,6 +27,17 @@ function terminalHeaders(nonce) {
   };
 }
 
+async function runCronStep(step, work) {
+  try {
+    return await work();
+  } catch (error) {
+    // Scheduled workloads are intentionally independent: a temporary broadcast,
+    // reminder, or cleanup failure must not prevent the next bounded batch.
+    console.error(JSON.stringify({ event: "cron_step_failure", step, error: String(error?.message || "unknown") }));
+    return null;
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -74,16 +85,18 @@ export default {
 
   async scheduled(_controller, env, ctx) {
     const job = (async () => {
-      await cleanupRuntimeGuards(env);
-      const campaigns = await env.IVAI_DB
+      await runCronStep("runtime_guard_cleanup", () => cleanupRuntimeGuards(env));
+      const campaigns = await runCronStep("broadcast_lookup", () => env.IVAI_DB
         ?.prepare("SELECT id FROM broadcast_campaigns WHERE status IN ('confirmed','queued','sending') ORDER BY updated_at ASC LIMIT 1")
-        .all();
+        .all());
       for (const campaign of campaigns?.results || []) {
-        await seedBroadcastDeliveries(campaign.id, env);
-        await processBroadcastBatch(campaign.id, env);
+        await runCronStep("broadcast_batch", async () => {
+          await seedBroadcastDeliveries(campaign.id, env);
+          await processBroadcastBatch(campaign.id, env);
+        });
       }
-      await processSecretaryReminderBatch(env, { limit: 4 });
-      await processReengagementBatch(env, { limit: 5 });
+      await runCronStep("secretary_reminders", () => processSecretaryReminderBatch(env, { limit: 4 }));
+      await runCronStep("reengagement", () => processReengagementBatch(env, { limit: 5 }));
     })();
     ctx.waitUntil(job);
   }
