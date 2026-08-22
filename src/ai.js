@@ -1,12 +1,10 @@
 import { APP, defaultFreeModelFor, FREE_MODEL_POLICY, getBrand, getLanguageOption, MODES, modeOutputLimit } from "./config.js";
 import { reserveWorkersAiBudget } from "./security.js";
 
-function detectMode(text, selectedMode) {
-  if (selectedMode && selectedMode !== MODES.AUTO) return selectedMode;
-  const source = String(text || "");
-  if (/```|\b(function|class|debug|typescript|javascript|python|sql|api|کد|برنامه|باگ)\b/i.test(source)) return MODES.CODE;
-  if (source.length > 280 || /\b(analyze|explain|compare|reason|strategy|تحلیل|توضیح|مقایسه|استدلال)\b/i.test(source)) return MODES.DEEP;
-  return MODES.FAST;
+function detectMode(_text, selectedMode) {
+  // Auto is a first-class user-facing mode, not a hidden router for Fast, Deep,
+  // or Code. Only an explicit non-Auto preference changes the visible mode.
+  return selectedMode && selectedMode !== MODES.AUTO ? selectedMode : MODES.AUTO;
 }
 
 function systemInstruction(mode, language) {
@@ -14,7 +12,8 @@ function systemInstruction(mode, language) {
   const selectedLanguage = getLanguageOption(language);
   const languageInstruction = `Respond in ${selectedLanguage.label} unless the user explicitly requests another language. Keep UI-facing labels concise and natural for ${selectedLanguage.native}.`;
   const modeInstruction = {
-    [MODES.FAST]: "Give a concise and accurate answer. Do not add unnecessary sections.",
+    [MODES.FAST]: "Give a concise, accurate, self-contained answer. Prefer one short paragraph or up to three brief bullets. Never stop mid-sentence, mid-list, mid-code block, or before the requested conclusion; summarize instead of leaving an answer unfinished.",
+    [MODES.AUTO]: "Give a complete, appropriately sized answer. Be concise when the request is simple, but never stop mid-sentence, mid-list, mid-code block, or before the requested conclusion. Use compact structure when more detail is needed.",
     [MODES.DEEP]: "Give a structured, carefully reasoned answer, but avoid hidden chain-of-thought. State concise reasoning and conclusions.",
     [MODES.CODE]: "Provide correct, secure, production-minded code with a short explanation and fenced code blocks when appropriate.",
     [MODES.PROMPT]: "Transform the request into a precise reusable prompt. Include an optimized prompt and brief usage notes.",
@@ -34,7 +33,8 @@ function workersAiReserveUnits(mode) {
   // The budget guard favors a graceful free-tier refusal over approaching paid usage.
   if (mode === MODES.GUARD) return 250;
   if ([MODES.DEEP, MODES.CODE].includes(mode)) return 800;
-  if (mode === MODES.FAST) return 300;
+  if (mode === MODES.AUTO) return 550;
+  if (mode === MODES.FAST) return 400;
   return 450;
 }
 

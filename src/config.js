@@ -1,6 +1,6 @@
 export const APP = Object.freeze({
   name: "IVAI",
-  version: "3.3.40",
+  version: "3.3.41",
   terminalAppUrl: "https://ivai-bot.ivai-bot.workers.dev/app",
   // Bot-owned file IDs from the IVAILlmBot pack; refresh deliberately when that pack changes.
   welcomeStickerFileIds: Object.freeze([
@@ -26,8 +26,10 @@ export const APP = Object.freeze({
   systemDailyWorkersAiBudget: 8000,
   maxInputCharacters: 12000,
   maxOutputTokens: {
-    fast: 700,
-    auto: 900,
+    // Fast remains concise, but its budget must still finish a complete answer.
+    fast: 900,
+    // Auto is a distinct user-facing mode with enough room for a complete answer.
+    auto: 1000,
     deep: 1600,
     code: 1800,
     prompt: 1000,

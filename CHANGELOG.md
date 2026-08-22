@@ -2,6 +2,23 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.41] - 2026-08-22
+
+### Changed
+
+- Promoted **Auto** to a strict first-class response Mode. Auto no longer uses content heuristics to silently report Fast, Deep, or Code; a response generated after selecting Auto now remains `Auto` in the result metadata and Telegram footer.
+- Kept the automatic part where it belongs: Auto clears any model pin and selects only an eligible free model/provider route. Fast, Deep, and Code are applied only when the user explicitly selects them.
+- Increased the bounded one-call output budget to 1,000 tokens for Auto and 900 for Fast. Fast now explicitly asks for a concise, self-contained answer that summarizes rather than stopping unfinished; Auto explicitly asks for a complete, appropriately sized answer.
+- Adjusted Workers AI free-budget reservations to remain conservative for the higher bounded Auto/Fast outputs. No paid model, second normal-path AI call, or Premium dependency was added.
+
+### Tests
+
+- Added direct regression coverage proving Auto stays Auto for ordinary, analysis, and code-shaped prompts; Fast stays Fast only after explicit selection; the Auto footer renders `Auto`; and each mode makes exactly one bounded provider call with its own complete-answer instruction. The validation suite contains 86 passing tests.
+
+### Documentation
+
+- Updated README and `docs/CURRENT_RELEASE_STATUS.md` with the first-class Auto architecture and the distinction between response Mode and automatic model/provider routing.
+
 ## [3.3.40] - 2026-08-22
 
 ### Changed

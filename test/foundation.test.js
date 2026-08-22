@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import test from "node:test";
 import worker from "../src/index.js";
-import { generateReply } from "../src/ai.js";
+import { generateReply, getDetectedMode } from "../src/ai.js";
 import { processSecretaryReminderBatch } from "../src/secretary.js";
 import { processReengagementBatch } from "../src/reengagement.js";
 import { analyzePhoto, downloadTelegramFile, transcribeVoice } from "../src/media.js";
@@ -226,8 +226,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.40 release version", () => {
-  assert.equal(APP.version, "3.3.40");
+test("declares the official v3.3.41 release version", () => {
+  assert.equal(APP.version, "3.3.41");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -250,10 +250,43 @@ test("upserts a language choice even when no user row exists yet", async () => {
   assert.deepEqual(call.params, ["77", "fa"]);
 });
 
-test("keeps bounded free-tier output limits", () => {
+test("keeps bounded free-tier output limits while allowing complete Auto and Fast replies", () => {
+  assert.equal(modeOutputLimit(MODES.FAST), 900);
+  assert.equal(modeOutputLimit(MODES.AUTO), 1000);
   assert.ok(modeOutputLimit(MODES.FAST) < modeOutputLimit(MODES.DEEP));
   assert.ok(modeOutputLimit(MODES.CODE) <= 1800);
   assert.ok(modeOutputLimit(MODES.THREAD) <= 900);
+});
+
+test("keeps Auto distinct from Fast and gives both modes a complete one-call contract", async () => {
+  const calls = [];
+  const env = {
+    ...baseEnv(),
+    AI: {
+      async run(model, input) {
+        calls.push({ model, input });
+        return { response: "A complete answer." };
+      }
+    }
+  };
+
+  assert.equal(getDetectedMode("A short ordinary question", MODES.AUTO), MODES.AUTO);
+  assert.equal(getDetectedMode("Explain this trade-off", MODES.AUTO), MODES.AUTO);
+  assert.equal(getDetectedMode("Write a Python function", MODES.AUTO), MODES.AUTO);
+  assert.equal(getDetectedMode("A short ordinary question", MODES.FAST), MODES.FAST);
+
+  const auto = await generateReply({ text: "A short ordinary question", selectedMode: MODES.AUTO, selectedModel: null, language: "en", context: [] }, env);
+  const fast = await generateReply({ text: "A short ordinary question", selectedMode: MODES.FAST, selectedModel: null, language: "en", context: [] }, env);
+
+  assert.equal(auto.mode, MODES.AUTO);
+  assert.equal(fast.mode, MODES.FAST);
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].input.max_tokens, modeOutputLimit(MODES.AUTO));
+  assert.equal(calls[1].input.max_tokens, modeOutputLimit(MODES.FAST));
+  assert.match(calls[0].input.messages[0].content, /never stop mid-sentence/i);
+  assert.match(calls[1].input.messages[0].content, /self-contained answer/i);
+  assert.match(calls[1].input.messages[0].content, /summarize instead of leaving an answer unfinished/i);
+  assert.match(responseMeta({ model: auto.model, mode: auto.mode, language: "en" }), / · Auto<\/blockquote>/);
 });
 
 test("presents the requested Start controls and five-row Menu hierarchy", () => {
@@ -704,10 +737,10 @@ test("runs exactly one free AI path for an authenticated Terminal chat turn", as
   assert.equal(response.status, 200);
   assert.equal(body.ok, true);
   assert.equal(body.text, "Terminal reply.");
-  assert.equal(body.mode, "deep");
+  assert.equal(body.mode, MODES.AUTO);
   assert.deepEqual(body.settings, { language: "en", mode: MODES.AUTO, selectedModel: null, memoryEnabled: false });
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].model, "@cf/google/gemma-4-26b-a4b-it");
+  assert.equal(calls[0].model, "@cf/zai-org/glm-4.7-flash");
 });
 
 test("rejects invalid Terminal prompts before calling an AI provider", async () => {
@@ -2013,7 +2046,7 @@ test("sends native math in a Rich final response only after Deep mode is selecte
     return new Response(JSON.stringify({ ok: true, result: true }), { status: 200 });
   };
   try {
-    const env = { ...baseEnv(), AI: { async run(_model, payload) { aiCalls += 1; assert.match(payload.messages[0].content, /fenced `math` block/); return { response: "The area is $\\pi r^2$.\n\n```math\nA = \\pi r^2\n```" }; } } };
+    const env = { ...baseEnv(), IVAI_DB: new PreferenceD1(), AI: { async run(_model, payload) { aiCalls += 1; assert.match(payload.messages[0].content, /fenced `math` block/); return { response: "The area is $\\pi r^2$.\n\n```math\nA = \\pi r^2\n```" }; } } };
     const headers = { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" };
     const deepUpdate = { update_id: 2402, message: { message_id: 205, chat: { id: 42, type: "private" }, from: { id: 11 }, text: "/deep" } };
     const promptUpdate = { update_id: 2403, message: { message_id: 206, chat: { id: 42, type: "private" }, from: { id: 11 }, text: "Explain a circle area formula" } };
