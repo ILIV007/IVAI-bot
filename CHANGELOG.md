@@ -2,6 +2,18 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.43] - 2026-08-22
+
+### Tests
+
+- Added provider-parity regression coverage for the centralized Auto Response Profile. OpenRouter, Groq, and Google are now verified to receive the same visible Auto Mode, complete-answer instruction, and bounded Auto output limit already enforced for Workers AI.
+- Retained the one-call contract in every assertion: each selected provider receives exactly one normal-path request, with no paid route or speculative retry.
+- Completed a repository-wide syntax, dependency, free-only, Session/reset, membership, UI/Terminal, footer, model-picker and Telegram fallback check. The validation suite contains 87 passing tests.
+
+### Documentation
+
+- Updated README and current release status with the provider-parity hardening outcome.
+
 ## [3.3.42] - 2026-08-22
 
 ### Changed

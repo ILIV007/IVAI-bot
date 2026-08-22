@@ -226,8 +226,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.42 release version", () => {
-  assert.equal(APP.version, "3.3.42");
+test("declares the official v3.3.43 release version", () => {
+  assert.equal(APP.version, "3.3.43");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -918,6 +918,39 @@ test("prefers the selected free Workers AI model before fallback", async () => {
   const result = await generateReply({ text: "Hello", selectedMode: MODES.FAST, selectedModel: "@cf/google/gemma-4-26b-a4b-it", language: "en", context: [] }, env);
   assert.deepEqual(calls, ["@cf/google/gemma-4-26b-a4b-it"]);
   assert.equal(result.model, "@cf/google/gemma-4-26b-a4b-it");
+});
+
+test("applies one Auto Response Profile consistently to OpenRouter, Groq, and Google", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    const endpoint = String(url);
+    const body = JSON.parse(init.body);
+    calls.push({ endpoint, body });
+    if (endpoint.includes("openrouter.ai")) return new Response(JSON.stringify({ choices: [{ message: { content: "OpenRouter complete." } }] }), { status: 200 });
+    if (endpoint.includes("api.groq.com")) return new Response(JSON.stringify({ choices: [{ message: { content: "Groq complete." } }] }), { status: 200 });
+    if (endpoint.includes("generativelanguage.googleapis.com")) return new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: "Google complete." }] } }] }), { status: 200 });
+    throw new Error(`Unexpected provider endpoint: ${endpoint}`);
+  };
+  try {
+    const base = { ...baseEnv(), OPENROUTER_API_KEY: "configured", GROQ_API_KEY: "configured", GOOGLE_API_KEY: "configured" };
+    const openRouter = await generateReply({ text: "Explain this briefly", selectedMode: MODES.AUTO, selectedModel: "openrouter/free", language: "en", context: [] }, base);
+    const groq = await generateReply({ text: "Explain this briefly", selectedMode: MODES.AUTO, selectedModel: "openai/gpt-oss-20b", language: "en", context: [] }, base);
+    const google = await generateReply({ text: "Explain this briefly", selectedMode: MODES.AUTO, selectedModel: "gemini-3.5-flash", language: "en", context: [] }, base);
+
+    assert.equal(openRouter.mode, MODES.AUTO);
+    assert.equal(groq.mode, MODES.AUTO);
+    assert.equal(google.mode, MODES.AUTO);
+    assert.equal(calls.length, 3);
+    assert.equal(calls[0].body.max_tokens, modeOutputLimit(MODES.AUTO));
+    assert.equal(calls[1].body.max_tokens, modeOutputLimit(MODES.AUTO));
+    assert.equal(calls[2].body.generationConfig.maxOutputTokens, modeOutputLimit(MODES.AUTO));
+    assert.match(calls[0].body.messages[0].content, /complete, appropriately sized answer/i);
+    assert.match(calls[1].body.messages[0].content, /complete, appropriately sized answer/i);
+    assert.match(calls[2].body.systemInstruction.parts[0].text, /complete, appropriately sized answer/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("opens a callback-driven model picker and selects a displayed free model", async () => {

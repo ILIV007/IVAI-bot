@@ -1,8 +1,8 @@
-# IVAI Bot v3.3.42 — Free-Tier, Secure Telegram AI Assistant
+# IVAI Bot v3.3.43 — Free-Tier, Secure Telegram AI Assistant
 
 [![Continuous Integration](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. In v3.3.42, a dedicated **Response Profile** module owns the visible Mode, answer instruction, bounded output budget, temperature, Workers AI reservation and Rich Math eligibility. This keeps **Auto** independent from model/provider routing throughout Telegram and the Mini App: it remains `Auto` in metadata while a free route is selected separately. Telegram `/new` and Terminal New Chat now share the same Agent-default reset: Auto, automatic model routing and Memory off, while retaining interface language. All controls remain free-only and make exactly one normal-path AI call. See the [current release status](docs/CURRENT_RELEASE_STATUS.md) for the canonical operational snapshot.
+> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. In v3.3.43, production hardening verifies that the same **Response Profile** reaches Workers AI, OpenRouter, Groq, and Google: visible Mode, complete-answer instruction, bounded output budget and free-only routing remain consistent across every provider. Auto stays independent from model/provider routing; Telegram `/new` and Terminal New Chat share the same Agent-default reset. All controls remain free-only and make exactly one normal-path AI call. See the [current release status](docs/CURRENT_RELEASE_STATUS.md) for the canonical operational snapshot.
 >
 > **Use IVAI on Telegram:** [@IVAI_Llm_bot](https://t.me/IVAI_Llm_bot)
 > **Channel on Telegram:** [@ILIVIR3](https://t.me/ILIVIR3)
@@ -37,7 +37,7 @@ The current [full debug map](docs/DEBUG_PLAN_2026-08-21.md) records the scope, e
 
 ## Current capabilities
 
-| Area | Included in v3.3.42 |
+| Area | Included in v3.3.43 |
 |---|---|
 | Core commands | `/start`, `/new`, `/menu`, `/help`, `/terminal`, `/auto`, `/fast`, `/deep`, `/code`, `/guard`, `/lang`, `/notify on|off`, `/debug`, `/reset`. `/new` starts a new chat and restores Agent defaults: Auto mode, automatic free model route, and Memory off; UI language is retained. |
 | Secretary | `/task title`, `/task in 30m | title`, `/task <ISO-8601-with-offset> | title`, `/tasks`, `/done <id>`, `/cancel <id>`; reminders are delivered in a small free cron batch |
@@ -138,7 +138,7 @@ npm test
 
 | Resource | Purpose |
 |---|---|
-| [Current release status](docs/CURRENT_RELEASE_STATUS.md) | Canonical v3.3.42 operating snapshot, validation gates, user-visible behavior, and how to read historical records. |
+| [Current release status](docs/CURRENT_RELEASE_STATUS.md) | Canonical v3.3.43 operating snapshot, validation gates, user-visible behavior, and how to read historical records. |
 | [Architecture](docs/ARCHITECTURE.md) | Module boundaries, Response Profile and reset contracts, request lifecycle, scheduled lifecycle, and data ownership. |
 | [Deployment checklist](docs/DEPLOYMENT_CHECKLIST.md) | Required D1 migrations, secrets, webhook updates, and acceptance checks. |
 | [Telegram feature matrix (FA)](docs/TELEGRAM_FEATURE_MATRIX_FA.md) | Telegram capability coverage and remaining BotFather actions. |
@@ -157,7 +157,7 @@ npm test
 | [Production check notes (FA)](docs/PRODUCTION_CHECK_NOTES_2026-08-21.md) | Historical v3.3.10 read-only endpoint, Terminal recovery and API-surface verification. |
 | [Repository automation sources](docs/REPOSITORY_AUTOMATION_SOURCES_2026-08-21.md) | Official sources behind pnpm CI and Dependabot hygiene. |
 | [Telegram rich formatting research](docs/TELEGRAM_RICH_FORMATTING_RESEARCH_2026-08-21.md) | Official rich-message, HTML and quote-formatting research behind v3.3.11. |
-| [Changelog](CHANGELOG.md) | Release-level changes through v3.3.42. |
+| [Changelog](CHANGELOG.md) | Release-level changes through v3.3.43. |
 | [Contributing](CONTRIBUTING.md) | Free-only, privacy, testing, and migration rules for contributors. |
 | [Security policy](SECURITY.md) | Private reporting process for vulnerabilities and exposed credentials. |
 
