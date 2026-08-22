@@ -2,6 +2,16 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.36] - 2026-08-22
+
+### Added
+
+- Every successful Telegram Menu choice of `Auto`, `Fast`, `Deep`, or `Code` now edits the menu with a concise localized confirmation and the active mode before presenting the refreshed controls.
+
+### Tests
+
+- Added an integration regression covering all four user-facing mode callbacks, their confirmation message, and persisted mode preference. The validation suite contains 83 passing tests.
+
 ## [3.3.35] - 2026-08-22
 
 ### Fixed

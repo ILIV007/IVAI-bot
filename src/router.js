@@ -731,6 +731,13 @@ function adminStatsText(stats) {
   return `<b>IVAI Operations</b>\n\n<b>Audience</b>\nTotal users: <code>${value(stats.totalUsers)}</code>\nActive users (7d): <code>${value(stats.activeUsers7d)}</code>\nActive users (30d): <code>${value(stats.activeUsers30d)}</code>\nActive chats (30d): <code>${value(stats.activeChats30d)}</code>\n\n<b>Operations</b>\nFeedback (7d): <code>${value(stats.feedback7d)}</code>\nBroadcasts awaiting delivery: <code>${value(stats.pendingBroadcasts)}</code>\nWorkers AI daily budget remaining: <code>${value(stats.workersAiBudgetRemaining)}</code>`;
 }
 
+function modeChangedText(mode, language) {
+  const label = escapeHtml(modeLabel(mode, language));
+  if (language === "fa") return `<b>✓ حالت پاسخ‌گویی تغییر کرد</b>\n\n<b>حالت فعال:</b> <code>${label}</code>`;
+  if (language === "ar") return `<b>✓ تم تغيير نمط الاستجابة</b>\n\n<b>النمط النشط:</b> <code>${label}</code>`;
+  return `<b>✓ Response mode changed</b>\n\n<b>Active mode:</b> <code>${label}</code>`;
+}
+
 async function processCallback(query, env) {
   const userId = query.from?.id;
   const chatId = query.message?.chat?.id;
@@ -892,7 +899,12 @@ async function processCallback(query, env) {
     }
     await setUserMode(userId, mode, env);
     const settings = await getUserSettings(userId, env);
-    await editMessage(env, { chatId, messageId, text: menuText(language, settings), keyboard: mainKeyboard(language, query.message) });
+    await editMessage(env, {
+      chatId,
+      messageId,
+      text: `${modeChangedText(mode, language)}\n\n${menuText(language, settings)}`,
+      keyboard: mainKeyboard(language, query.message)
+    });
     return;
   }
   if (data.startsWith("lang:page:")) {

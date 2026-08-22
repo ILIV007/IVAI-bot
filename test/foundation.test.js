@@ -226,8 +226,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.35 release version", () => {
-  assert.equal(APP.version, "3.3.35");
+test("declares the official v3.3.36 release version", () => {
+  assert.equal(APP.version, "3.3.36");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -1312,6 +1312,42 @@ class PreferenceD1 {
     return { meta: { changes: 0 } };
   }
 }
+
+test("confirms each Menu response mode change and persists the selected mode", async () => {
+  const originalFetch = globalThis.fetch;
+  const d1 = new PreferenceD1();
+  const calls = [];
+  const env = { ...baseEnv(), IVAI_DB: d1 };
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 505 } }), { status: 200 });
+  };
+  try {
+    for (const [offset, mode, label] of [[0, "auto", "Auto"], [1, "fast", "Fast"], [2, "deep", "Deep"], [3, "code", "Code"]]) {
+      calls.length = 0;
+      const response = await worker.fetch(new Request("https://worker.test/", {
+        method: "POST",
+        headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+        body: JSON.stringify({
+          update_id: 1610 + offset,
+          callback_query: {
+            id: `mode-${mode}`,
+            from: { id: 885, first_name: "Mode tester", language_code: "en" },
+            data: `mode:${mode}`,
+            message: { message_id: 70 + offset, chat: { id: 885, type: "private" }, from: { id: 8285612628, is_bot: true } }
+          }
+        })
+      }), env);
+      assert.equal(response.status, 200);
+      const edit = calls.find((call) => /editMessageText$/.test(call.url));
+      assert.match(edit.body.text, /Response mode changed/);
+      assert.match(edit.body.text, new RegExp(`Active mode:<\\/b> <code>${label}<\\/code>`));
+      assert.equal((await getUserSettings(885, env)).mode, mode);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
 
 test("keeps active Persian Session context when Memory is Off", async () => {
   const originalFetch = globalThis.fetch;
