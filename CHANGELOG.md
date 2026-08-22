@@ -2,6 +2,23 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.38] - 2026-08-22
+
+### Fixed
+
+- Corrected the ambiguous Mode Auto behavior: `setUserMode(..., "auto")` now atomically clears `selected_model` in the same D1 preference update. A provider/model selected from the picker can no longer silently remain preferred after the user selects Menu Auto or runs `/auto`.
+- Kept intentional model choices when selecting Fast, Deep, or Code. The Model Picker's own **Auto route** control continues to clear only the model pin, preserving the separately chosen response mode.
+- Added an explicit localized `Model route: Auto` confirmation to Menu Auto and `/auto`; reset flows now rely on the same atomic invariant instead of issuing a duplicate model-clear write.
+
+### Tests
+
+- Extended the Menu mode callback regression to seed a selected provider model, prove Auto clears it, prove Fast/Deep/Code preserve it, and verify the visible Auto-route confirmation.
+- Added an end-to-end `/auto` webhook regression that proves the persisted mode becomes Auto, the selected provider model becomes null, and the confirmation is delivered. The validation suite contains 85 passing tests.
+
+### Documentation
+
+- Updated README and `docs/CURRENT_RELEASE_STATUS.md` with the explicit distinction between response Mode Auto and the model picker Auto route.
+
 ## [3.3.37] - 2026-08-22
 
 ### Fixed

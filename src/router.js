@@ -357,8 +357,12 @@ async function handleCommand(message, env, language) {
     return true;
   }
   if (COMMAND_MODE[command]) {
-    await setUserMode(userId, COMMAND_MODE[command], env);
-    await sendMessage(env, { chatId, text: `${responseText(language, "saved")} <b>${escapeHtml(modeLabel(COMMAND_MODE[command], language))}</b>`, replyTo: message.message_id });
+    const mode = COMMAND_MODE[command];
+    await setUserMode(userId, mode, env);
+    const autoRoute = mode === MODES.AUTO
+      ? (language === "fa" ? "\n<b>مسیر مدل:</b> <code>خودکار</code>" : language === "ar" ? "\n<b>مسار النموذج:</b> <code>تلقائي</code>" : "\n<b>Model route:</b> <code>Auto</code>")
+      : "";
+    await sendMessage(env, { chatId, text: `${responseText(language, "saved")} <b>${escapeHtml(modeLabel(mode, language))}</b>${autoRoute}`, replyTo: message.message_id });
     return true;
   }
   if (command === "/lang") {
@@ -475,7 +479,6 @@ async function handleCommand(message, env, language) {
   }
   if (command === "/reset") {
     await setUserMode(userId, MODES.AUTO, env);
-    await setSelectedModel(userId, null, env);
     await setMemoryEnabled(userId, false, env);
     await clearUserMemory(message, env);
     await sendMessage(env, { chatId, text: language === "fa" ? "✓ تنظیمات IVAI و حافظهٔ Terminal بازنشانی شد." : "✓ IVAI settings and Terminal memory were reset.", replyTo: message.message_id });
@@ -733,9 +736,14 @@ function adminStatsText(stats) {
 
 function modeChangedText(mode, language) {
   const label = escapeHtml(modeLabel(mode, language));
-  if (language === "fa") return `<b>✓ حالت پاسخ‌گویی تغییر کرد</b>\n\n<b>حالت فعال:</b> <code>${label}</code>`;
-  if (language === "ar") return `<b>✓ تم تغيير نمط الاستجابة</b>\n\n<b>النمط النشط:</b> <code>${label}</code>`;
-  return `<b>✓ Response mode changed</b>\n\n<b>Active mode:</b> <code>${label}</code>`;
+  const autoRoute = mode === MODES.AUTO;
+  if (language === "fa") {
+    return `<b>✓ حالت پاسخ‌گویی تغییر کرد</b>\n\n<b>حالت فعال:</b> <code>${label}</code>${autoRoute ? "\n<b>مسیر مدل:</b> <code>خودکار</code>" : ""}`;
+  }
+  if (language === "ar") {
+    return `<b>✓ تم تغيير نمط الاستجابة</b>\n\n<b>النمط النشط:</b> <code>${label}</code>${autoRoute ? "\n<b>مسار النموذج:</b> <code>تلقائي</code>" : ""}`;
+  }
+  return `<b>✓ Response mode changed</b>\n\n<b>Active mode:</b> <code>${label}</code>${autoRoute ? "\n<b>Model route:</b> <code>Auto</code>" : ""}`;
 }
 
 async function processCallback(query, env) {
@@ -873,7 +881,6 @@ async function processCallback(query, env) {
   }
   if (data === "settings:reset") {
     await setUserMode(userId, MODES.AUTO, env);
-    await setSelectedModel(userId, null, env);
     await setMemoryEnabled(userId, false, env);
     await Promise.all([
       startNewConversationSession(conversationKey({ chatId, userId, threadId: getThreadId(query.message) }), env),

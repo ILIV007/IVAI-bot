@@ -1,8 +1,8 @@
-# IVAI Bot v3.3.37 — Free-Tier, Secure Telegram AI Assistant
+# IVAI Bot v3.3.38 — Free-Tier, Secure Telegram AI Assistant
 
 [![Continuous Integration](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. In v3.3.37, `/start` stickers are uniformly selected, model-picker callbacks are bound to stable model-ID tokens, UI metadata is independent from prompt language, every Auto/Fast/Deep/Code Menu choice is visibly confirmed, and Telegram's unchanged-message edit response is treated as an idempotent no-op instead of a retry-triggering webhook failure. These controls remain free-only, make no extra AI call, and retain graceful Telegram fallbacks. See the [current release status](docs/CURRENT_RELEASE_STATUS.md) for the canonical operational snapshot.
+> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. In v3.3.38, choosing **Auto** from either the Menu or `/auto` clears any pinned provider/model in the same preference update, restoring automatic free-route selection. `/start` stickers remain uniformly selected, model-picker callbacks use stable model-ID tokens, UI metadata is independent from prompt language, every Auto/Fast/Deep/Code Menu choice is visibly confirmed, and Telegram's unchanged-message edit response is treated as an idempotent no-op instead of a retry-triggering webhook failure. These controls remain free-only, make no extra AI call, and retain graceful Telegram fallbacks. See the [current release status](docs/CURRENT_RELEASE_STATUS.md) for the canonical operational snapshot.
 >
 > **Use IVAI on Telegram:** [@IVAI_Llm_bot](https://t.me/IVAI_Llm_bot)
 > **Channel on Telegram:** [@ILIVIR3](https://t.me/ILIVIR3)
@@ -37,11 +37,11 @@ The current [full debug map](docs/DEBUG_PLAN_2026-08-21.md) records the scope, e
 
 ## Current capabilities
 
-| Area | Included in v3.3.37 |
+| Area | Included in v3.3.38 |
 |---|---|
 | Core commands | `/start`, `/new`, `/menu`, `/help`, `/terminal`, `/auto`, `/fast`, `/deep`, `/code`, `/guard`, `/lang`, `/notify on|off`, `/debug`, `/reset` |
 | Secretary | `/task title`, `/task in 30m | title`, `/task <ISO-8601-with-offset> | title`, `/tasks`, `/done <id>`, `/cancel <id>`; reminders are delivered in a small free cron batch |
-| Model controls | `/models`, `/refreshmodels`, `/pick <number>`, `/model off` with a unified free-only picker. It offers 🟣 Cloudflare, 🔵 OpenRouter, 🟠 Groq and 🟢 Gemini filters, use-case filters for Fast/Deep/Code, preserved pagination, selected-state highlighting and provider/use-case details after selection. Menu buttons carry stable model-ID tokens and a stale picker safely reloads instead of silently discarding a choice. |
+| Model controls | `/models`, `/refreshmodels`, `/pick <number>`, `/model off` with a unified free-only picker. It offers 🟣 Cloudflare, 🔵 OpenRouter, 🟠 Groq and 🟢 Gemini filters, use-case filters for Fast/Deep/Code, preserved pagination, selected-state highlighting and provider/use-case details after selection. Menu buttons carry stable model-ID tokens and a stale picker safely reloads instead of silently discarding a choice. Choosing Menu **Auto** or `/auto` atomically clears a selected provider model and restores automatic free-route selection; Fast/Deep/Code retain an intentional model choice. |
 | Memory controls | `/memory on`, `/memory off`, `/memory show`, `/memory clear`; every active Session retains at most three complete turns, expires after 30 minutes of inactivity and cannot outlive two hours. Memory Off resets existing context but never breaks continuity of new turns inside the active Session. `/new` and `/start` begin a new Session without changing user settings. |
 | Providers | A conservative Workers AI allowlist spanning GLM, Gemma, GPT-OSS, Granite, Llama and Qwen; the official OpenRouter Free Router plus dynamically verified zero-price `:free` entries; active Groq GPT-OSS/Qwen routes; and free-tier eligible Gemini Flash/Flash-Lite models. Every selected route still retains a sequential free fallback. |
 | Telegram UX | Rich Draft + Rich Message fallback, safe tables and opt-in details, bounded visible footnotes, Deep/Code-only allow-listed LaTeX math, colored inline buttons, a focused Start surface, a descriptive five-row Menu, visible confirmation after each Auto/Fast/Deep/Code selection, message chunking, callback handling, Inline Mode, Guest AI replies, and reaction-based group feedback. Telegram's unchanged-message edit response is recognized as a successful idempotent no-op, preventing needless webhook retries. |
@@ -138,7 +138,7 @@ npm test
 
 | Resource | Purpose |
 |---|---|
-| [Current release status](docs/CURRENT_RELEASE_STATUS.md) | Canonical v3.3.37 operating snapshot, validation gates, user-visible behavior, and how to read historical records. |
+| [Current release status](docs/CURRENT_RELEASE_STATUS.md) | Canonical v3.3.38 operating snapshot, validation gates, user-visible behavior, and how to read historical records. |
 | [Architecture](docs/ARCHITECTURE.md) | Module boundaries, request lifecycle, scheduled lifecycle, and data ownership. |
 | [Deployment checklist](docs/DEPLOYMENT_CHECKLIST.md) | Required D1 migrations, secrets, webhook updates, and acceptance checks. |
 | [Telegram feature matrix (FA)](docs/TELEGRAM_FEATURE_MATRIX_FA.md) | Telegram capability coverage and remaining BotFather actions. |
@@ -157,7 +157,7 @@ npm test
 | [Production check notes (FA)](docs/PRODUCTION_CHECK_NOTES_2026-08-21.md) | Historical v3.3.10 read-only endpoint, Terminal recovery and API-surface verification. |
 | [Repository automation sources](docs/REPOSITORY_AUTOMATION_SOURCES_2026-08-21.md) | Official sources behind pnpm CI and Dependabot hygiene. |
 | [Telegram rich formatting research](docs/TELEGRAM_RICH_FORMATTING_RESEARCH_2026-08-21.md) | Official rich-message, HTML and quote-formatting research behind v3.3.11. |
-| [Changelog](CHANGELOG.md) | Release-level changes through v3.3.37. |
+| [Changelog](CHANGELOG.md) | Release-level changes through v3.3.38. |
 | [Contributing](CONTRIBUTING.md) | Free-only, privacy, testing, and migration rules for contributors. |
 | [Security policy](SECURITY.md) | Private reporting process for vulnerabilities and exposed credentials. |
 

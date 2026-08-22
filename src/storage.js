@@ -86,11 +86,14 @@ export async function setUserLanguage(userId, language, env) {
 export async function setUserMode(userId, mode, env) {
   if (!env.IVAI_DB || !userId) return;
   await ensureUserPreferences(userId, env);
+  // Auto means IVAI is free to choose an eligible free route. Keeping a pinned
+  // provider/model here would silently override that promise on every next turn.
+  const resetSelectedModel = mode === MODES.AUTO;
   await env.IVAI_DB
     .prepare(`UPDATE user_preferences
-      SET mode=?, updated_at=CURRENT_TIMESTAMP
+      SET mode=?, selected_model=CASE WHEN ? THEN NULL ELSE selected_model END, updated_at=CURRENT_TIMESTAMP
       WHERE telegram_user_id=?`)
-    .bind(mode, String(userId))
+    .bind(mode, resetSelectedModel ? 1 : 0, String(userId))
     .run();
 }
 

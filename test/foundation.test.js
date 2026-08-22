@@ -226,8 +226,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.37 release version", () => {
-  assert.equal(APP.version, "3.3.37");
+test("declares the official v3.3.38 release version", () => {
+  assert.equal(APP.version, "3.3.38");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -1281,8 +1281,9 @@ class PreferenceD1 {
       return { meta: { changes: 1 } };
     }
     if (sql.includes("UPDATE user_preferences SET mode")) {
-      const preference = this.#ensurePreference(params[1]);
+      const preference = this.#ensurePreference(params[2]);
       preference.mode = params[0];
+      if (params[1]) preference.selectedModel = null;
       return { meta: { changes: 1 } };
     }
 
@@ -1325,6 +1326,7 @@ test("confirms each Menu response mode change and persists the selected mode", a
   try {
     for (const [offset, mode, label] of [[0, "auto", "Auto"], [1, "fast", "Fast"], [2, "deep", "Deep"], [3, "code", "Code"]]) {
       calls.length = 0;
+      d1.preferences.set("885", { mode: MODES.DEEP, selectedModel: "@cf/meta/llama-3.2-1b-instruct", memoryEnabled: 0 });
       const response = await worker.fetch(new Request("https://worker.test/", {
         method: "POST",
         headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
@@ -1342,8 +1344,41 @@ test("confirms each Menu response mode change and persists the selected mode", a
       const edit = calls.find((call) => /editMessageText$/.test(call.url));
       assert.match(edit.body.text, /Response mode changed/);
       assert.match(edit.body.text, new RegExp(`Active mode:<\\/b> <code>${label}<\\/code>`));
-      assert.equal((await getUserSettings(885, env)).mode, mode);
+      const settings = await getUserSettings(885, env);
+      assert.equal(settings.mode, mode);
+      assert.equal(settings.selectedModel, mode === MODES.AUTO ? null : "@cf/meta/llama-3.2-1b-instruct");
+      if (mode === MODES.AUTO) assert.match(edit.body.text, /Model route:<\/b> <code>Auto<\/code>/);
     }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("clears a selected provider model when the /auto command enables Auto mode", async () => {
+  const originalFetch = globalThis.fetch;
+  const d1 = new PreferenceD1();
+  const env = { ...baseEnv(), IVAI_DB: d1 };
+  d1.preferences.set("887", { mode: MODES.CODE, selectedModel: "@cf/meta/llama-3.2-1b-instruct", memoryEnabled: 0 });
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 507 } }), { status: 200 });
+  };
+  try {
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+      body: JSON.stringify({
+        update_id: 1615,
+        message: { message_id: 75, chat: { id: 887, type: "private" }, from: { id: 887, first_name: "Command tester", language_code: "en" }, text: "/auto" }
+      })
+    }), env);
+    assert.equal(response.status, 200);
+    const settings = await getUserSettings(887, env);
+    assert.equal(settings.mode, MODES.AUTO);
+    assert.equal(settings.selectedModel, null);
+    const confirmation = calls.find((call) => /sendMessage$/.test(call.url));
+    assert.match(confirmation.body.text, /Model route:<\/b> <code>Auto<\/code>/);
   } finally {
     globalThis.fetch = originalFetch;
   }
