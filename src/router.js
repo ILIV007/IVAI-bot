@@ -18,6 +18,7 @@ import {
   listSecretaryTasks,
   markBroadcastConfirmed,
   recordFeedback,
+  resetUserAgentPreferences,
   saveConversationSession,
   startNewConversationSession,
   setMemoryEnabled,
@@ -190,9 +191,9 @@ function helpText(language) {
 }
 
 function newConversationText(language) {
-  if (language === "fa") return "<b>🪐 گفتگوی تازه آماده است!</b>\n\n<blockquote>context گفتگوی قبلی پاک شد؛ زبان، مدل، حالت پاسخ و تنظیم حافظه‌ات دقیقاً همان‌طور که بوده‌اند باقی مانده‌اند. از کجا شروع کنیم؟</blockquote>";
-  if (language === "ar") return "<b>🪐 محادثة جديدة جاهزة!</b>\n\n<blockquote>تمت إزالة سياق المحادثة السابقة، بينما بقيت اللغة والنموذج ووضع الرد وإعداد الذاكرة كما هي. من أين نبدأ؟</blockquote>";
-  return "<b>🪐 Fresh chat, ready to go!</b>\n\n<blockquote>Your previous chat context is cleared, while your language, model, response mode and memory setting stay exactly as you left them. What would you like to explore?</blockquote>";
+  if (language === "fa") return "<b>🪐 گفتگوی تازه آماده است!</b>\n\n<blockquote>context قبلی و تنظیمات Agent بازنشانی شدند: حالت Auto، مدل خودکار و حافظه خاموش است. زبان رابط تو بدون تغییر مانده است. از کجا شروع کنیم؟</blockquote>";
+  if (language === "ar") return "<b>🪐 محادثة جديدة جاهزة!</b>\n\n<blockquote>تمت إعادة تعيين سياق المحادثة وإعدادات الوكيل: الوضع تلقائي، واختيار النموذج تلقائي، والذاكرة متوقفة. تبقى لغة الواجهة كما هي. من أين نبدأ؟</blockquote>";
+  return "<b>🪐 Fresh chat, ready to go!</b>\n\n<blockquote>Your previous context and Agent settings were reset: Auto mode, automatic model routing, and Memory off. Your interface language is unchanged. What would you like to explore?</blockquote>";
 }
 
 function getThreadId(message) {
@@ -334,7 +335,10 @@ async function handleCommand(message, env, language) {
     return true;
   }
   if (command === "/new") {
-    await startNewConversationSession(contextKey(message), env);
+    await Promise.all([
+      resetUserAgentPreferences(userId, env),
+      startNewConversationSession(contextKey(message), env)
+    ]);
     await sendMessage(env, { chatId, text: newConversationText(language), replyTo: message.message_id });
     return true;
   }
@@ -478,8 +482,7 @@ async function handleCommand(message, env, language) {
     return true;
   }
   if (command === "/reset") {
-    await setUserMode(userId, MODES.AUTO, env);
-    await setMemoryEnabled(userId, false, env);
+    await resetUserAgentPreferences(userId, env);
     await clearUserMemory(message, env);
     await sendMessage(env, { chatId, text: language === "fa" ? "✓ تنظیمات IVAI و حافظهٔ Terminal بازنشانی شد." : "✓ IVAI settings and Terminal memory were reset.", replyTo: message.message_id });
     return true;
@@ -880,8 +883,7 @@ async function processCallback(query, env) {
     return;
   }
   if (data === "settings:reset") {
-    await setUserMode(userId, MODES.AUTO, env);
-    await setMemoryEnabled(userId, false, env);
+    await resetUserAgentPreferences(userId, env);
     await Promise.all([
       startNewConversationSession(conversationKey({ chatId, userId, threadId: getThreadId(query.message) }), env),
       startNewConversationSession(terminalMemoryKey(userId), env)

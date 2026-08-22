@@ -2,6 +2,24 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.40] - 2026-08-22
+
+### Changed
+
+- Made `/new` a complete fresh-Agent action. It now clears the requested Telegram conversation Session and atomically restores the Agent defaults: `mode=auto`, no selected provider/model, and `memory_enabled=0`.
+- Preserved the user’s interface language across `/new`, so a chosen Persian, English, Arabic, or other supported display language is not unexpectedly changed while the AI route returns to the automatic free-only default.
+- Updated the localized `/new` message to state the real outcome: context reset, Auto mode, automatic model routing, and Memory off.
+- Reused the same reset helper for `/reset` and Settings reset, replacing multiple preference writes with one D1 update.
+
+### Tests
+
+- Replaced the previous `/new` preservation expectation with end-to-end regressions proving a prior Code mode, pinned model, enabled Memory, and old Session become Auto, no model pin, Memory off, and an empty Session without any AI call.
+- Added coverage proving `/new` retains the interface language while resetting the Agent settings. The validation suite contains 85 passing tests.
+
+### Documentation
+
+- Updated README and `docs/CURRENT_RELEASE_STATUS.md` with the new `/new` contract and the explicit distinction between Agent defaults and interface language.
+
 ## [3.3.39] - 2026-08-22
 
 ### Fixed

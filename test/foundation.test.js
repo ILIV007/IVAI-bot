@@ -226,8 +226,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.39 release version", () => {
-  assert.equal(APP.version, "3.3.39");
+test("declares the official v3.3.40 release version", () => {
+  assert.equal(APP.version, "3.3.40");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -1280,6 +1280,13 @@ class PreferenceD1 {
       preference.memoryEnabled = params[0];
       return { meta: { changes: 1 } };
     }
+    if (sql.includes("UPDATE user_preferences SET mode") && sql.includes("selected_model=NULL") && sql.includes("memory_enabled=0")) {
+      const preference = this.#ensurePreference(params[1]);
+      preference.mode = params[0];
+      preference.selectedModel = null;
+      preference.memoryEnabled = 0;
+      return { meta: { changes: 1 } };
+    }
     if (sql.includes("UPDATE user_preferences SET mode")) {
       const preference = this.#ensurePreference(params[2]);
       preference.mode = params[0];
@@ -1650,10 +1657,12 @@ test("resets only the requested conversation Session and leaves a separate Termi
   assert.equal((await getConversationSession(terminalScope, env, { now: now + 1 }))?.messages[0].content, "Terminal context");
 });
 
-test("starts a new Telegram Session with /new without AI work or preference resets", async () => {
+test("starts a new Telegram Session with /new without AI work and restores Agent defaults", async () => {
   const originalFetch = globalThis.fetch;
   const kv = new KV();
-  const env = { ...baseEnv(), IVAI_KV: kv, AI: { async run() { throw new Error("/new must not call AI"); } } };
+  const d1 = new PreferenceD1();
+  d1.preferences.set("126679582", { mode: MODES.CODE, selectedModel: "@cf/meta/llama-3.2-1b-instruct", memoryEnabled: 1 });
+  const env = { ...baseEnv(), IVAI_DB: d1, IVAI_KV: kv, AI: { async run() { throw new Error("/new must not call AI"); } } };
   const scope = "42:126679582:main:root";
   const calls = [];
   await saveConversationSession(scope, [{ role: "user", content: "Old context" }], env, { now: Date.now() });
@@ -1672,7 +1681,14 @@ test("starts a new Telegram Session with /new without AI work or preference rese
     assert.equal(await getConversationSession(scope, env), null);
     const reply = calls.find((call) => /sendMessage$/.test(call.url));
     assert.match(reply.body.text, /^<b>🪐 Fresh chat, ready to go!<\/b>\n\n<blockquote>/);
+    assert.match(reply.body.text, /Auto mode, automatic model routing, and Memory off/);
     assert.match(reply.body.text, /<\/blockquote>$/);
+    assert.deepEqual(await getUserSettings(126679582, env), {
+      language: "en",
+      mode: MODES.AUTO,
+      selectedModel: null,
+      memoryEnabled: false
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1728,7 +1744,7 @@ test("does not resurrect a reset Session when an older AI turn finishes later", 
   assert.equal(await getConversationSession(scope, env, { now: now + 1 }), null);
 });
 
-test("preserves persistent preferences when /new resets only the conversation Session", async () => {
+test("resets Agent settings but preserves the interface language when /new starts a fresh chat", async () => {
   const originalFetch = globalThis.fetch;
   const kv = new KV();
   const env = { ...baseEnv(), IVAI_DB: new PreferenceD1(), IVAI_KV: kv };
@@ -1756,13 +1772,13 @@ test("preserves persistent preferences when /new resets only the conversation Se
     assert.equal(response.status, 200);
     const reply = calls.find((call) => /sendMessage$/.test(call.url));
     assert.match(reply.body.text, /گفتگوی تازه آماده است/);
-    assert.match(reply.body.text, /از کجا شروع کنیم؟/);
+    assert.match(reply.body.text, /تنظیمات Agent بازنشانی شدند/);
     assert.equal(await getConversationSession(scope, env), null);
     assert.deepEqual(await getUserSettings(user.id, env), {
       language: "fa",
-      mode: MODES.CODE,
-      selectedModel: "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
-      memoryEnabled: true
+      mode: MODES.AUTO,
+      selectedModel: null,
+      memoryEnabled: false
     });
   } finally {
     globalThis.fetch = originalFetch;

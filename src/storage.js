@@ -97,6 +97,19 @@ export async function setUserMode(userId, mode, env) {
     .run();
 }
 
+// A fresh chat must restore agent behavior to the free-only defaults in one D1
+// update. Interface language deliberately remains a user-facing preference.
+export async function resetUserAgentPreferences(userId, env) {
+  if (!env.IVAI_DB || !userId) return;
+  await ensureUserPreferences(userId, env);
+  await env.IVAI_DB
+    .prepare(`UPDATE user_preferences
+      SET mode=?, selected_model=NULL, memory_enabled=0, updated_at=CURRENT_TIMESTAMP
+      WHERE telegram_user_id=?`)
+    .bind(MODES.AUTO, String(userId))
+    .run();
+}
+
 export async function getGuestMemory(key, env) {
   if (!env.IVAI_KV) return [];
   try {
