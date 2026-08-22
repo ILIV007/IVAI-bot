@@ -226,8 +226,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.29 release version", () => {
-  assert.equal(APP.version, "3.3.29");
+test("declares the official v3.3.30 release version", () => {
+  assert.equal(APP.version, "3.3.30");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -1250,6 +1250,28 @@ test("keeps active Persian Session context when Memory is Off", async () => {
     assert.match(aiCalls[1].payload.messages[0].content, /Respond in Persian/);
     assert.ok(aiCalls[1].payload.messages.some((entry) => entry.role === "user" && entry.content === "اسم من ایلیا هست"));
     assert.ok(aiCalls[1].payload.messages.some((entry) => entry.role === "assistant" && entry.content === "خوشحالم ایلیا."));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("treats a plain Persian greeting as Persian despite a stale English preference", async () => {
+  const originalFetch = globalThis.fetch;
+  const d1 = new PreferenceD1();
+  const user = { id: 880, first_name: "Persian user", language_code: "en" };
+  d1.users.set(String(user.id), { language: "en" });
+  d1.preferences.set(String(user.id), { mode: MODES.AUTO, selectedModel: null, memoryEnabled: 0 });
+  const aiCalls = [];
+  const env = { ...baseEnv(), IVAI_DB: d1, AI: { async run(model, payload) { aiCalls.push({ model, payload }); return { response: "سلام!" }; } } };
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: true, result: { message_id: 500 } }), { status: 200 });
+  try {
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+      body: JSON.stringify({ update_id: 1600, message: { message_id: 60, chat: { id: 880, type: "private" }, from: user, text: "سلام" } })
+    }), env);
+    assert.equal(response.status, 200);
+    assert.match(aiCalls[0].payload.messages[0].content, /Respond in Persian/);
   } finally {
     globalThis.fetch = originalFetch;
   }

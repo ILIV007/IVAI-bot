@@ -27,16 +27,21 @@ function terminalConversationKey(userId) {
   return conversationKey({ chatId: userId, userId, threadId: "terminal" });
 }
 
-function scriptLanguageFromText(value) {
+function scriptLanguageFromText(value, telegramLanguageCode = "") {
   const text = String(value || "");
-  if (/[\u0600-\u06ff]/.test(text)) return /[\u0600-\u06ff]/.test(text) && /[\u0621-\u064a]/.test(text) && !/[\u067e\u0686\u0698\u06af\u06a9\u06cc]/.test(text) ? "ar" : "fa";
+  if (/[\u0600-\u06ff]/.test(text)) {
+    const telegramLanguage = String(telegramLanguageCode || "").replace("_", "-").toLowerCase();
+    const persianSpecific = /[\u067e\u0686\u0698\u06af\u06a9\u06cc]/.test(text);
+    const arabicSpecific = /[\u0621\u0623\u0625\u0626\u0629\u0649\u0624]/.test(text);
+    return !persianSpecific && (telegramLanguage === "ar" || telegramLanguage.startsWith("ar-") || arabicSpecific) ? "ar" : "fa";
+  }
   if (/[\u0400-\u04ff]/.test(text)) return "ru";
   if (/[\u0900-\u097f]/.test(text)) return "hi";
   return null;
 }
 
-function activeTerminalLanguage(prompt, settings, session) {
-  return scriptLanguageFromText(prompt) || session?.language || settings.language || "en";
+function activeTerminalLanguage(prompt, settings, session, telegramLanguageCode) {
+  return scriptLanguageFromText(prompt, telegramLanguageCode) || session?.language || settings.language || "en";
 }
 
 function responseText(language, key) {
@@ -100,9 +105,9 @@ export async function handleAppRequest(request, env) {
   if (!usage.allowed) return json({ ok: false, code: "RATE_LIMIT", message: responseText(actor.settings.language, "busy"), remaining: 0 }, 429);
 
   const prompt = text.trim();
-  const initialLanguage = scriptLanguageFromText(prompt) || actor.settings.language;
+  const initialLanguage = scriptLanguageFromText(prompt, actor.telegramUser.language_code) || actor.settings.language;
   const session = await ensureConversationSession(key, env, { language: initialLanguage });
-  const language = activeTerminalLanguage(prompt, actor.settings, session);
+  const language = activeTerminalLanguage(prompt, actor.settings, session, actor.telegramUser.language_code);
   const context = session?.messages || [];
   try {
     const result = await generateReply({
@@ -129,7 +134,7 @@ export async function handleAppRequest(request, env) {
     return json({
       ok: false,
       code,
-      message: responseText(scriptLanguageFromText(text) || actor.settings.language, code === "RATE_LIMIT" ? "busy" : "temporary"),
+      message: responseText(scriptLanguageFromText(text, actor.telegramUser.language_code) || actor.settings.language, code === "RATE_LIMIT" ? "busy" : "temporary"),
       remaining: usage.remaining
     }, code === "RATE_LIMIT" ? 429 : 503);
   }

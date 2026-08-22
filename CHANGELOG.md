@@ -2,6 +2,17 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.30] - 2026-08-22
+
+### Fixed
+
+- Hardened Persian-versus-Arabic script detection for short messages. A Persian greeting such as `سلام`, even for a user with a stale English UI preference, now selects Persian instead of being misclassified as Arabic.
+- Applied the same language rule in both Telegram chat routing and IVAI Terminal so the two surfaces cannot diverge.
+
+### Tests
+
+- Added a regression scenario for the Persian greeting `سلام` with an English persisted preference. The complete validation suite contains 79 passing tests.
+
 ## [3.3.29] - 2026-08-22
 
 ### Fixed

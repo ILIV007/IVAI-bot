@@ -88,7 +88,12 @@ async function answerInlineMembershipRequired(query, language, env) {
 
 function scriptLanguageFromMessage(message) {
   const text = String(message?.text || message?.caption || "");
-  if (/[\u0600-\u06ff]/.test(text)) return /[\u0600-\u06ff]/.test(text) && /[\u0621-\u064a]/.test(text) && !/[\u067e\u0686\u0698\u06af\u06a9\u06cc]/.test(text) ? "ar" : "fa";
+  if (/[\u0600-\u06ff]/.test(text)) {
+    const telegramLanguage = String(message?.from?.language_code || "").replace("_", "-").toLowerCase();
+    const persianSpecific = /[\u067e\u0686\u0698\u06af\u06a9\u06cc]/.test(text);
+    const arabicSpecific = /[\u0621\u0623\u0625\u0626\u0629\u0649\u0624]/.test(text);
+    return !persianSpecific && (telegramLanguage === "ar" || telegramLanguage.startsWith("ar-") || arabicSpecific) ? "ar" : "fa";
+  }
   if (/[\u0400-\u04ff]/.test(text)) return "ru";
   if (/[\u0900-\u097f]/.test(text)) return "hi";
   return null;
