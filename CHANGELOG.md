@@ -2,6 +2,18 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.3.32] - 2026-08-22
+
+### Added
+
+- Every `/start` now sends one randomly selected animated sticker from the bot-owned [`IVAILlmBot`](https://t.me/addstickers/IVAILlmBot) pack before the existing welcome message and focused Start keyboard.
+- Stored the two current pack `file_id` values in an immutable allow-list, so normal `/start` traffic makes no `getStickerSet` request and no additional AI call.
+
+### Resilience and tests
+
+- Added a context-aware `sendSticker` transport wrapper. Its failure is non-fatal: IVAI logs a compact fallback event and always continues to send the standard `/start` welcome.
+- Added regression coverage for allow-listed random selection, sticker-before-welcome ordering, reply context, and welcome delivery after a Telegram sticker failure. The validation suite now contains 80 passing tests.
+
 ## [3.3.31] - 2026-08-22
 
 ### Fixed

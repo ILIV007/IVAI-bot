@@ -12,7 +12,7 @@ import { ensureConversationSession, getAdminOperationalStats, getConversationSes
 import { getRequiredChannelMembership } from "../src/membership.js";
 import { renderRichAiText, renderStandardAiText } from "../src/rich-renderer.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
-import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelSelectionText, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, stabilizeRtlText, startKeyboard, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
+import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelSelectionText, pickWelcomeSticker, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, stabilizeRtlText, startKeyboard, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
 
 class KV {
   constructor() { this.values = new Map(); }
@@ -226,8 +226,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.31 release version", () => {
-  assert.equal(APP.version, "3.3.31");
+test("declares the official v3.3.32 release version", () => {
+  assert.equal(APP.version, "3.3.32");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -342,6 +342,8 @@ test("renders concise linked response metadata without per-message action button
   assert.equal(stabilizeRtlText("<b>🌐 تنظیمات IVAI</b>\n<b>مدل:</b> GPT-OSS\nپیام فارسی"), "<b>\u200f🌐 تنظیمات IVAI</b>\n<b>\u200fمدل:</b> GPT-OSS\n\u200fپیام فارسی");
   assert.equal(stabilizeRtlText("<b>English</b>\nPlain text"), "<b>English</b>\nPlain text");
   assert.equal(stabilizeRtlText("\u200fمتن فارسی"), "\u200fمتن فارسی");
+  assert.equal(pickWelcomeSticker(() => 0), APP.welcomeStickerFileIds[0]);
+  assert.equal(pickWelcomeSticker(() => 0.999), APP.welcomeStickerFileIds.at(-1));
 });
 
 test("handles a valid start update and sends Telegram output", async () => {
@@ -369,12 +371,47 @@ test("handles a valid start update and sends Telegram output", async () => {
     assert.equal(response.status, 200);
     const menuButton = calls.find((call) => /setChatMenuButton$/.test(call.url));
     assert.deepEqual(menuButton.body.menu_button, { type: "web_app", text: "IVAI", web_app: { url: APP.terminalAppUrl } });
-    const reply = calls.find((call) => /sendMessage$/.test(call.url));
+    const stickerIndex = calls.findIndex((call) => /sendSticker$/.test(call.url));
+    const replyIndex = calls.findIndex((call) => /sendMessage$/.test(call.url));
+    const sticker = calls[stickerIndex];
+    const reply = calls[replyIndex];
+    assert.ok(stickerIndex >= 0);
+    assert.ok(stickerIndex < replyIndex);
+    assert.ok(APP.welcomeStickerFileIds.includes(sticker.body.sticker));
+    assert.deepEqual(sticker.body.reply_parameters, { message_id: 11 });
     assert.match(reply.body.text, /a free AI assistant for chat, analysis, writing and code/);
     const startRow = reply.body.reply_markup.inline_keyboard[0];
     assert.equal(startRow[0].callback_data, "menu:main");
     assert.equal(startRow[1].web_app.url, APP.terminalAppUrl);
     assert.equal(startRow[2].callback_data, "menu:language");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("delivers the start welcome when the optional sticker send fails", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    const call = { url: String(url), body: JSON.parse(init.body) };
+    calls.push(call);
+    if (/sendSticker$/.test(call.url)) {
+      return new Response(JSON.stringify({ ok: false, description: "sticker temporarily unavailable" }), { status: 400 });
+    }
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 78 } }), { status: 200 });
+  };
+  try {
+    const update = { update_id: 1201, message: { message_id: 12, chat: { id: 42, type: "private" }, from: { id: 126679582, first_name: "Owner" }, text: "/start" } };
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+      body: JSON.stringify(update)
+    }), baseEnv());
+    assert.equal(response.status, 200);
+    assert.ok(calls.some((call) => /sendSticker$/.test(call.url)));
+    const reply = calls.find((call) => /sendMessage$/.test(call.url));
+    assert.match(reply.body.text, /a free AI assistant for chat, analysis, writing and code/);
+    assert.ok(reply.body.reply_markup.inline_keyboard);
   } finally {
     globalThis.fetch = originalFetch;
   }

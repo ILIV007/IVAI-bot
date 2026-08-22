@@ -1,8 +1,8 @@
-# IVAI Bot v3.3.31 — Free-Tier, Secure Telegram AI Assistant
+# IVAI Bot v3.3.32 — Free-Tier, Secure Telegram AI Assistant
 
 [![Continuous Integration](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ILIV007/IVAI-bot/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.31 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while hardening Persian RTL output and balancing the Start keyboard.
+> **IVAI** is an English-first Telegram AI assistant built for Cloudflare Workers. Persian is an optional second language. The v3.3.32 release preserves the familiar v3.2 workflow—modes, free-model catalog, model lock, memory controls, provider fallback, and space-themed interaction—while adding a random sticker from the official IVAI pack before every `/start` welcome. The sticker step uses a static, bot-owned file-ID allow-list, makes no AI call, and never blocks the welcome if Telegram temporarily rejects it.
 >
 > **Use IVAI on Telegram:** [@IVAI_Llm_bot](https://t.me/IVAI_Llm_bot)
 > **Channel on Telegram:** [@ILIVIR3](https://t.me/ILIVIR3)
@@ -136,7 +136,7 @@ npm test
 | [Production check notes (FA)](docs/PRODUCTION_CHECK_NOTES_2026-08-21.md) | Read-only production endpoint, Terminal recovery and API-surface verification for v3.3.10. |
 | [Repository automation sources](docs/REPOSITORY_AUTOMATION_SOURCES_2026-08-21.md) | Official sources behind pnpm CI and Dependabot hygiene. |
 | [Telegram rich formatting research](docs/TELEGRAM_RICH_FORMATTING_RESEARCH_2026-08-21.md) | Official rich-message, HTML and quote-formatting research behind v3.3.11. |
-| [Changelog](CHANGELOG.md) | Release-level changes through v3.3.31. |
+| [Changelog](CHANGELOG.md) | Release-level changes through v3.3.32. |
 | [Contributing](CONTRIBUTING.md) | Free-only, privacy, testing, and migration rules for contributors. |
 | [Security policy](SECURITY.md) | Private reporting process for vulnerabilities and exposed credentials. |
 

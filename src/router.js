@@ -29,7 +29,7 @@ import {
   upsertUser,
   writeAdminAudit
 } from "./storage.js";
-import { adminKeyboard, answerCallback, editMessage, ensureTerminalMenuButton, escapeHtml, languageKeyboard, languageMenuText, menuText, modelPickerKeyboard, modelPickerText, modelSelectionText, modeKeyboard, modeLabel, requiredMembershipKeyboard, requiredMembershipText, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendTyping, settingsKeyboard, splitText, startKeyboard, startThinkingAnimation, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
+import { adminKeyboard, answerCallback, editMessage, ensureTerminalMenuButton, escapeHtml, languageKeyboard, languageMenuText, menuText, modelPickerKeyboard, modelPickerText, modelSelectionText, modeKeyboard, modeLabel, pickWelcomeSticker, requiredMembershipKeyboard, requiredMembershipText, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendSticker, sendTyping, settingsKeyboard, splitText, startKeyboard, startThinkingAnimation, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
 import { renderRichAiText, renderStandardAiText } from "./rich-renderer.js";
 
 const COMMAND_MODE = Object.freeze({
@@ -324,6 +324,12 @@ async function handleCommand(message, env, language) {
 
   if (command === "/start") {
     await startNewConversationSession(contextKey(message), env);
+    const sticker = pickWelcomeSticker();
+    if (sticker) {
+      await sendSticker(env, { chatId, sticker, replyTo: message.message_id, ...messageSendContext(message) }).catch((error) => {
+        console.warn(JSON.stringify({ event: "welcome_sticker_fallback", error: String(error?.message || "unknown") }));
+      });
+    }
     await sendMessage(env, { chatId, text: welcomeText(language), keyboard: welcomeKeyboard(language, message), replyTo: message.message_id });
     return true;
   }

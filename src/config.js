@@ -1,7 +1,12 @@
 export const APP = Object.freeze({
   name: "IVAI",
-  version: "3.3.31",
+  version: "3.3.32",
   terminalAppUrl: "https://ivai-bot.ivai-bot.workers.dev/app",
+  // Bot-owned file IDs from the IVAILlmBot pack; refresh deliberately when that pack changes.
+  welcomeStickerFileIds: Object.freeze([
+    "CAACAgQAAxUAAWqJaukeCtE4-rdUxTeaXC0wNPmBAAJUMwAC3q5RUGJDQwt5y8nYPQQ",
+    "CAACAgQAAxUAAWqJaumox5uu1QXNtRck8ya8rymFAAJlHgAC-TlIUBaH3YkJc82LPQQ"
+  ]),
   requiredChannelId: -1003162460662,
   requiredChannelUsername: "ILIVIR3",
   requiredChannelUrl: "https://t.me/ILIVIR3",

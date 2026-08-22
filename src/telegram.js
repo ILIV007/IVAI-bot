@@ -28,6 +28,14 @@ export function providerIcon(provider) {
   return { "workers-ai": "🟣", openrouter: "🔵", groq: "🟠", google: "🟢" }[provider] || "⚪";
 }
 
+export function pickWelcomeSticker(random = Math.random) {
+  const stickers = APP.welcomeStickerFileIds || [];
+  if (!stickers.length) return null;
+  const value = Number(random());
+  const index = Math.min(stickers.length - 1, Math.max(0, Math.floor((Number.isFinite(value) ? value : 0) * stickers.length)));
+  return stickers[index];
+}
+
 export function providerLabel(provider, language = "en") {
   const labels = {
     "workers-ai": { en: "Cloudflare Workers AI", fa: "Cloudflare Workers AI", ar: "Cloudflare Workers AI" },
@@ -361,6 +369,19 @@ export async function sendRichMessageDraft(env, { chatId, draftId, html, threadI
     message_thread_id: threadId || undefined,
     draft_id: draftId,
     rich_message: { html, is_rtl: rtl || undefined, skip_entity_detection: false }
+  });
+}
+
+export async function sendSticker(env, { chatId, sticker, replyTo, threadId, businessConnectionId, directMessagesTopicId, silent = false }) {
+  if (!sticker) return null;
+  return telegram(env, "sendSticker", {
+    chat_id: chatId,
+    sticker,
+    business_connection_id: businessConnectionId || undefined,
+    message_thread_id: threadId || undefined,
+    direct_messages_topic_id: directMessagesTopicId || undefined,
+    disable_notification: silent || undefined,
+    reply_parameters: replyTo ? { message_id: replyTo } : undefined
   });
 }
 
