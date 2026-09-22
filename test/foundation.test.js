@@ -1684,9 +1684,9 @@ test("keeps an English footer for a Persian prompt when the UI preference is Eng
     }), env);
     assert.equal(response.status, 200);
     assert.match(aiCalls[0].payload.messages[0].content, /Respond in Persian/);
-    const final = calls.find((call) => /editMessageText$/.test(call.url));
-    assert.match(final.body.text, /GLM 4\.7 Flash · Fast<\/blockquote>/);
-    assert.doesNotMatch(final.body.text, /سریع/);
+    const final = calls.find((call) => /sendRichMessage$/.test(call.url));
+    assert.match(final.body.rich_message.html, /GLM 4\.7 Flash · Fast<\/blockquote>/);
+    assert.doesNotMatch(final.body.rich_message.html, /سریع/);
   } finally {
     globalThis.fetch = originalFetch;
   }
