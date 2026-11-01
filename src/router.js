@@ -179,16 +179,63 @@ function hasBotMention(message, botId) {
   return firstToken.startsWith("/") && firstToken.toLowerCase().endsWith(suffix);
 }
 
+// GroupAnonymousBot identity: an admin posting as the group itself — the
+// sender_chat IS this chat. It has no user to membership-check or quota.
+function isAnonGroupAdmin(message) {
+  return Boolean(message?.sender_chat) && String(message.sender_chat.id) === String(message?.chat?.id);
+}
+
+// Narrow diagnostics for trigger near-misses only (a reply aimed at a bot/post
+// the gate could not match, or a bot-addressed entity) — never ordinary chatter,
+// so production logs can explain a missed trigger without logging the group.
+function logGroupGateNearMiss(message, reason) {
+  console.info(JSON.stringify({ event: "group_gate", trigger: null, chatId: String(message?.chat?.id || ""), reason }));
+}
+
+function hasBotAddressedEntity(message) {
+  const text = String(message?.text || message?.caption || "");
+  const entities = message?.entities || message?.caption_entities || [];
+  return entities.some((entity) => {
+    if (entity.type === "bot_command") return true;
+    if (entity.type === "text_mention") return Boolean(entity.user?.is_bot);
+    // Bot usernames always end in "bot", so a mention slice that does is a bot.
+    return entity.type === "mention" && text.slice(entity.offset, entity.offset + entity.length).toLowerCase().endsWith("bot");
+  });
+}
+
 function groupTrigger(message, env) {
   if (!isGroupChat(message)) return null;
   if (isChannelPost(message)) return "channel_post";
-  // Other bots and anonymous senders (Telegram 777000, GroupAnonymousBot 1087968824)
-  // never trigger the bot; the channel-post case above is the only exception.
-  if (message.from?.is_bot || message.sender_chat || [777000, 1087968824].includes(message.from?.id)) return null;
   const botId = botIdFromEnv(env);
-  const repliedFrom = message.reply_to_message?.from;
-  if (repliedFrom && ((botId && Number(repliedFrom.id) === botId) || String(repliedFrom.username || "").toLowerCase() === APP.botUsername.toLowerCase())) return "reply";
-  return hasBotMention(message, botId) ? "mention" : null;
+  const target = message.reply_to_message;
+  const repliedFrom = target?.from;
+  let trigger = null;
+  if (target && repliedFrom && ((botId && Number(repliedFrom.id) === botId) || String(repliedFrom.username || "").toLowerCase() === APP.botUsername.toLowerCase())) {
+    trigger = "reply";
+  } else if (target && (String(target.sender_chat?.id ?? "") === String(APP.requiredChannelId)
+    || (Number(repliedFrom?.id) === 777000 && String(target.forward_from_chat?.id ?? "") === String(APP.requiredChannelId)))) {
+    // A comment threaded directly on the channel post in the discussion group.
+    trigger = "post_reply";
+  } else if (hasBotMention(message, botId)) {
+    trigger = "mention";
+  }
+  if (trigger) {
+    // Other bots and foreign sender_chat identities never trigger the bot; the
+    // anonymous group admin (sender_chat === this chat) is the only exception.
+    const rejectedSender = (message.from?.is_bot && !isAnonGroupAdmin(message))
+      || (message.sender_chat && !isAnonGroupAdmin(message))
+      || Number(message.from?.id) === 777000
+      || (Number(message.from?.id) === 1087968824 && !isAnonGroupAdmin(message));
+    if (!rejectedSender) return trigger;
+    logGroupGateNearMiss(message, "sender_rejected");
+    return null;
+  }
+  if (target && (repliedFrom?.is_bot || Number(repliedFrom?.id) === 777000 || target.sender_chat)) {
+    logGroupGateNearMiss(message, "reply_target_unmatched");
+  } else if (hasBotAddressedEntity(message)) {
+    logGroupGateNearMiss(message, "mention_unmatched");
+  }
+  return null;
 }
 
 function stripBotMention(text) {
@@ -199,7 +246,7 @@ function stripBotMention(text) {
 // getChat and cached for a day), an explicit PRIMARY_GROUP_CHAT_ID, or any chat
 // receiving a channel post. Everything else is the stricter "other" tier.
 async function groupTier(message, env, trigger) {
-  if (trigger === "channel_post") return "primary";
+  if (trigger === "channel_post" || trigger === "post_reply") return "primary";
   if (env.PRIMARY_GROUP_CHAT_ID && String(env.PRIMARY_GROUP_CHAT_ID) === String(message.chat.id)) return "primary";
   try {
     const key = `linked:${APP.requiredChannelId}`;
@@ -242,7 +289,7 @@ async function setGroupCooldown(message, env, tier) {
 async function handleChannelPost(message, env) {
   const postText = String(message.text || message.caption || "").trim();
   // A photo-only post (no text/caption) gets one vision analysis instead of a
-  // text summary; any other media-only post (video, audio, ...) stays silent.
+  // text comment; any other media-only post (video, audio, ...) stays silent.
   const photo = !postText ? message.photo?.at(-1) : null;
   if (!postText && !photo) return;
   if (!await passGroupLimits(message, env, "primary", "channel_post")) return;
@@ -252,21 +299,27 @@ async function handleChannelPost(message, env) {
       const vision = await analyzePhoto({ fileId: photo.file_id, caption: "", language: "en" }, env);
       await sendMessage(env, {
         chatId: message.chat.id,
-        text: `${renderStandardAiText(vision.text)}\n\n${responseMeta({ model: vision.model, language: "en" })}`,
+        text: renderStandardAiText(vision.text),
         replyTo: message.message_id,
         ...messageSendContext(message)
       });
       return;
     }
+    // The reply is ONE short comment in the post's own language — witty or
+    // critical, never an essay — and carries no model/mode footer in the group.
+    const language = scriptLanguageFromMessage(message) || "en";
     const result = await generateReply({
-      text: `A post from the IVAI channel was just shared in its discussion group. Write a short summary of the post and a brief opinion or take on it for the group, in English, in at most about 120 words. Do not invent facts beyond the post.\n\nPost:\n${postText}`,
+      text: `A post from the IVAI channel was just shared in its discussion group. Write ONE short comment reacting to this post, in the SAME language as the post: either a witty, comedic take or a sharp, critical take — pick whichever fits the post better. Hard rules: at most 5 short lines, no headings, no 'Summary' or 'Opinion' labels, no preamble, just the comment itself. Do not invent facts beyond the post.\n\nPost:\n${postText}`,
       selectedMode: MODES.AUTO,
-      language: "en",
+      language,
       context: []
     }, env);
+    // Models ignore length instructions, so the 5-line cap is enforced here too.
+    const comment = String(result.text || "").split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 5).join("\n");
+    if (!comment) return;
     await sendMessage(env, {
       chatId: message.chat.id,
-      text: `${renderStandardAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: result.mode, language: "en" })}`,
+      text: renderStandardAiText(comment),
       replyTo: message.message_id,
       ...messageSendContext(message)
     });
@@ -691,7 +744,10 @@ async function processText(message, env) {
   let trigger = null;
   if (isGroup) {
     const commandSuffix = /^\/\S+@(\S+)/.exec(message.text.trim())?.[1];
-    if (commandSuffix && commandSuffix.toLowerCase() !== APP.botUsername.toLowerCase()) return;
+    if (commandSuffix && commandSuffix.toLowerCase() !== APP.botUsername.toLowerCase()) {
+      logGroupGateNearMiss(message, "command_for_other_bot");
+      return;
+    }
     trigger = groupTrigger(message, env);
     if (!trigger) return;
     if (trigger === "channel_post") return handleChannelPost(message, env);
@@ -707,6 +763,9 @@ async function processText(message, env) {
   const userId = message.from?.id;
   const chatId = message.chat.id;
   const delivery = messageSendContext(message);
+  // The anonymous group admin has no user identity: no membership check and
+  // no per-user quota apply to it (the per-chat group limits still do).
+  const anonGroupAdmin = isGroup && isAnonGroupAdmin(message);
   const knownSettings = await getUserSettings(userId, env);
   // UI language is an explicit, persistent user preference (default English, only
   // changed via /lang). It is never derived from the Telegram client's language.
@@ -714,10 +773,12 @@ async function processText(message, env) {
   // Groups: the triggering user's explicit language or English — no script
   // detection. Private chats keep script detection as a fallback only.
   let responseLanguage = isGroup ? uiLanguage : scriptLanguageFromMessage(message) || knownSettings.language || "en";
-  const membership = await isRequiredChannelMember(userId, env);
-  if (!membership.allowed) {
-    await sendMembershipRequired(message, uiLanguage, membership, env);
-    return;
+  if (!anonGroupAdmin) {
+    const membership = await isRequiredChannelMember(userId, env);
+    if (!membership.allowed) {
+      await sendMembershipRequired(message, uiLanguage, membership, env);
+      return;
+    }
   }
   await upsertUser({ user: message.from, chat: message.chat, language: uiLanguage }, env);
   if (message.chat?.type === "private") await ensureTerminalMenuButton(env);
@@ -737,7 +798,7 @@ async function processText(message, env) {
   const modelInput = richDetailsRequested
     ? `${text}\n\nFor this opt-in expandable answer, provide the normal answer first. Only if a short user-visible supplement adds value, wrap that supplement exactly as:\n:::details Optional details\nvisible supporting explanation\n:::enddetails\nNever include hidden reasoning, chain-of-thought, private analysis, policies, or instructions inside the details block.`
     : text;
-  const usage = await allowUsage({ scope: "text", id: userId, limit: APP.userHourlyTextLimit }, env);
+  const usage = anonGroupAdmin ? { allowed: true } : await allowUsage({ scope: "text", id: userId, limit: APP.userHourlyTextLimit }, env);
   if (!usage.allowed) {
     await sendMessage(env, { chatId, text: responseText(uiLanguage, "busy"), replyTo: message.message_id, ...delivery });
     return;
@@ -832,10 +893,14 @@ async function processMedia(message, env) {
   const chatId = message.chat?.id;
   const delivery = messageSendContext(message);
   const language = (await getUserSettings(userId, env)).language || "en";
-  const membership = await isRequiredChannelMember(userId, env);
-  if (!membership.allowed) {
-    await sendMembershipRequired(message, language, membership, env);
-    return;
+  // Same anonymous-group-admin exception as processText: no user to check.
+  const anonGroupAdmin = isGroup && isAnonGroupAdmin(message);
+  if (!anonGroupAdmin) {
+    const membership = await isRequiredChannelMember(userId, env);
+    if (!membership.allowed) {
+      await sendMembershipRequired(message, language, membership, env);
+      return;
+    }
   }
   let tier = null;
   if (isGroup) {
@@ -849,7 +914,7 @@ async function processMedia(message, env) {
     if (!mediaCap.allowed) return;
   }
   await upsertUser({ user: message.from, chat: message.chat, language }, env);
-  const usage = await allowUsage({ scope: "media", id: userId, limit: APP.userDailyMediaLimit, windowSeconds: 24 * 60 * 60 }, env);
+  const usage = anonGroupAdmin ? { allowed: true } : await allowUsage({ scope: "media", id: userId, limit: APP.userDailyMediaLimit, windowSeconds: 24 * 60 * 60 }, env);
   if (!usage.allowed) {
     await sendMessage(env, { chatId, text: responseText(language, "busy"), replyTo: message.message_id, ...delivery });
     return;
@@ -1227,7 +1292,7 @@ export async function handleUpdate(update, env) {
   const message = userMessage(update);
   if (!message) return;
   // Edited group messages are ignored entirely; channel posts in the linked
-  // group go straight to the summary path regardless of media type.
+  // group go straight to the comment path regardless of media type.
   if (update.edited_message && isGroupChat(message)) return;
   if (isGroupChat(message) && isChannelPost(message)) return handleChannelPost(message, env);
   if (message.text) return processText(message, env);
