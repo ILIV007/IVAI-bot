@@ -20,6 +20,7 @@ All notable changes to IVAI Bot are documented in this file. The project follows
 
 ### Fixed
 
+- **Wrangler updated from 4.124.0 to 4.156.0** (lockfile regenerated), clearing the high-severity transitive dependency vulnerabilities (undici, sharp via miniflare) that failed the CI `pnpm audit --audit-level=high` step.
 - **Members no longer see stale membership prompts:** a `CHECK_FAILED` membership result is never cached, and any denial served from the KV cache is re-verified with a live `getChatMember` check before a membership prompt is shown (the Check membership button always checks live, as does the IVAI Terminal gate). The Terminal no longer derives or persists a language from the Telegram client's `language_code`.
 
 ## [3.3.46] - 2026-08-22
