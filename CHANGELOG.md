@@ -2,6 +2,13 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.4.1] - 2026-11-01
+
+### Fixed
+
+- **Channel-post replies are now short single comments:** one witty or critical comment of at most 5 short lines (the cap is enforced in code, not only in the prompt) instead of a long Summary/Opinion essay, written in the post's own language (detected from the post text) rather than always English, and sent without the model/mode footer — the footer is also removed from photo-post vision replies. Group mention/reply answers keep their footer.
+- **Reply triggers in discussion groups hardened:** the gate now evaluates reply/mention triggers before rejecting bot or anonymous senders, replies made directly on the channel post itself (`post_reply`) trigger the bot at the primary tier, and anonymous group admins posting as the group can trigger by reply/mention (skipping the membership check and per-user quota, which have no user to bind to). Trigger near-misses are logged as structured `group_gate` events for production diagnosis.
+
 ## [3.4.0] - 2026-11-01
 
 ### Added
