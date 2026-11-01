@@ -24,6 +24,7 @@ Run every migration exactly once and in the listed order. Never edit an applied 
 | 3 | `db/0003_secretary_reminders.sql` | Task reminder delivery state and indexes. |
 | 4 | `db/0004_reengagement.sql` | Re-engagement consent and delivery state. |
 | 5 | `db/0005_broadcast_claims.sql` | Atomic broadcast delivery lease and claim index. |
+| 6 | `db/0006_reset_language_to_english.sql` | One-time reset of all stored user languages to English (v3.4.0); afterwards language changes only via explicit `/lang`. |
 
 ## 3. Register Worker Secrets
 
@@ -54,6 +55,8 @@ message_reaction
 ```
 
 Enable Guest Mode and Inline Mode in BotFather after the deployment is live. The Worker uses normal, rate-limited delivery batches and does **not** send the paid `allow_paid_broadcast` flag.
+
+For group operation (v3.4.0): enable **Privacy Mode** in BotFather (`/setprivacy` → Enable) so Telegram itself only delivers trigger messages in groups; the Worker additionally enforces the same gate in code. Make sure the bot is an **administrator of the required channel** (@ILIVIR3, needed for membership checks) and an **administrator of the channel's linked discussion group**, so channel posts arrive as automatic forwards and summary replies can be posted. Optionally set the Worker variable `PRIMARY_GROUP_CHAT_ID` to the linked group's chat ID to pin the primary rate-limit tier without relying on lazy `getChat` resolution. Membership prompts and private entry-point messages are sent as Rich Messages (with plain fallback), and a cached membership denial is always re-verified live before any prompt is shown, so no extra configuration is needed for either.
 
 ## 5. Acceptance checks
 

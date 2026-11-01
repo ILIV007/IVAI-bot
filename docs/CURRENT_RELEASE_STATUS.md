@@ -1,4 +1,4 @@
-# Current release status — IVAI Bot v3.3.36
+# Current release status — IVAI Bot v3.4.0
 
 **Last documentation review:** 22 August 2026  
 **Source of truth:** the `main` branch, [`CHANGELOG.md`](../CHANGELOG.md), the CI result for the current commit, and the production Workers Build connected to `main`.
