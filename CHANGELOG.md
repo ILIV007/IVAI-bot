@@ -2,6 +2,27 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.4.0] - 2026-11-01
+
+### Added
+
+- **Group trigger gate:** in groups and supergroups the bot now stays completely silent except for three triggers — a post from the required channel (@ILIVIR3) in its linked discussion group, a reply to one of the bot's messages, or a mention/command addressed to @IVAI_Llm_bot. Ordinary group messages, messages from other bots or anonymous senders, commands addressed to other bots, and edited group messages are ignored with no membership check, session, or quota cost.
+- **Channel-post AI summary replies:** each mother-channel post landing in the linked group receives one AI-generated short summary and opinion as a reply to the post (never a fixed template), capped per chat and deduplicated by update.
+- **Group media policy:** group media has a dedicated per-chat hourly cap on top of the shared group limits (primary group: 10 media/hour; other groups: 3 media/hour), a photo-only channel post (no text or caption) receives one vision analysis replied to the post under the channel-post cap, and video, video notes, audio/music, documents and other non-text media are ignored completely in groups — no "unsupported" message, no membership check (private-chat behavior unchanged).
+- **Two-tier group rate limits:** the linked (primary) group gets a 20-second cooldown and 30 AI replies/hour; other groups get a 120-second cooldown, 5 replies/hour and 30/day, so group traffic cannot burn the free quota.
+
+### Changed
+
+- **English is the true default language:** UI/response language is no longer derived from the Telegram client's `language_code`. New users are stored as English; only an explicit `/lang` choice changes a user's language. Migration `db/0006_reset_language_to_english.sql` performs the one-time reset of all stored languages to English.
+- **Group membership prompt is a Rich Message:** a non-member who triggers the bot in a group receives the membership prompt as a Rich Message with the Join/Check buttons inside the message itself (standard message fallback retained). Membership checks are now cached in KV (10 minutes when allowed, 1 minute when denied).
+- **Single-message group delivery:** group text replies no longer use a separate "thinking" progress message or edits. A triggered group message gets one typing action and one reply to the trigger message (every part of a long answer stays threaded to the trigger, footer on the last part only); group mode changes only edit the Menu (no standalone confirmation message); group media and channel-post summaries send one typing action before processing.
+- **In-message buttons for private entry points:** the membership prompt in every chat, plus the private `/start`, `/menu`, `/help`, `/lang`, `/notify`, `/terminal` and `/models` messages, are sent Rich-first with their keyboards inside the message itself, falling back to the plain message when Rich is unavailable. Group media now counts against the same per-chat group limits/cooldown as group text.
+
+### Fixed
+
+- **Wrangler updated from 4.124.0 to 4.156.0** (lockfile regenerated), clearing the high-severity transitive dependency vulnerabilities (undici, sharp via miniflare) that failed the CI `pnpm audit --audit-level=high` step.
+- **Members no longer see stale membership prompts:** a `CHECK_FAILED` membership result is never cached, and any denial served from the KV cache is re-verified with a live `getChatMember` check before a membership prompt is shown (the Check membership button always checks live, as does the IVAI Terminal gate). The Terminal no longer derives or persists a language from the Telegram client's `language_code`.
+
 ## [3.3.46] - 2026-08-22
 
 ### Fixed

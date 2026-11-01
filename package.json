@@ -1,10 +1,10 @@
 {
   "name": "ivai-bot",
-  "version": "3.3.46",
+  "version": "3.4.0",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.21.0",
-  "description": "IVAI — privacy-aware, free-tier Telegram AI assistant for Cloudflare Workers.",
+  "description": "IVAI \u2014 privacy-aware, free-tier Telegram AI assistant for Cloudflare Workers.",
   "scripts": {
     "check": "node --check src/*.js",
     "test": "node --test",
@@ -16,6 +16,6 @@
     "node": ">=22"
   },
   "devDependencies": {
-    "wrangler": "^4.124.0"
+    "wrangler": "^4.156.0"
   }
 }
