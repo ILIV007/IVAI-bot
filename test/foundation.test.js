@@ -237,8 +237,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.3.46 release version", () => {
-  assert.equal(APP.version, "3.3.46");
+test("declares the official v3.4.0 release version", () => {
+  assert.equal(APP.version, "3.4.0");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -431,14 +431,15 @@ test("handles a valid start update and sends Telegram output", async () => {
     const menuButton = calls.find((call) => /setChatMenuButton$/.test(call.url));
     assert.deepEqual(menuButton.body.menu_button, { type: "web_app", text: "IVAI", web_app: { url: APP.terminalAppUrl } });
     const stickerIndex = calls.findIndex((call) => /sendSticker$/.test(call.url));
-    const replyIndex = calls.findIndex((call) => /sendMessage$/.test(call.url));
+    const replyIndex = calls.findIndex((call) => /sendRichMessage$/.test(call.url));
     const sticker = calls[stickerIndex];
     const reply = calls[replyIndex];
     assert.ok(stickerIndex >= 0);
     assert.ok(stickerIndex < replyIndex);
     assert.ok(APP.welcomeStickerFileIds.includes(sticker.body.sticker));
     assert.deepEqual(sticker.body.reply_parameters, { message_id: 11 });
-    assert.match(reply.body.text, /a free AI assistant for chat, analysis, writing and code/);
+    assert.equal(calls.some((call) => /sendMessage$/.test(call.url)), false);
+    assert.match(reply.body.rich_message.html, /a free AI assistant for chat, analysis, writing and code/);
     const startRow = reply.body.reply_markup.inline_keyboard[0];
     assert.equal(startRow[0].callback_data, "menu:main");
     assert.equal(startRow[1].web_app.url, APP.terminalAppUrl);
@@ -468,8 +469,8 @@ test("delivers the start welcome when the optional sticker send fails", async ()
     }), baseEnv());
     assert.equal(response.status, 200);
     assert.ok(calls.some((call) => /sendSticker$/.test(call.url)));
-    const reply = calls.find((call) => /sendMessage$/.test(call.url));
-    assert.match(reply.body.text, /a free AI assistant for chat, analysis, writing and code/);
+    const reply = calls.find((call) => /sendRichMessage$/.test(call.url));
+    assert.match(reply.body.rich_message.html, /a free AI assistant for chat, analysis, writing and code/);
     assert.ok(reply.body.reply_markup.inline_keyboard);
   } finally {
     globalThis.fetch = originalFetch;
@@ -507,7 +508,8 @@ test("blocks a non-member before bot commands and presents the correct join flow
     assert.equal(response.status, 200);
     assert.match(calls[0].url, /getChatMember$/);
     assert.equal(calls[0].body.chat_id, APP.requiredChannelId);
-    assert.match(calls[1].body.text, /Membership in @ILIVIR3 is required/);
+    assert.match(calls[1].url, /sendRichMessage$/);
+    assert.match(calls[1].body.rich_message.html, /Membership in @ILIVIR3 is required/);
     assert.equal(calls[1].body.reply_markup.inline_keyboard[0][0].url, APP.requiredChannelUrl);
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -565,9 +567,9 @@ test("lets a confirmed channel member enter without any join prompt", async () =
     const response = await worker.fetch(new Request("https://worker.test/", { method: "POST", headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" }, body: JSON.stringify(update) }), { ...baseEnv(), REQUIRED_CHANNEL_ENFORCED: "true" });
     assert.equal(response.status, 200);
     assert.match(calls[0].url, /getChatMember$/);
-    const reply = calls.find((call) => /sendMessage$/.test(call.url));
-    assert.match(reply.body.text, /a free AI assistant for chat, analysis, writing and code/);
-    assert.doesNotMatch(reply.body.text, /Membership in @ILIVIR3 is required/);
+    const reply = calls.find((call) => /sendRichMessage$/.test(call.url));
+    assert.match(reply.body.rich_message.html, /a free AI assistant for chat, analysis, writing and code/);
+    assert.doesNotMatch(reply.body.rich_message.html, /Membership in @ILIVIR3 is required/);
     assert.equal(reply.body.reply_markup.inline_keyboard[0][0].callback_data, "menu:main");
     assert.equal(reply.body.reply_markup.inline_keyboard[0][1].web_app.url, APP.terminalAppUrl);
     assert.equal(reply.body.reply_markup.inline_keyboard[0][2].callback_data, "menu:language");
@@ -592,8 +594,8 @@ test("keeps /menu separate from the welcome flow", async () => {
       body: JSON.stringify(update)
     }), baseEnv());
     assert.equal(response.status, 200);
-    const reply = calls.find((call) => /sendMessage$/.test(call.url));
-    assert.match(reply.body.text, /IVAI menu/);
+    const reply = calls.find((call) => /sendRichMessage$/.test(call.url));
+    assert.match(reply.body.rich_message.html, /IVAI menu/);
     assert.equal(reply.body.reply_markup.inline_keyboard[0][0].callback_data, "mode:auto");
   } finally {
     globalThis.fetch = originalFetch;
@@ -657,7 +659,7 @@ test("opens IVAI Terminal through a private-chat Web App button without invoking
     }), baseEnv());
     assert.equal(response.status, 200);
     assert.ok(calls.some((call) => /setChatMenuButton$/.test(call.url)));
-    const reply = calls.find((call) => /sendMessage$/.test(call.url));
+    const reply = calls.find((call) => /sendRichMessage$/.test(call.url));
     assert.equal(reply.body.reply_markup.inline_keyboard[0][0].web_app.url, APP.terminalAppUrl);
   } finally {
     globalThis.fetch = originalFetch;
@@ -1680,13 +1682,13 @@ test("keeps an English footer for a Persian prompt when the UI preference is Eng
     const response = await worker.fetch(new Request("https://worker.test/", {
       method: "POST",
       headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
-      body: JSON.stringify({ update_id: 1603, message: { message_id: 63, chat: { id: 884, type: "group" }, from: user, text: "سلام" } })
+      body: JSON.stringify({ update_id: 1603, message: { message_id: 63, chat: { id: 884, type: "private" }, from: user, text: "سلام" } })
     }), env);
     assert.equal(response.status, 200);
     assert.match(aiCalls[0].payload.messages[0].content, /Respond in Persian/);
-    const final = calls.find((call) => /editMessageText$/.test(call.url));
-    assert.match(final.body.text, /GLM 4\.7 Flash · Fast<\/blockquote>/);
-    assert.doesNotMatch(final.body.text, /سریع/);
+    const final = calls.find((call) => /sendRichMessage$/.test(call.url));
+    assert.match(final.body.rich_message.html, /GLM 4\.7 Flash · Fast<\/blockquote>/);
+    assert.doesNotMatch(final.body.rich_message.html, /سریع/);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -2208,6 +2210,451 @@ test("renders an opt-in /details response as a visible details block in the fina
     assert.equal(response.status, 200);
     const final = calls.find((call) => /sendRichMessage$/.test(call.url));
     assert.match(final.body.rich_message.html, /<details><summary>Extra context<\/summary><p>Visible clarification only\.<\/p><\/details>/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// --- Group gate (v3.4.0) -------------------------------------------------------
+
+function groupTestEnv(calls, aiCalls, { enforced = "false", memberStatus = "member" } = {}) {
+  return {
+    ...baseEnv(),
+    TELEGRAM_BOT_TOKEN: "424242:test-token",
+    REQUIRED_CHANNEL_ENFORCED: enforced,
+    IVAI_DB: new PreferenceD1(),
+    AI: { async run(model, payload) { aiCalls.push({ model, payload }); return { response: "Group answer" }; } }
+  };
+}
+
+function mockGroupFetch(calls, { memberStatus = "member" } = {}) {
+  return async (url, init) => {
+    calls.push({ url: String(url), body: init?.body ? JSON.parse(init.body) : {} });
+    if (/getChatMember$/.test(String(url))) return new Response(JSON.stringify({ ok: true, result: { status: memberStatus } }), { status: 200 });
+    if (/getChat$/.test(String(url))) return new Response(JSON.stringify({ ok: true, result: { id: APP.requiredChannelId, type: "channel" } }), { status: 200 });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 900 } }), { status: 200 });
+  };
+}
+
+// mockGroupFetch plus the file endpoints analyzePhoto/transcribeVoice need:
+// getFile metadata and the raw file download behind it.
+function mockGroupMediaFetch(calls, options) {
+  const base = mockGroupFetch(calls, options);
+  return async (url, init) => {
+    const target = String(url);
+    if (/getFile$/.test(target)) {
+      calls.push({ url: target, body: init?.body ? JSON.parse(init.body) : {} });
+      return new Response(JSON.stringify({ ok: true, result: { file_path: "photo.png", file_size: 4 } }), { status: 200 });
+    }
+    if (target.includes("/file/bot")) return new Response(new Uint8Array([1, 2, 3, 4]), { status: 200, headers: { "content-type": "image/png" } });
+    return base(url, init);
+  };
+}
+
+function postGroupUpdate(env, update) {
+  return worker.fetch(new Request("https://worker.test/", {
+    method: "POST",
+    headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+    body: JSON.stringify(update)
+  }), env);
+}
+
+test("ignores a plain group message completely", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls);
+    const response = await postGroupUpdate(env, { update_id: 3001, message: { message_id: 1, chat: { id: -100111, type: "supergroup" }, from: { id: 42, first_name: "A" }, text: "hello everyone" } });
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 0);
+    assert.equal(calls.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("answers a group mention and strips the mention from the prompt", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls);
+    const response = await postGroupUpdate(env, { update_id: 3002, message: { message_id: 2, chat: { id: -100112, type: "supergroup" }, from: { id: 42, first_name: "A" }, text: "@IVAI_Llm_bot explain recursion", entities: [{ type: "mention", offset: 0, length: 13 }] } });
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 1);
+    assert.equal(aiCalls[0].payload.messages.at(-1).content, "explain recursion");
+    // Phase 6: groups get no thinking/progress message and no edit — exactly one
+    // sendMessage that replies to the trigger message.
+    assert.equal(calls.some((call) => /editMessageText$/.test(call.url)), false);
+    const sends = calls.filter((call) => /sendMessage$/.test(call.url));
+    assert.equal(sends.length, 1);
+    assert.doesNotMatch(sends[0].body.text, /thinking/);
+    assert.equal(sends[0].body.reply_parameters.message_id, 2);
+    assert.match(sends[0].body.text, /Group answer/);
+    assert.ok(calls.some((call) => /sendChatAction$/.test(call.url)));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("answers a group reply to the bot's own message", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls);
+    const response = await postGroupUpdate(env, { update_id: 3003, message: { message_id: 3, chat: { id: -100113, type: "group" }, from: { id: 42, first_name: "A" }, text: "tell me more", reply_to_message: { message_id: 50, from: { id: 424242, is_bot: true, username: "IVAI_Llm_bot" }, text: "Earlier answer" } } });
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 1);
+    assert.equal(calls.some((call) => /editMessageText$/.test(call.url)), false);
+    const sends = calls.filter((call) => /sendMessage$/.test(call.url));
+    assert.equal(sends.length, 1);
+    assert.equal(sends[0].body.reply_parameters.message_id, 3);
+    assert.match(sends[0].body.text, /Group answer/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("ignores a group command addressed to another bot", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls);
+    const response = await postGroupUpdate(env, { update_id: 3004, message: { message_id: 4, chat: { id: -100114, type: "supergroup" }, from: { id: 42, first_name: "A" }, text: "/start@OtherBot" } });
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 0);
+    assert.equal(calls.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("replies to a mother-channel post in the linked group with an AI summary and no membership check", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
+    const response = await postGroupUpdate(env, { update_id: 3005, message: { message_id: 77, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "We released a new open-source tool for developers today." } });
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 1);
+    assert.equal(calls.some((call) => /getChatMember$/.test(call.url)), false);
+    const reply = calls.find((call) => /sendMessage$/.test(call.url));
+    assert.equal(reply.body.reply_parameters.message_id, 77);
+    assert.match(reply.body.text, /Group answer/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("stores English for a brand-new user whose Telegram client is Persian", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls);
+    const response = await postGroupUpdate(env, { update_id: 3006, message: { message_id: 6, chat: { id: 555, type: "private" }, from: { id: 555, first_name: "New", language_code: "fa" }, text: "Hello, what can you do?" } });
+    assert.equal(response.status, 200);
+    assert.equal(env.IVAI_DB.users.get("555").language, "en");
+    assert.match(aiCalls[0].payload.messages[0].content, /Respond in English/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("sends a Rich membership prompt with join buttons to a non-member who mentions the bot in a group", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls, { memberStatus: "left" });
+  try {
+    const env = groupTestEnv(calls, aiCalls, { enforced: "true", memberStatus: "left" });
+    const response = await postGroupUpdate(env, { update_id: 3007, message: { message_id: 7, chat: { id: -100116, type: "supergroup" }, from: { id: 42, first_name: "A" }, text: "@IVAI_Llm_bot hi", entities: [{ type: "mention", offset: 0, length: 13 }] } });
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 0);
+    const prompt = calls.find((call) => /sendRichMessage$/.test(call.url));
+    assert.ok(prompt);
+    const buttons = prompt.body.reply_markup.inline_keyboard.flat();
+    assert.ok(buttons.some((button) => button.url === APP.requiredChannelUrl));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("skips a second immediate group mention in a non-primary chat (other-tier cooldown)", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls);
+    const mention = (updateId, messageId) => ({ update_id: updateId, message: { message_id: messageId, chat: { id: -100117, type: "supergroup" }, from: { id: 42, first_name: "A" }, text: "@IVAI_Llm_bot one question", entities: [{ type: "mention", offset: 0, length: 13 }] } });
+    assert.equal((await postGroupUpdate(env, mention(3008, 8))).status, 200);
+    assert.equal((await postGroupUpdate(env, mention(3009, 9))).status, 200);
+    assert.equal(aiCalls.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("sends no standalone mode confirmation for a group callback, only the menu edit", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls);
+    const update = { update_id: 3010, callback_query: { id: "cb-group-mode", from: { id: 42, first_name: "A" }, data: "mode:fast", message: { message_id: 60, chat: { id: -100118, type: "supergroup" }, from: { id: 424242, is_bot: true, username: "IVAI_Llm_bot" } } } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    assert.equal(calls.filter((call) => /sendMessage$/.test(call.url)).length, 0);
+    const edit = calls.find((call) => /editMessageText$/.test(call.url));
+    assert.ok(edit);
+    assert.match(edit.body.text, /IVAI menu/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("threads every part of a long group answer to the trigger message", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = {
+      ...groupTestEnv(calls, []),
+      AI: { async run() { return { response: "lorem ".repeat(900) }; } }
+    };
+    const response = await postGroupUpdate(env, { update_id: 3011, message: { message_id: 21, chat: { id: -100119, type: "supergroup" }, from: { id: 42, first_name: "A" }, text: "@IVAI_Llm_bot long please", entities: [{ type: "mention", offset: 0, length: 13 }] } });
+    assert.equal(response.status, 200);
+    assert.equal(calls.some((call) => /editMessageText$/.test(call.url)), false);
+    const sends = calls.filter((call) => /sendMessage$/.test(call.url));
+    assert.ok(sends.length >= 2);
+    for (const send of sends) assert.equal(send.body.reply_parameters.message_id, 21);
+    assert.doesNotMatch(sends[0].body.text, /🪐/);
+    assert.match(sends.at(-1).body.text, /🪐/);
+    assert.equal(sends.some((send) => /sent below/.test(send.body.text)), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("detects a mention after an emoji prefix using Telegram UTF-16 entity offsets", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls);
+    // "🔥" is one code point but two UTF-16 code units, so the mention starts at 3.
+    const response = await postGroupUpdate(env, { update_id: 3012, message: { message_id: 22, chat: { id: -100120, type: "supergroup" }, from: { id: 42, first_name: "A" }, text: "🔥 @IVAI_Llm_bot explain fire", entities: [{ type: "mention", offset: 3, length: 13 }] } });
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 1);
+    assert.equal(aiCalls[0].payload.messages.at(-1).content, "🔥 explain fire");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("blocks group media with the same per-chat cooldown as group text", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls);
+    const mention = { update_id: 3013, message: { message_id: 31, chat: { id: -100121, type: "supergroup" }, from: { id: 42, first_name: "A" }, text: "@IVAI_Llm_bot hi", entities: [{ type: "mention", offset: 0, length: 13 }] } };
+    assert.equal((await postGroupUpdate(env, mention)).status, 200);
+    assert.equal(aiCalls.length, 1);
+    const callsBefore = calls.length;
+    const photo = { update_id: 3014, message: { message_id: 32, chat: { id: -100121, type: "supergroup" }, from: { id: 42, first_name: "A" }, photo: [{ file_id: "ph1" }], reply_to_message: { message_id: 50, from: { id: 424242, is_bot: true, username: "IVAI_Llm_bot" } } } };
+    assert.equal((await postGroupUpdate(env, photo)).status, 200);
+    const newCalls = calls.slice(callsBefore);
+    assert.equal(newCalls.some((call) => /getFile$/.test(call.url)), false);
+    assert.equal(aiCalls.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// --- Membership fresh check (Phase 7a) -----------------------------------------
+
+test("never caches a CHECK_FAILED membership result", async () => {
+  const originalFetch = globalThis.fetch;
+  let liveCalls = 0;
+  globalThis.fetch = async () => {
+    liveCalls += 1;
+    return new Response(JSON.stringify({ ok: false, description: "Bad Request: bot is not an administrator" }), { status: 400 });
+  };
+  try {
+    const env = { ...baseEnv(), REQUIRED_CHANNEL_ENFORCED: "true" };
+    const first = await getRequiredChannelMembership(88, env);
+    assert.equal(first.reason, "CHECK_FAILED");
+    assert.equal(await env.IVAI_KV.get("member:88"), null);
+    const second = await getRequiredChannelMembership(88, env);
+    assert.equal(second.reason, "CHECK_FAILED");
+    assert.equal(liveCalls, 4);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("re-verifies a stale cached denial live before prompting, so a member gets a normal reply", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls, { memberStatus: "member" });
+  try {
+    const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
+    await env.IVAI_KV.put("member:42", JSON.stringify({ allowed: false, reason: "CHECKED", status: "left" }));
+    const response = await postGroupUpdate(env, { update_id: 3015, message: { message_id: 41, chat: { id: 42, type: "private" }, from: { id: 42, first_name: "Member" }, text: "Hello IVAI" } });
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 1);
+    assert.ok(calls.some((call) => /getChatMember$/.test(call.url)));
+    const prompted = calls.some((call) =>
+      /Membership in @ILIVIR3 is required/.test(call.body?.rich_message?.html || call.body?.text || ""));
+    assert.equal(prompted, false);
+    // The fresh definitive result replaced the stale cache entry.
+    assert.equal(JSON.parse(await env.IVAI_KV.get("member:42")).allowed, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("membership:check callback always checks live, ignoring a stale cached denial", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls, { memberStatus: "member" });
+  try {
+    const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
+    await env.IVAI_KV.put("member:42", JSON.stringify({ allowed: false, reason: "CHECKED", status: "left" }));
+    const update = { update_id: 3016, callback_query: { id: "cb-fresh", from: { id: 42, first_name: "Member" }, data: "membership:check", message: { message_id: 43, chat: { id: 42, type: "private" }, from: { id: 424242, is_bot: true, username: "IVAI_Llm_bot" } } } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    const alert = calls.find((call) => /answerCallbackQuery$/.test(call.url) && call.body.show_alert);
+    assert.equal(alert, undefined);
+    const edit = calls.find((call) => /editMessageText$/.test(call.url));
+    assert.match(edit.body.text, /Membership confirmed/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("ignores a manual forward of a channel post into another group", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
+    // A manual forward carries forward_from_chat but NOT sender_chat; only the
+    // channel's own automatic forward into its linked group may trigger.
+    const update = { update_id: 3017, message: { message_id: 51, chat: { id: -100122, type: "supergroup" }, from: { id: 42, first_name: "A" }, forward_from_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "We released a new open-source tool for developers today." } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 0);
+    assert.equal(calls.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("skips a video channel post silently", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
+    const update = { update_id: 3018, message: { message_id: 52, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, video: { file_id: "vid9", mime_type: "video/mp4" } } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 0);
+    assert.equal(calls.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("describes a photo-only channel post with one vision call and replies to the post", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupMediaFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
+    const update = { update_id: 3019, message: { message_id: 53, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, photo: [{ file_id: "small" }, { file_id: "large" }] } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    // Exactly one AI call and it is the vision call (image_url content), not
+    // the text-summary generateReply path.
+    assert.equal(aiCalls.length, 1);
+    const content = aiCalls[0].payload.messages[0].content;
+    assert.ok(Array.isArray(content) && content.some((part) => part.type === "image_url"));
+    assert.equal(calls.filter((call) => /getFile$/.test(call.url)).length, 1);
+    assert.equal(calls.some((call) => /getChatMember$/.test(call.url)), false);
+    const sends = calls.filter((call) => /sendMessage$/.test(call.url));
+    assert.equal(sends.length, 1);
+    assert.equal(sends[0].body.reply_parameters.message_id, 53);
+    assert.match(sends[0].body.text, /Group answer/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("ignores video and audio messages from group members with no membership check", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
+    const video = { update_id: 3020, message: { message_id: 61, chat: { id: -100124, type: "supergroup" }, from: { id: 42, first_name: "A" }, video: { file_id: "vid1", mime_type: "video/mp4" } } };
+    const audio = { update_id: 3021, message: { message_id: 62, chat: { id: -100124, type: "supergroup" }, from: { id: 42, first_name: "A" }, audio: { file_id: "aud1", mime_type: "audio/mpeg" } } };
+    assert.equal((await postGroupUpdate(env, video)).status, 200);
+    assert.equal((await postGroupUpdate(env, audio)).status, 200);
+    assert.equal(aiCalls.length, 0);
+    assert.equal(calls.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("caps group media per chat in other-tier groups at 3 per hour", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupMediaFetch(calls);
+  try {
+    // No D1: allowUsage counters fall back to KV, which accumulates across
+    // updates (PreferenceD1's counter stub does not). Cooldown is cleared
+    // between sends so only the dedicated media cap can block the 4th photo.
+    const env = { ...groupTestEnv(calls, aiCalls), IVAI_DB: undefined };
+    const chatId = -100125;
+    const photo = (updateId, messageId) => ({ update_id: updateId, message: { message_id: messageId, chat: { id: chatId, type: "supergroup" }, from: { id: 42, first_name: "A" }, photo: [{ file_id: "ph1" }], reply_to_message: { message_id: 50, from: { id: 424242, is_bot: true, username: "IVAI_Llm_bot" } } } });
+    for (let index = 0; index < 3; index += 1) {
+      await env.IVAI_KV.delete(`groupcd:${chatId}`);
+      assert.equal((await postGroupUpdate(env, photo(3030 + index, 71 + index))).status, 200);
+    }
+    assert.equal(calls.filter((call) => /getFile$/.test(call.url)).length, 3);
+    assert.equal(calls.filter((call) => /sendMessage$/.test(call.url)).length, 3);
+    await env.IVAI_KV.delete(`groupcd:${chatId}`);
+    const callsBefore = calls.length;
+    assert.equal((await postGroupUpdate(env, photo(3033, 74))).status, 200);
+    const newCalls = calls.slice(callsBefore);
+    assert.equal(newCalls.some((call) => /getFile$/.test(call.url)), false);
+    assert.equal(newCalls.some((call) => /sendMessage$/.test(call.url)), false);
+    assert.equal(aiCalls.length, 3);
   } finally {
     globalThis.fetch = originalFetch;
   }
