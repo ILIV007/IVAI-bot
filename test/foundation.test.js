@@ -237,8 +237,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.4.0 release version", () => {
-  assert.equal(APP.version, "3.4.0");
+test("declares the official v3.4.1 release version", () => {
+  assert.equal(APP.version, "3.4.1");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -2320,6 +2320,72 @@ test("answers a group reply to the bot's own message", async () => {
   }
 });
 
+test("answers a discussion-group thread reply to the bot's message", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls);
+    // Realistic linked-discussion-group shape: supergroup + comment thread id,
+    // replying to a message the bot itself sent (matched by token bot ID).
+    const update = { update_id: 3024, message: { message_id: 80, chat: { id: -100126, type: "supergroup" }, message_thread_id: 77, from: { id: 42, first_name: "A" }, text: "tell me more", reply_to_message: { message_id: 50, from: { id: 424242, is_bot: true, username: "IVAI_Llm_bot" }, text: "Earlier answer" } } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 1);
+    const sends = calls.filter((call) => /sendMessage$/.test(call.url));
+    assert.equal(sends.length, 1);
+    assert.equal(sends[0].body.reply_parameters.message_id, 80);
+    assert.match(sends[0].body.text, /Group answer/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("answers a reply made directly on the channel post in the discussion group", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls);
+    // The user comments on the post itself: the replied-to message is the
+    // automatic forward (from 777000, sender_chat/forward_from_chat = channel).
+    const update = { update_id: 3025, message: { message_id: 81, chat: { id: -100115, type: "supergroup" }, from: { id: 42, first_name: "A" }, text: "I agree — what is your take?", reply_to_message: { message_id: 77, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, forward_from_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "We released a new open-source tool for developers today." } } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 1);
+    const sends = calls.filter((call) => /sendMessage$/.test(call.url));
+    assert.equal(sends.length, 1);
+    assert.equal(sends[0].body.reply_parameters.message_id, 81);
+    assert.match(sends[0].body.text, /Group answer/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("answers an anonymous group admin replying to the bot, with no membership check", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
+    // GroupAnonymousBot: from.id 1087968824 and sender_chat is the group itself.
+    const update = { update_id: 3026, message: { message_id: 82, chat: { id: -100127, type: "supergroup" }, from: { id: 1087968824, is_bot: true, first_name: "Group", username: "GroupAnonymousBot" }, sender_chat: { id: -100127, type: "supergroup", title: "Discussion" }, text: "tell me more", reply_to_message: { message_id: 50, from: { id: 424242, is_bot: true, username: "IVAI_Llm_bot" }, text: "Earlier answer" } } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 1);
+    // There is no user to check: getChatMember must never be called.
+    assert.equal(calls.some((call) => /getChatMember$/.test(call.url)), false);
+    const sends = calls.filter((call) => /sendMessage$/.test(call.url));
+    assert.equal(sends.length, 1);
+    assert.match(sends[0].body.text, /Group answer/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("ignores a group command addressed to another bot", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
@@ -2336,7 +2402,7 @@ test("ignores a group command addressed to another bot", async () => {
   }
 });
 
-test("replies to a mother-channel post in the linked group with an AI summary and no membership check", async () => {
+test("replies to a mother-channel post in the linked group with a short comment and no membership check", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   const aiCalls = [];
@@ -2346,10 +2412,58 @@ test("replies to a mother-channel post in the linked group with an AI summary an
     const response = await postGroupUpdate(env, { update_id: 3005, message: { message_id: 77, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "We released a new open-source tool for developers today." } });
     assert.equal(response.status, 200);
     assert.equal(aiCalls.length, 1);
+    // The prompt asks for ONE short comment, not a summary/opinion essay.
+    assert.match(aiCalls[0].payload.messages.at(-1).content, /ONE short comment/);
+    assert.match(aiCalls[0].payload.messages.at(-1).content, /SAME language as the post/);
     assert.equal(calls.some((call) => /getChatMember$/.test(call.url)), false);
     const reply = calls.find((call) => /sendMessage$/.test(call.url));
     assert.equal(reply.body.reply_parameters.message_id, 77);
     assert.match(reply.body.text, /Group answer/);
+    // Channel-post comments carry no model/mode footer in the group.
+    assert.doesNotMatch(reply.body.text, /🪐|IVAI ·|GLM/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("comments on a Persian channel post in Persian, not English", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
+    const update = { update_id: 3022, message: { message_id: 78, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "نسخه جدید بازی منتشر شد و خیلی‌ها منتظرش بودن!" } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 1);
+    // generateReply receives the post's own language (fa), so the system
+    // instruction asks for Persian and the post text reaches the model.
+    assert.match(aiCalls[0].payload.messages[0].content, /Respond in Persian/);
+    assert.match(aiCalls[0].payload.messages.at(-1).content, /نسخه جدید بازی/);
+    const reply = calls.find((call) => /sendMessage$/.test(call.url));
+    assert.equal(reply.body.reply_parameters.message_id, 78);
+    assert.doesNotMatch(reply.body.text, /🪐|IVAI ·|GLM/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("trims a channel-post comment longer than 5 lines down to 5", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = {
+      ...groupTestEnv(calls, []),
+      AI: { async run() { return { response: "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight" }; } }
+    };
+    const update = { update_id: 3023, message: { message_id: 79, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "A long announcement post." } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    const reply = calls.find((call) => /sendMessage$/.test(call.url));
+    assert.match(reply.body.text, /five/);
+    assert.doesNotMatch(reply.body.text, /six|seven|eight/);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -2607,6 +2721,8 @@ test("describes a photo-only channel post with one vision call and replies to th
     assert.equal(sends.length, 1);
     assert.equal(sends[0].body.reply_parameters.message_id, 53);
     assert.match(sends[0].body.text, /Group answer/);
+    // Vision replies to channel posts carry no model/mode footer either.
+    assert.doesNotMatch(sends[0].body.text, /🪐|IVAI ·|GLM/);
   } finally {
     globalThis.fetch = originalFetch;
   }
