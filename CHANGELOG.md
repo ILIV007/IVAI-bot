@@ -2,6 +2,23 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.0] - 2026-11-01
+
+### Added
+
+- **Reply-chain memory:** the text/caption of a replied-to message is injected into the model's context for that turn (as an assistant turn for the bot's own messages) and saved with the turn, so follow-ups keep their topic. A channel post and the bot's comment on it seed a shared per-thread Session, and a follow-up sent outside the thread view still continues the thread's Session (the conversation key falls back to the reply target's thread id). Group model context is capped at the last 5 chain messages.
+
+### Changed
+
+- **Group turns are fast and light:** every group AI turn (text, media, and channel-post comments) runs the Fast response profile on the pinned free model `@cf/zai-org/glm-4.7-flash`, overriding the user's stored mode/model for group turns only; private chats are unchanged and provider fallback still applies when the pinned model fails. A typing refresher re-sends the typing action every ~4 seconds while a group answer is generated, since Telegram chat actions expire after ~5 seconds.
+- **Channel-post comments must be a real take:** the comment prompt now explicitly forbids summarizing, restating, paraphrasing, or quoting the post and requires a new angle — a witty joke or jab, a critical point, an unmentioned consequence, a comparison, or a prediction — typically 1–3 lines (5-line cap still enforced in code).
+- **Group answers follow the triggering message's language:** when the trigger message's script is detectable (e.g. a Persian greeting), the group answer is written in that language, falling back to the user's stored language and then English. UI language and menus are unchanged.
+- **No footer anywhere in groups:** the model/mode footer is removed from all group sends — mention/reply answers and media (photo/vision/voice) answers, in addition to channel-post replies. Private chats keep the footer.
+
+### Fixed
+
+- **Model catalog refresh (audited against official provider catalogs on 2026-11-01):** Workers AI `llama-3.1-8b-instruct-fp8-fast` corrected to the real ID `llama-3.1-8b-instruct-fp8` (the old ID does not exist); Groq's retired `qwen/qwen3.6-27b` (shut down 2026-09-14) replaced with `qwen/qwen3.8-27b`; Gemini's superseded `gemini-3.7-flash` replaced with the current flagship `gemini-3.8-flash`, and the superseded `gemini-3.5-flash` and shutdown-announced `gemini-3.1-flash-lite` removed.
+
 ## [3.4.1] - 2026-11-01
 
 ### Fixed

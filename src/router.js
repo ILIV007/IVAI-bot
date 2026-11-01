@@ -30,7 +30,7 @@ import {
   upsertUser,
   writeAdminAudit
 } from "./storage.js";
-import { adminKeyboard, answerCallback, editMessage, ensureTerminalMenuButton, escapeHtml, languageKeyboard, languageMenuText, menuText, modelPickerKeyboard, modelPickerText, modelPickToken, modelRouteLabel, modelSelectionText, modeKeyboard, modeLabel, pickWelcomeSticker, requiredMembershipKeyboard, requiredMembershipText, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendSticker, sendTyping, settingsKeyboard, splitText, startKeyboard, startThinkingAnimation, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
+import { adminKeyboard, answerCallback, editMessage, ensureTerminalMenuButton, escapeHtml, languageKeyboard, languageMenuText, menuText, modelPickerKeyboard, modelPickerText, modelPickToken, modelRouteLabel, modelSelectionText, modeKeyboard, modeLabel, pickWelcomeSticker, requiredMembershipKeyboard, requiredMembershipText, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendSticker, sendTyping, settingsKeyboard, splitText, startKeyboard, startThinkingAnimation, startTypingRefresher, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
 import { renderRichAiText, renderStandardAiText } from "./rich-renderer.js";
 
 const COMMAND_MODE = Object.freeze({
@@ -152,6 +152,14 @@ function activeConversationLanguage(message, settings, session) {
 // --- Group gate (v3.4.0) -------------------------------------------------------
 // In groups the bot stays silent unless a message is a real trigger: a post from
 // the required channel, a reply to the bot, or a mention/command addressed to it.
+
+// Group turns (v3.5.0) always run the Fast profile on the lightest pinned free
+// model, overriding the user's stored mode/model at the group call sites only —
+// private chats keep the user's own settings, and provider fallback is unchanged.
+const GROUP_MODEL = "@cf/zai-org/glm-4.7-flash";
+// Group model context is capped at the last 5 chain messages (seed + injected
+// reply + Session), which is also what keeps group token spend minimal.
+const GROUP_CONTEXT_LIMIT = 5;
 function botIdFromEnv(env) {
   const id = Number(String(env.TELEGRAM_BOT_TOKEN || "").split(":")[0]);
   return Number.isSafeInteger(id) && id > 0 ? id : null;
@@ -286,6 +294,32 @@ async function setGroupCooldown(message, env, tier) {
   } catch { /* Best-effort. */ }
 }
 
+// Reply-chain memory (v3.5.0): the model never saw the message a user replied
+// to, so follow-ups lost their topic. The replied-to text/caption (capped) joins
+// the turn's context as an assistant turn when it is the bot's own message and
+// as a user turn otherwise; it is saved with the turn so the chain persists.
+function repliedContextEntry(message, env) {
+  const target = message?.reply_to_message;
+  const content = String(target?.text || target?.caption || "").trim().slice(0, 600);
+  if (!target || !content) return null;
+  const botId = botIdFromEnv(env);
+  const fromBot = (botId && Number(target.from?.id) === botId)
+    || String(target.from?.username || "").toLowerCase() === APP.botUsername.toLowerCase();
+  return { role: fromBot ? "assistant" : "user", content };
+}
+
+// Shared per-thread seed scope for a channel post: keyed by the post's thread
+// (its message_thread_id, or its message id, which is what Telegram uses as the
+// comment thread id) under a fixed "channel" user scope so every participant
+// continuing that thread shares the same post + comment context.
+function channelThreadSeedKey(message) {
+  return conversationKey({
+    chatId: message.chat?.id,
+    userId: "channel",
+    threadId: message.message_thread_id || message.message_id
+  });
+}
+
 async function handleChannelPost(message, env) {
   const postText = String(message.text || message.caption || "").trim();
   // A photo-only post (no text/caption) gets one vision analysis instead of a
@@ -294,9 +328,11 @@ async function handleChannelPost(message, env) {
   if (!postText && !photo) return;
   if (!await passGroupLimits(message, env, "primary", "channel_post")) return;
   await sendTyping(env, message.chat.id, messageSendContext(message)).catch(() => {});
+  const typing = startTypingRefresher(env, { chatId: message.chat.id, ...messageSendContext(message) });
   try {
     if (photo) {
       const vision = await analyzePhoto({ fileId: photo.file_id, caption: "", language: "en" }, env);
+      await typing.stop();
       await sendMessage(env, {
         chatId: message.chat.id,
         text: renderStandardAiText(vision.text),
@@ -305,15 +341,18 @@ async function handleChannelPost(message, env) {
       });
       return;
     }
-    // The reply is ONE short comment in the post's own language — witty or
-    // critical, never an essay — and carries no model/mode footer in the group.
+    // The reply is ONE short comment in the post's own language — a genuinely
+    // new take (joke, critique, consequence, comparison, prediction), never a
+    // summary of the post — and carries no model/mode footer in the group.
     const language = scriptLanguageFromMessage(message) || "en";
     const result = await generateReply({
-      text: `A post from the IVAI channel was just shared in its discussion group. Write ONE short comment reacting to this post, in the SAME language as the post: either a witty, comedic take or a sharp, critical take — pick whichever fits the post better. Hard rules: at most 5 short lines, no headings, no 'Summary' or 'Opinion' labels, no preamble, just the comment itself. Do not invent facts beyond the post.\n\nPost:\n${postText}`,
-      selectedMode: MODES.AUTO,
+      text: `A post from the IVAI channel was just shared in its discussion group. Write ONE short comment reacting to this post, in the SAME language as the post, that adds a genuinely NEW angle: a witty joke or jab, a sharp critical point, a consequence the post does not mention, a comparison, or a prediction — pick whichever fits the post best. Hard rules: do NOT summarize, restate, paraphrase, or quote the post back; your comment must say something that is not already in the post. Typically 1–3 short lines, at most 5. No headings, no 'Summary' or 'Opinion' labels, no preamble, just the comment itself.\n\nPost:\n${postText}`,
+      selectedMode: MODES.FAST,
+      selectedModel: GROUP_MODEL,
       language,
       context: []
     }, env);
+    await typing.stop();
     // Models ignore length instructions, so the 5-line cap is enforced here too.
     const comment = String(result.text || "").split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 5).join("\n");
     if (!comment) return;
@@ -323,7 +362,14 @@ async function handleChannelPost(message, env) {
       replyTo: message.message_id,
       ...messageSendContext(message)
     });
+    // Seed the shared thread Session with the post + comment so a follow-up
+    // anywhere in this thread still knows what the conversation is about.
+    await saveConversationSession(channelThreadSeedKey(message), [
+      { role: "user", content: postText },
+      { role: "assistant", content: comment }
+    ], env).catch(() => {});
   } catch (error) {
+    await typing.stop();
     console.error(JSON.stringify({ event: "channel_post_reply_failure", code: safeError(error), chatId: String(message.chat.id) }));
   }
 }
@@ -412,7 +458,10 @@ function newConversationText(language) {
 }
 
 function getThreadId(message) {
-  return message.message_thread_id || null;
+  // A follow-up sent outside the thread view carries no thread id of its own,
+  // but its reply target does; keying on the target's thread keeps the
+  // follow-up in the same conversation Session as the thread it continues.
+  return message.message_thread_id || message.reply_to_message?.message_thread_id || null;
 }
 
 function contextKey(message) {
@@ -770,9 +819,12 @@ async function processText(message, env) {
   // UI language is an explicit, persistent user preference (default English, only
   // changed via /lang). It is never derived from the Telegram client's language.
   const uiLanguage = knownSettings.language || "en";
-  // Groups: the triggering user's explicit language or English — no script
-  // detection. Private chats keep script detection as a fallback only.
-  let responseLanguage = isGroup ? uiLanguage : scriptLanguageFromMessage(message) || knownSettings.language || "en";
+  // Groups (v3.5.0): the ANSWER follows the triggering message's own language
+  // when its script is detectable (a Persian greeting gets a Persian answer),
+  // then the user's explicit stored language, then English. The UI language
+  // above is unaffected: menus/prompts still never derive from the message.
+  // Private chats keep script detection as a fallback only.
+  let responseLanguage = isGroup ? scriptLanguageFromMessage(message) || uiLanguage : scriptLanguageFromMessage(message) || knownSettings.language || "en";
   if (!anonGroupAdmin) {
     const membership = await isRequiredChannelMember(userId, env);
     if (!membership.allowed) {
@@ -789,7 +841,7 @@ async function processText(message, env) {
   const settings = knownSettings;
   const key = contextKey(message);
   const session = await ensureConversationSession(key, env, { language: responseLanguage });
-  responseLanguage = isGroup ? settings.language || "en" : activeConversationLanguage(message, settings, session);
+  responseLanguage = isGroup ? scriptLanguageFromMessage(message) || settings.language || "en" : activeConversationLanguage(message, settings, session);
   let tier = null;
   if (isGroup) {
     tier = await groupTier(message, env, trigger);
@@ -804,7 +856,27 @@ async function processText(message, env) {
     return;
   }
 
-  const context = session?.messages || [];
+  // Reply-chain memory (v3.5.0): the shared channel-thread seed first (groups
+  // with a thread only, and only when the Session does not already carry it),
+  // then the Session, then the replied-to message. The merged context is what
+  // the save below persists with the turn, so the chain survives follow-ups.
+  // Group context is capped at the last GROUP_CONTEXT_LIMIT messages total.
+  let context = session?.messages || [];
+  if (isGroup) {
+    const threadId = getThreadId(message);
+    if (threadId) {
+      const seed = await getConversationSession(conversationKey({ chatId, userId: "channel", threadId }), env).catch(() => null);
+      const seedMessages = seed?.messages || [];
+      if (seedMessages.length && !seedMessages.every((entry) => context.some((saved) => saved.role === entry.role && saved.content === entry.content))) {
+        context = [...seedMessages, ...context];
+      }
+    }
+  }
+  const repliedEntry = repliedContextEntry(message, env);
+  if (repliedEntry && !context.some((saved) => saved.role === repliedEntry.role && saved.content === repliedEntry.content)) {
+    context = [...context, repliedEntry];
+  }
+  if (isGroup) context = context.slice(-GROUP_CONTEXT_LIMIT);
   await sendTyping(env, chatId, delivery).catch(() => {});
   const richEligible = message.chat?.type === "private" && !delivery.businessConnectionId;
   let richDraftActive = false;
@@ -831,13 +903,25 @@ async function processText(message, env) {
     ...delivery
   }).catch(() => null);
   const thinking = progress?.message_id ? startThinkingAnimation(env, { chatId, messageId: progress.message_id, language: uiLanguage, ...delivery }) : null;
+  // Groups have no progress message; a typing refresher keeps the indicator
+  // alive while the model runs instead (chat actions expire after ~5 seconds).
+  const typing = isGroup ? startTypingRefresher(env, { chatId, ...delivery }) : null;
 
   try {
-    const result = await generateReply({ text: modelInput, selectedMode: settings.mode, selectedModel: settings.selectedModel, language: responseLanguage, context }, env);
+    const result = await generateReply({
+      text: modelInput,
+      selectedMode: isGroup ? MODES.FAST : settings.mode,
+      selectedModel: isGroup ? GROUP_MODEL : settings.selectedModel,
+      language: responseLanguage,
+      context
+    }, env);
     if (isGroup) await setGroupCooldown(message, env, tier);
     await thinking?.stop();
+    await typing?.stop();
     await saveConversationSession(key, [...context, { role: "user", content: text }, { role: "assistant", content: result.text }], env, { session, language: responseLanguage });
-      const finalText = `${renderStandardAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: result.mode, language: uiLanguage })}`;
+      // Groups never carry the model/mode footer (v3.5.0); private chats do.
+      const footer = isGroup ? "" : `\n\n${responseMeta({ model: result.model, mode: result.mode, language: uiLanguage })}`;
+      const finalText = `${renderStandardAiText(result.text)}${footer}`;
       // Keep the existing metadata block as-is: nesting a blockquote inside a Rich HTML
       // footer is not needed and can reduce parser compatibility across Telegram clients.
       const richFinalText = `${renderRichAiText(result.text, { allowDetails: richDetailsRequested, allowMath: [MODES.DEEP, MODES.CODE].includes(result.mode) })}\n${responseMeta({ model: result.model, mode: result.mode, language: uiLanguage })}`;
@@ -868,11 +952,12 @@ async function processText(message, env) {
     for (let index = 0; index < rawParts.length; index += 1) {
       const last = index === rawParts.length - 1;
       const formattedPart = renderStandardAiText(rawParts[index]);
-      const textPart = last ? `${formattedPart}\n\n${responseMeta({ model: result.model, mode: result.mode, language: uiLanguage })}` : formattedPart;
+      const textPart = last ? `${formattedPart}${footer}` : formattedPart;
       await sendMessage(env, { chatId, text: textPart, replyTo: isGroup || index === 0 ? message.message_id : undefined, ...delivery });
     }
   } catch (error) {
     await thinking?.stop();
+    await typing?.stop();
     const code = safeError(error);
     const failureText = responseText(uiLanguage, code === "RATE_LIMIT" ? "busy" : "temporary");
     if (progress?.message_id) await editMessage(env, { chatId, messageId: progress.message_id, text: failureText, businessConnectionId: delivery.businessConnectionId }).catch(() => {});
@@ -892,7 +977,10 @@ async function processMedia(message, env) {
   const userId = message.from?.id;
   const chatId = message.chat?.id;
   const delivery = messageSendContext(message);
-  const language = (await getUserSettings(userId, env)).language || "en";
+  const storedLanguage = (await getUserSettings(userId, env)).language || "en";
+  // Same v3.5.0 group rule as text turns: the answer follows the triggering
+  // message's own language (e.g. a Persian photo caption) before stored/en.
+  const language = isGroup ? scriptLanguageFromMessage(message) || storedLanguage : storedLanguage;
   // Same anonymous-group-admin exception as processText: no user to check.
   const anonGroupAdmin = isGroup && isAnonGroupAdmin(message);
   if (!anonGroupAdmin) {
@@ -920,6 +1008,7 @@ async function processMedia(message, env) {
     return;
   }
   if (isGroup) await sendTyping(env, chatId, delivery).catch(() => {});
+  const typing = isGroup ? startTypingRefresher(env, { chatId, ...delivery }) : null;
   try {
     let result;
     let prefix = "";
@@ -929,17 +1018,21 @@ async function processMedia(message, env) {
     } else if (message.photo?.length) {
       result = await analyzePhoto({ fileId: message.photo.at(-1).file_id, caption: message.caption || "", language }, env);
     } else {
+      await typing?.stop();
       await sendMessage(env, { chatId, text: responseText(language, "unsupportedMedia"), replyTo: message.message_id, ...delivery });
       return;
     }
+    await typing?.stop();
     await sendMessage(env, {
       chatId,
-      text: `${prefix}${renderStandardAiText(result.text)}\n\n${responseMeta({ model: result.model, language })}`,
+      // Groups never carry the model/mode footer (v3.5.0); private chats do.
+      text: `${prefix}${renderStandardAiText(result.text)}${isGroup ? "" : `\n\n${responseMeta({ model: result.model, language })}`}`,
       replyTo: message.message_id,
       ...delivery
     });
     if (isGroup) await setGroupCooldown(message, env, tier);
   } catch (error) {
+    await typing?.stop();
     const code = safeError(error);
     await sendMessage(env, { chatId, text: responseText(language, code === "RATE_LIMIT" ? "busy" : "temporary"), replyTo: message.message_id, ...delivery });
     console.error(JSON.stringify({ event: "media_failure", code, userId: String(userId) }));

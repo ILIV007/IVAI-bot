@@ -384,6 +384,34 @@ export function startThinkingAnimation(env, { chatId, messageId, language = "en"
   };
 }
 
+// Telegram chat actions expire after ~5 seconds, so a single sendTyping is
+// invisible on slow routes. This refresher re-sends the action until stop(),
+// mirroring startThinkingAnimation's start/stop contract; it sends no messages.
+export function startTypingRefresher(env, { chatId, intervalMs = 4000, threadId, businessConnectionId, directMessagesTopicId }) {
+  let stopped = false;
+  let timer;
+  let wake;
+  const task = (async () => {
+    while (!stopped) {
+      await new Promise((resolve) => {
+        wake = resolve;
+        timer = setTimeout(resolve, intervalMs);
+      });
+      timer = undefined;
+      if (stopped) break;
+      await sendTyping(env, chatId, { threadId, businessConnectionId, directMessagesTopicId }).catch(() => {});
+    }
+  })();
+  return {
+    stop: async () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+      wake?.();
+      await task;
+    }
+  };
+}
+
 export async function sendRichMessage(env, { chatId, html, replyTo, keyboard, threadId, businessConnectionId, directMessagesTopicId, silent = false, rtl = false }) {
   return telegram(env, "sendRichMessage", {
     chat_id: chatId,
@@ -518,11 +546,9 @@ export function shortModelLabel(model = "") {
   if (value.includes("llama-3.2-1b")) return "Llama 3.2 1B";
   if (value.includes("llama-3.1-8b")) return "Llama 3.1 8B";
   if (value.includes("qwen3-30b")) return "Qwen3 30B";
-  if (value.includes("gemini-3.7-flash")) return "Gemini 3.7 Flash";
+  if (value.includes("gemini-3.8-flash")) return "Gemini 3.8 Flash";
   if (value.includes("gemini-3.6-flash")) return "Gemini 3.6 Flash";
   if (value.includes("gemini-3.5-flash-lite")) return "Gemini 3.5 Flash Lite";
-  if (value.includes("gemini-3.5-flash")) return "Gemini 3.5 Flash";
-  if (value.includes("gemini-3.1-flash-lite")) return "Gemini 3.1 Flash Lite";
   if (value.includes("gemini-2.5-flash-lite")) return "Gemini 2.5 Flash Lite";
   const compact = String(model || "IVAI")
     .replace(/^@cf\//, "")
