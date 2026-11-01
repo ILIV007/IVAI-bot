@@ -2,6 +2,16 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.1] - 2026-11-01
+
+### Changed
+
+- **Channel-post comments are sampled and skipped:** only about 75% of eligible channel posts now earn a comment (`GROUP_POLICY.channelPostReplyRate`, decided by a stable hash of the chat and message ids, so the same post always gets the same verdict). Posts with fewer than 5 non-empty lines or under 200 characters of text are skipped, and sticker, GIF/animation, document, video, audio, and voice posts never receive a comment — a caption does not change that. Eligibility and sampling run before the hourly comment bucket, so a skipped post consumes no quota; every skip is logged as a structured `channel_comment_skip` event with its reason (`short_post`, `sampled_out`, or `media_type`). Photo-only posts remain eligible for one vision reply, subject to the same sampling rate.
+
+### Fixed
+
+- **Group typing indicator audited (no behavior change needed):** the v3.5.0 wiring was verified line-by-line in all three group paths (text turns, media turns, channel-post comments): the first typing action is sent immediately when generation starts, the refresher re-sends it every ~4 seconds for the whole generation, `stop()` runs on every exit path (success, AI error, early and unsupported-media returns) and is idempotent with no interval leak, and the action carries the correct comment-thread context. Regression tests now lock this in, including a fake-timer test of the refresher's cadence and stop behavior.
+
 ## [3.5.0] - 2026-11-01
 
 ### Added

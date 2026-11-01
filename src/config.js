@@ -1,6 +1,6 @@
 export const APP = Object.freeze({
   name: "IVAI",
-  version: "3.5.0",
+  version: "3.5.1",
   botUsername: "IVAI_Llm_bot",
   terminalAppUrl: "https://ivai-bot.ivai-bot.workers.dev/app",
   // Bot-owned file IDs from the IVAILlmBot pack; refresh deliberately when that pack changes.
@@ -48,6 +48,9 @@ export const GROUP_POLICY = Object.freeze({
   primaryHourlyLimit: 30,
   primaryMediaHourlyLimit: 10,
   channelPostHourlyLimit: 10,
+  // Share of eligible channel posts that earn a comment (v3.5.1); the rest
+  // are skipped silently before any quota is consumed.
+  channelPostReplyRate: 0.75,
   otherCooldownSeconds: 120,
   otherHourlyLimit: 5,
   otherDailyLimit: 30,

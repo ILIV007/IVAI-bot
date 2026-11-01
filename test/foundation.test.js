@@ -6,14 +6,15 @@ import { generateReply, getDetectedMode } from "../src/ai.js";
 import { processSecretaryReminderBatch } from "../src/secretary.js";
 import { processReengagementBatch } from "../src/reengagement.js";
 import { analyzePhoto, downloadTelegramFile, transcribeVoice } from "../src/media.js";
-import { APP, defaultFreeModelFor, FREE_MODEL_POLICY, LANGUAGE_OPTIONS, MODES, modeOutputLimit } from "../src/config.js";
+import { APP, defaultFreeModelFor, FREE_MODEL_POLICY, GROUP_POLICY, LANGUAGE_OPTIONS, MODES, modeOutputLimit } from "../src/config.js";
+import { channelPostSampled } from "../src/router.js";
 import { defaultFreeModels, refreshFreeModelCatalog } from "../src/catalog.js";
 import { conversationKey, ensureConversationSession, getAdminOperationalStats, getConversationSession, getUserSettings, saveConversationSession, setMemoryEnabled, setSelectedModel, setUserLanguage, setUserMode, startNewConversationSession, upsertUser } from "../src/storage.js";
 import { getRequiredChannelMembership } from "../src/membership.js";
 import { renderRichAiText, renderStandardAiText } from "../src/rich-renderer.js";
 import { renderAppPage } from "../src/app-page.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
-import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelPickToken, modelSelectionText, pickWelcomeSticker, secureRandomIndex, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, stabilizeRtlText, startKeyboard, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
+import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelPickToken, modelSelectionText, pickWelcomeSticker, secureRandomIndex, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, stabilizeRtlText, startKeyboard, startTypingRefresher, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
 
 class KV {
   constructor() { this.values = new Map(); }
@@ -237,8 +238,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.5.0 release version", () => {
-  assert.equal(APP.version, "3.5.0");
+test("declares the official v3.5.1 release version", () => {
+  assert.equal(APP.version, "3.5.1");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -2409,7 +2410,7 @@ test("replies to a mother-channel post in the linked group with a short comment 
   globalThis.fetch = mockGroupFetch(calls);
   try {
     const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
-    const response = await postGroupUpdate(env, { update_id: 3005, message: { message_id: 77, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "We released a new open-source tool for developers today." } });
+    const response = await postGroupUpdate(env, { update_id: 3005, message: { message_id: 77, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "We released a new open-source tool for developers today.\nIt turns plain Markdown notes into a fast static site in seconds.\nThe build finishes almost instantly for most projects.\nPlugins are written in JavaScript with a tiny, stable API.\nDocs and examples are live now — tell us what you build with it!" } });
     assert.equal(response.status, 200);
     assert.equal(aiCalls.length, 1);
     // The prompt asks for ONE short comment, not a summary/opinion essay.
@@ -2433,7 +2434,7 @@ test("comments on a Persian channel post in Persian, not English", async () => {
   globalThis.fetch = mockGroupFetch(calls);
   try {
     const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
-    const update = { update_id: 3022, message: { message_id: 78, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "نسخه جدید بازی منتشر شد و خیلی‌ها منتظرش بودن!" } };
+    const update = { update_id: 3022, message: { message_id: 78, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "نسخه جدید بازی منتشر شد و خیلی‌ها منتظرش بودن!\nاین نسخه کلی مرحله، شخصیت و آیتم تازه به بازی اضافه می‌کنه.\nگرافیک و نورپردازی نسبت به نسخه قبلی خیلی بهتر شده.\nحجم دانلودش حدود بیست گیگابایته و از امشب در دسترسه.\nنظرتون رو درباره نسخه جدید با ما توی کامنت‌ها به اشتراک بذارید!" } };
     const response = await postGroupUpdate(env, update);
     assert.equal(response.status, 200);
     assert.equal(aiCalls.length, 1);
@@ -2458,7 +2459,7 @@ test("trims a channel-post comment longer than 5 lines down to 5", async () => {
       ...groupTestEnv(calls, []),
       AI: { async run() { return { response: "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight" }; } }
     };
-    const update = { update_id: 3023, message: { message_id: 79, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "A long announcement post." } };
+    const update = { update_id: 3023, message: { message_id: 79, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "Our community just passed ten thousand members this week.\nThank you to everyone who shares, comments, and helps newcomers.\nWe are planning a small celebration stream for Friday night.\nThere will be giveaways, a Q&A, and a look at the roadmap.\nBring your questions — the whole team will be there live." } };
     const response = await postGroupUpdate(env, update);
     assert.equal(response.status, 200);
     const reply = calls.find((call) => /sendMessage$/.test(call.url));
@@ -2708,7 +2709,7 @@ test("describes a photo-only channel post with one vision call and replies to th
   globalThis.fetch = mockGroupMediaFetch(calls);
   try {
     const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
-    const update = { update_id: 3019, message: { message_id: 53, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, photo: [{ file_id: "small" }, { file_id: "large" }] } };
+    const update = { update_id: 3019, message: { message_id: 54, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, photo: [{ file_id: "small" }, { file_id: "large" }] } };
     const response = await postGroupUpdate(env, update);
     assert.equal(response.status, 200);
     // Exactly one AI call and it is the vision call (image_url content), not
@@ -2720,7 +2721,7 @@ test("describes a photo-only channel post with one vision call and replies to th
     assert.equal(calls.some((call) => /getChatMember$/.test(call.url)), false);
     const sends = calls.filter((call) => /sendMessage$/.test(call.url));
     assert.equal(sends.length, 1);
-    assert.equal(sends[0].body.reply_parameters.message_id, 53);
+    assert.equal(sends[0].body.reply_parameters.message_id, 54);
     assert.match(sends[0].body.text, /Group answer/);
     // Vision replies to channel posts carry no model/mode footer either.
     assert.doesNotMatch(sends[0].body.text, /🪐|IVAI ·|GLM/);
@@ -2787,7 +2788,7 @@ test("channel-post comment prompt forbids summarizing and demands a new take", a
   globalThis.fetch = mockGroupFetch(calls);
   try {
     const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
-    const update = { update_id: 3040, message: { message_id: 77, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "France just passed a new per-gigabyte internet tax." } };
+    const update = { update_id: 3040, message: { message_id: 77, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "France just passed a new per-gigabyte internet tax.\nHeavy downloads like games and 4K streams will cost the most.\nCritics are calling it a tax on modern life itself.\nSupporters say the biggest platforms should pay for bandwidth.\nThe first bills under the new law arrive next month." } };
     const response = await postGroupUpdate(env, update);
     assert.equal(response.status, 200);
     assert.equal(aiCalls.length, 1);
@@ -2896,7 +2897,7 @@ test("a follow-up replying to the bot's channel comment sees the post and the co
   globalThis.fetch = mockGroupFetch(calls);
   try {
     const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
-    const postText = "France just passed a new per-gigabyte internet tax that hits big downloads hardest.";
+    const postText = "France just passed a new per-gigabyte internet tax that hits big downloads hardest.\nGamers say one major release could cost several euros in tax alone.\nInternet providers warn that bills will get more confusing.\nThe government says heavy users should pay their fair share.\nThe law takes effect at the start of next year.";
     const post = { update_id: 3046, message: { message_id: 77, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: postText } };
     assert.equal((await postGroupUpdate(env, post)).status, 200);
     assert.equal(aiCalls.length, 1);
@@ -2922,7 +2923,7 @@ test("a follow-up outside the thread view still loads the thread seed via the re
   globalThis.fetch = mockGroupFetch(calls);
   try {
     const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
-    const post = { update_id: 3048, message: { message_id: 77, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "City council approves the new night-train line to the coast." } };
+    const post = { update_id: 3048, message: { message_id: 77, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "City council approves the new night-train line to the coast.\nTrains will run every night from Friday through Sunday.\nThe full trip takes about seven hours end to end.\nTickets start at twenty euros for a reclining seat.\nCoastal hotels expect a much busier summer season." } };
     assert.equal((await postGroupUpdate(env, post)).status, 200);
     assert.equal(aiCalls.length, 1);
     // Same follow-up, but sent from the main group view: the message itself
@@ -2961,6 +2962,232 @@ test("caps group model context at the last 5 chain messages", async () => {
     // System + exactly the last 5 context messages + the current user turn.
     const context = aiCalls[0].payload.messages.slice(1, -1);
     assert.deepEqual(context.map((entry) => entry.content), ["ctx-2", "ctx-3", "ctx-4", "ctx-5", "ctx-6"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// --- Phase 10 (v3.5.1): channel-post comment sampling/skips, typing audit ----
+
+const LONG_CHANNEL_POST = "We released a new open-source tool for developers today.\nIt turns plain Markdown notes into a fast static site in seconds.\nThe build finishes almost instantly for most projects.\nPlugins are written in JavaScript with a tiny, stable API.\nDocs and examples are live now — tell us what you build with it!";
+
+function channelPostUpdate(updateId, messageId, extra) {
+  return { update_id: updateId, message: { message_id: messageId, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, ...extra } };
+}
+
+test("channel-post sampling is stable per post and keeps about 75% of posts", () => {
+  const message = (messageId) => ({ chat: { id: -100115 }, message_id: messageId });
+  assert.equal(GROUP_POLICY.channelPostReplyRate, 0.75);
+  // Exact verdicts for chat -100115 that the fixtures in this suite rely on.
+  assert.equal(channelPostSampled(message(77)), true);
+  assert.equal(channelPostSampled(message(78)), true);
+  assert.equal(channelPostSampled(message(54)), true);
+  assert.equal(channelPostSampled(message(43)), false);
+  assert.equal(channelPostSampled(message(58)), false);
+  // Stable: the same post always gets the same verdict.
+  assert.equal(channelPostSampled(message(123)), channelPostSampled(message(123)));
+  let kept = 0;
+  for (let id = 1; id <= 1000; id += 1) if (channelPostSampled(message(id))) kept += 1;
+  assert.ok(kept >= 700 && kept <= 800, `kept ${kept} of 1000 posts`);
+});
+
+test("skips short channel posts silently — by line count and by length", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
+    // Fewer than 5 non-empty lines, even with well over 200 characters.
+    const threeLines = "A very long opening line that goes on and on about the announcement and why it matters to everyone here.\nA second long line with even more detail about the features, the roadmap, and all the people involved.\nA third long line wrapping things up with links, credits, and thanks.";
+    assert.ok(threeLines.length >= 200);
+    assert.equal((await postGroupUpdate(env, channelPostUpdate(3100, 100, { text: threeLines }))).status, 200);
+    // Five-plus lines, but under 200 characters in total.
+    assert.equal((await postGroupUpdate(env, channelPostUpdate(3101, 101, { text: "One\nTwo\nThree\nFour\nFive\nSix" }))).status, 200);
+    assert.equal(aiCalls.length, 0);
+    assert.equal(calls.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("skips a long channel post that is sampled out, silently", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
+    // Message 43 in chat -100115 hashes above the 75% keep rate (see the
+    // sampling test), so even a fully eligible long post gets no comment.
+    assert.equal((await postGroupUpdate(env, channelPostUpdate(3102, 43, { text: LONG_CHANNEL_POST }))).status, 200);
+    assert.equal(aiCalls.length, 0);
+    assert.equal(calls.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("never comments on sticker, animation, or captioned-video channel posts", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
+    assert.equal((await postGroupUpdate(env, channelPostUpdate(3103, 102, { sticker: { file_id: "stk1" } }))).status, 200);
+    assert.equal((await postGroupUpdate(env, channelPostUpdate(3104, 103, { animation: { file_id: "gif1" } }))).status, 200);
+    // A caption does not rescue non-commentable media: the media type wins.
+    assert.equal((await postGroupUpdate(env, channelPostUpdate(3105, 104, { video: { file_id: "vid2", mime_type: "video/mp4" }, caption: LONG_CHANNEL_POST }))).status, 200);
+    assert.equal(aiCalls.length, 0);
+    assert.equal(calls.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("skips a photo-only channel post that is sampled out — no vision call", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupMediaFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
+    // Message 58 in chat -100115 is sampled out; the vision path is subject
+    // to the same rate, so not even a getFile call may happen.
+    assert.equal((await postGroupUpdate(env, channelPostUpdate(3106, 58, { photo: [{ file_id: "small" }, { file_id: "large" }] }))).status, 200);
+    assert.equal(aiCalls.length, 0);
+    assert.equal(calls.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("skipped channel posts do not consume the hourly comment bucket", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    // No D1: allowUsage falls back to KV counters, which accumulate across
+    // updates (the same trick as the group media cap test).
+    const env = { ...groupTestEnv(calls, aiCalls, { enforced: "true" }), IVAI_DB: undefined };
+    await postGroupUpdate(env, channelPostUpdate(3110, 95, { text: "Short one." }));
+    await postGroupUpdate(env, channelPostUpdate(3111, 92, { text: LONG_CHANNEL_POST }));
+    assert.equal(aiCalls.length, 0);
+    assert.equal(calls.length, 0);
+    // The full 10-per-hour bucket is still there for real comments: if the
+    // two skips above had burned quota, only 8 of these would be answered.
+    const keptIds = [100, 101, 102, 103, 104, 106, 107, 109, 110, 111];
+    for (const [index, id] of keptIds.entries()) {
+      assert.equal((await postGroupUpdate(env, channelPostUpdate(3120 + index, id, { text: LONG_CHANNEL_POST }))).status, 200);
+    }
+    assert.equal(aiCalls.length, 10);
+    assert.equal(calls.filter((call) => /sendMessage$/.test(call.url)).length, 10);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("typing refresher re-sends every ~4 seconds until stopped; stop is idempotent", async (t) => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: init?.body ? JSON.parse(init.body) : {} });
+    return new Response(JSON.stringify({ ok: true, result: true }), { status: 200 });
+  };
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const typing = startTypingRefresher(baseEnv(), { chatId: -100115, threadId: 77 });
+    const actions = () => calls.filter((call) => /sendChatAction$/.test(call.url));
+    const flush = async () => { for (let index = 0; index < 50; index += 1) await Promise.resolve(); };
+    // The refresher fires nothing on its own at t=0: each group call site
+    // sends the first typing action itself before starting the refresher.
+    await flush();
+    assert.equal(actions().length, 0);
+    t.mock.timers.tick(4000);
+    await flush();
+    assert.equal(actions().length, 1);
+    assert.equal(actions()[0].body.action, "typing");
+    // The delivery context is threaded into the comment thread.
+    assert.equal(actions()[0].body.message_thread_id, 77);
+    t.mock.timers.tick(4000);
+    await flush();
+    assert.equal(actions().length, 2);
+    await typing.stop();
+    // No leak: the interval cannot outlive stop().
+    t.mock.timers.tick(20000);
+    await flush();
+    assert.equal(actions().length, 2);
+    // A second stop is harmless.
+    await typing.stop();
+  } finally {
+    t.mock.timers.reset();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// An env whose AI calls join the same ordered log as the Telegram calls, so
+// tests can assert that typing starts before generation in each group path.
+function markerAiEnv(calls, aiCalls) {
+  return {
+    ...groupTestEnv(calls, aiCalls),
+    AI: { async run(model, payload) { calls.push({ url: "ai:run", body: {} }); aiCalls.push({ model, payload }); return { response: "Group answer" }; } }
+  };
+}
+
+test("group text turns send typing before the AI call, threaded to the comment thread", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = markerAiEnv(calls, aiCalls);
+    const update = { update_id: 3130, message: { message_id: 80, chat: { id: -100126, type: "supergroup" }, message_thread_id: 77, from: { id: 42, first_name: "A" }, text: "tell me more", reply_to_message: { message_id: 50, from: { id: 424242, is_bot: true, username: "IVAI_Llm_bot" }, text: "Earlier answer" } } };
+    assert.equal((await postGroupUpdate(env, update)).status, 200);
+    const typingIndex = calls.findIndex((call) => /sendChatAction$/.test(call.url));
+    const aiIndex = calls.findIndex((call) => call.url === "ai:run");
+    const sendIndex = calls.findIndex((call) => /sendMessage$/.test(call.url));
+    assert.ok(typingIndex !== -1 && aiIndex !== -1 && sendIndex !== -1);
+    assert.ok(typingIndex < aiIndex && aiIndex < sendIndex);
+    assert.equal(calls[typingIndex].body.message_thread_id, 77);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("group media turns send typing before the AI call", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupMediaFetch(calls);
+  try {
+    const env = markerAiEnv(calls, aiCalls);
+    const update = { update_id: 3131, message: { message_id: 66, chat: { id: -100128, type: "supergroup" }, from: { id: 42, first_name: "A" }, photo: [{ file_id: "ph1" }], reply_to_message: { message_id: 50, from: { id: 424242, is_bot: true, username: "IVAI_Llm_bot" } } } };
+    assert.equal((await postGroupUpdate(env, update)).status, 200);
+    const typingIndex = calls.findIndex((call) => /sendChatAction$/.test(call.url));
+    const aiIndex = calls.findIndex((call) => call.url === "ai:run");
+    const sendIndex = calls.findIndex((call) => /sendMessage$/.test(call.url));
+    assert.ok(typingIndex !== -1 && aiIndex !== -1 && sendIndex !== -1);
+    assert.ok(typingIndex < aiIndex && aiIndex < sendIndex);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("channel-post comments send typing before the AI call", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = { ...markerAiEnv(calls, aiCalls), REQUIRED_CHANNEL_ENFORCED: "true" };
+    assert.equal((await postGroupUpdate(env, channelPostUpdate(3132, 77, { text: LONG_CHANNEL_POST }))).status, 200);
+    const typingIndex = calls.findIndex((call) => /sendChatAction$/.test(call.url));
+    const aiIndex = calls.findIndex((call) => call.url === "ai:run");
+    const sendIndex = calls.findIndex((call) => /sendMessage$/.test(call.url));
+    assert.ok(typingIndex !== -1 && aiIndex !== -1 && sendIndex !== -1);
+    assert.ok(typingIndex < aiIndex && aiIndex < sendIndex);
   } finally {
     globalThis.fetch = originalFetch;
   }

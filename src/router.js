@@ -320,12 +320,56 @@ function channelThreadSeedKey(message) {
   });
 }
 
+// Channel-post comment sampling (v3.5.1): not every post earns a comment.
+// The verdict hashes the chat + message ids (FNV-1a), so it is stable per
+// post — no stored state, no randomness — and keeps roughly
+// GROUP_POLICY.channelPostReplyRate of eligible posts.
+export function channelPostSampled(message) {
+  const key = `chanpost:${message?.chat?.id}:${message?.message_id}`;
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < key.length; index += 1) {
+    hash ^= key.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash % 100 < Math.round(GROUP_POLICY.channelPostReplyRate * 100);
+}
+
+// Media a channel post can carry that never earns a comment, with or without
+// a caption: stickers, GIFs/animations, documents, video, audio, voice.
+function isNonCommentableChannelMedia(message) {
+  return Boolean(message.sticker || message.animation || message.document
+    || message.video || message.video_note || message.audio || message.voice);
+}
+
+function logChannelCommentSkip(message, reason) {
+  console.info(JSON.stringify({ event: "channel_comment_skip", reason, chatId: String(message?.chat?.id || "") }));
+}
+
 async function handleChannelPost(message, env) {
   const postText = String(message.text || message.caption || "").trim();
   // A photo-only post (no text/caption) gets one vision analysis instead of a
   // text comment; any other media-only post (video, audio, ...) stays silent.
   const photo = !postText ? message.photo?.at(-1) : null;
-  if (!postText && !photo) return;
+  // Eligibility and sampling run BEFORE the channel-post limit bucket: a
+  // skipped post performs no work, so it must not burn quota (v3.5.1).
+  const mediaBlocked = isNonCommentableChannelMedia(message);
+  if (postText && !mediaBlocked) {
+    // Short posts never earn a comment: fewer than 5 non-empty lines or
+    // under 200 characters of text.
+    const lineCount = postText.split("\n").filter((line) => line.trim()).length;
+    if (lineCount < 5 || postText.length < 200) {
+      logChannelCommentSkip(message, "short_post");
+      return;
+    }
+  }
+  if (!mediaBlocked && (postText || photo) && !channelPostSampled(message)) {
+    logChannelCommentSkip(message, "sampled_out");
+    return;
+  }
+  if (mediaBlocked || (!postText && !photo)) {
+    logChannelCommentSkip(message, "media_type");
+    return;
+  }
   if (!await passGroupLimits(message, env, "primary", "channel_post")) return;
   await sendTyping(env, message.chat.id, messageSendContext(message)).catch(() => {});
   const typing = startTypingRefresher(env, { chatId: message.chat.id, ...messageSendContext(message) });
