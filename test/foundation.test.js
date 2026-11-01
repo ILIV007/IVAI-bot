@@ -8,7 +8,7 @@ import { processReengagementBatch } from "../src/reengagement.js";
 import { analyzePhoto, downloadTelegramFile, transcribeVoice } from "../src/media.js";
 import { APP, defaultFreeModelFor, FREE_MODEL_POLICY, LANGUAGE_OPTIONS, MODES, modeOutputLimit } from "../src/config.js";
 import { defaultFreeModels, refreshFreeModelCatalog } from "../src/catalog.js";
-import { ensureConversationSession, getAdminOperationalStats, getConversationSession, getUserSettings, saveConversationSession, setMemoryEnabled, setSelectedModel, setUserLanguage, setUserMode, startNewConversationSession, upsertUser } from "../src/storage.js";
+import { conversationKey, ensureConversationSession, getAdminOperationalStats, getConversationSession, getUserSettings, saveConversationSession, setMemoryEnabled, setSelectedModel, setUserLanguage, setUserMode, startNewConversationSession, upsertUser } from "../src/storage.js";
 import { getRequiredChannelMembership } from "../src/membership.js";
 import { renderRichAiText, renderStandardAiText } from "../src/rich-renderer.js";
 import { renderAppPage } from "../src/app-page.js";
@@ -237,8 +237,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.4.1 release version", () => {
-  assert.equal(APP.version, "3.4.1");
+test("declares the official v3.5.0 release version", () => {
+  assert.equal(APP.version, "3.5.0");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -328,7 +328,7 @@ test("presents the requested Start controls and five-row Menu hierarchy", () => 
     { id: "@cf/zai-org/glm-4.7-flash", name: "GLM 4.7 Flash", provider: "workers-ai", category: "fast", contextLength: 131072 },
     { id: "google/gemma:free", name: "Gemma Free", provider: "openrouter", category: "deep" },
     { id: "openai/gpt-oss-20b", name: "GPT-OSS 20B", provider: "groq", category: "code" },
-    { id: "gemini-3.7-flash", name: "Gemini 3.7 Flash", provider: "google", category: "deep" }
+    { id: "gemini-3.8-flash", name: "Gemini 3.8 Flash", provider: "google", category: "deep" }
   ];
   const picker = modelPickerKeyboard(pickerModels, { selectedModel: "@cf/zai-org/glm-4.7-flash" }).inline_keyboard.flat();
   assert.ok(picker.some((button) => button.callback_data === "model:view:workers-ai" && button.text.startsWith("🟣") && button.style === "primary"));
@@ -933,7 +933,7 @@ test("uses the official OpenRouter Free Router and expanded verified static rout
   assert.ok(models.some((model) => model.id === "openrouter/free"));
   assert.ok(models.some((model) => model.id === "@cf/meta/llama-3.2-1b-instruct"));
   assert.ok(models.some((model) => model.id === "@cf/openai/gpt-oss-120b"));
-  assert.ok(models.some((model) => model.id === "gemini-3.5-flash"));
+  assert.ok(models.some((model) => model.id === "gemini-3.8-flash"));
 });
 
 test("prefers the selected free Workers AI model before fallback", async () => {
@@ -963,7 +963,7 @@ test("applies one Auto Response Profile consistently to OpenRouter, Groq, and Go
     const base = { ...baseEnv(), OPENROUTER_API_KEY: "configured", GROQ_API_KEY: "configured", GOOGLE_API_KEY: "configured" };
     const openRouter = await generateReply({ text: "Explain this briefly", selectedMode: MODES.AUTO, selectedModel: "openrouter/free", language: "en", context: [] }, base);
     const groq = await generateReply({ text: "Explain this briefly", selectedMode: MODES.AUTO, selectedModel: "openai/gpt-oss-20b", language: "en", context: [] }, base);
-    const google = await generateReply({ text: "Explain this briefly", selectedMode: MODES.AUTO, selectedModel: "gemini-3.5-flash", language: "en", context: [] }, base);
+    const google = await generateReply({ text: "Explain this briefly", selectedMode: MODES.AUTO, selectedModel: "gemini-3.8-flash", language: "en", context: [] }, base);
 
     assert.equal(openRouter.mode, MODES.AUTO);
     assert.equal(groq.mode, MODES.AUTO);
@@ -2554,8 +2554,9 @@ test("threads every part of a long group answer to the trigger message", async (
     const sends = calls.filter((call) => /sendMessage$/.test(call.url));
     assert.ok(sends.length >= 2);
     for (const send of sends) assert.equal(send.body.reply_parameters.message_id, 21);
-    assert.doesNotMatch(sends[0].body.text, /🪐/);
-    assert.match(sends.at(-1).body.text, /🪐/);
+    // v3.5.0: no part of a group answer carries the model/mode footer,
+    // including the last part (private chats still append it there).
+    for (const send of sends) assert.doesNotMatch(send.body.text, /🪐/);
     assert.equal(sends.some((send) => /sent below/.test(send.body.text)), false);
   } finally {
     globalThis.fetch = originalFetch;
@@ -2771,6 +2772,195 @@ test("caps group media per chat in other-tier groups at 3 per hour", async () =>
     assert.equal(newCalls.some((call) => /getFile$/.test(call.url)), false);
     assert.equal(newCalls.some((call) => /sendMessage$/.test(call.url)), false);
     assert.equal(aiCalls.length, 3);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// --- Phase 9 (v3.5.0): fast/light group turns, real-take comments, no group
+// footer, message-language answers, reply-chain memory -------------------------
+
+test("channel-post comment prompt forbids summarizing and demands a new take", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
+    const update = { update_id: 3040, message: { message_id: 77, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "France just passed a new per-gigabyte internet tax." } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 1);
+    const prompt = aiCalls[0].payload.messages.at(-1).content;
+    // 9C: a summary/paraphrase is explicitly forbidden; a new angle is required.
+    assert.match(prompt, /do NOT summarize/i);
+    assert.match(prompt, /NEW angle/);
+    // 9A/9B: the comment call itself is Fast on the pinned light model.
+    assert.equal(aiCalls[0].model, "@cf/zai-org/glm-4.7-flash");
+    assert.equal(aiCalls[0].payload.max_tokens, modeOutputLimit(MODES.FAST));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("group turns run Fast on the pinned GLM model, overriding stored mode and model", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls);
+    // The user's stored Deep mode and pinned heavy model must not leak into a
+    // group turn; the group override is Fast + GLM 4.7 Flash (9A/9B).
+    await setUserMode(42, MODES.DEEP, env);
+    await setSelectedModel(42, "@cf/meta/llama-3.1-8b-instruct-fp8-fast", env);
+    const update = { update_id: 3041, message: { message_id: 2, chat: { id: -100131, type: "supergroup" }, from: { id: 42, first_name: "A" }, text: "@IVAI_Llm_bot explain recursion", entities: [{ type: "mention", offset: 0, length: 13 }] } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 1);
+    assert.equal(aiCalls[0].model, "@cf/zai-org/glm-4.7-flash");
+    assert.equal(aiCalls[0].payload.max_tokens, modeOutputLimit(MODES.FAST));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("answers a Persian group trigger in Persian even with no stored language", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls);
+    // User 42 has no stored language; the trigger message itself is Persian,
+    // so the group ANSWER is Persian (9E) while the UI default stays English.
+    const update = { update_id: 3042, message: { message_id: 3, chat: { id: -100132, type: "supergroup" }, from: { id: 42, first_name: "A" }, text: "@IVAI_Llm_bot سلام، چطوری؟", entities: [{ type: "mention", offset: 0, length: 13 }] } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 1);
+    assert.match(aiCalls[0].payload.messages[0].content, /Respond in Persian/);
+    assert.equal(aiCalls[0].payload.messages.at(-1).content, "سلام، چطوری؟");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("group answers carry no footer while private answers still do", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls);
+    const mention = { update_id: 3043, message: { message_id: 4, chat: { id: -100133, type: "supergroup" }, from: { id: 42, first_name: "A" }, text: "@IVAI_Llm_bot hi there", entities: [{ type: "mention", offset: 0, length: 13 }] } };
+    assert.equal((await postGroupUpdate(env, mention)).status, 200);
+    const groupSend = calls.filter((call) => /sendMessage$/.test(call.url)).at(-1);
+    assert.match(groupSend.body.text, /Group answer/);
+    assert.doesNotMatch(groupSend.body.text, /🪐|IVAI ·/);
+    const priv = { update_id: 3044, message: { message_id: 5, chat: { id: 43, type: "private" }, from: { id: 43, first_name: "B" }, text: "hello" } };
+    assert.equal((await postGroupUpdate(env, priv)).status, 200);
+    const rich = calls.filter((call) => /sendRichMessage$/.test(call.url)).at(-1);
+    assert.ok(rich);
+    assert.match(rich.body.rich_message.html, /🪐/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("injects the replied-to bot message into context and saves it with the turn", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls);
+    const update = { update_id: 3045, message: { message_id: 6, chat: { id: -100134, type: "supergroup" }, from: { id: 42, first_name: "A" }, text: "tell me more", reply_to_message: { message_id: 50, from: { id: 424242, is_bot: true, username: "IVAI_Llm_bot" }, text: "Earlier answer about Mars" } } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 1);
+    // The model sees the bot's earlier message as an assistant context turn.
+    const context = aiCalls[0].payload.messages.slice(1, -1);
+    assert.deepEqual(context, [{ role: "assistant", content: "Earlier answer about Mars" }]);
+    // ...and it is persisted in the Session so later follow-ups keep it.
+    const saved = await getConversationSession(conversationKey({ chatId: -100134, userId: 42, threadId: null }), env);
+    assert.ok(saved.messages.some((entry) => entry.role === "assistant" && entry.content === "Earlier answer about Mars"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a follow-up replying to the bot's channel comment sees the post and the comment", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
+    const postText = "France just passed a new per-gigabyte internet tax that hits big downloads hardest.";
+    const post = { update_id: 3046, message: { message_id: 77, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: postText } };
+    assert.equal((await postGroupUpdate(env, post)).status, 200);
+    assert.equal(aiCalls.length, 1);
+    // The user replies to the bot's comment (the mock AI's "Group answer")
+    // inside the post's comment thread and asks about the same topic.
+    const followUp = { update_id: 3047, message: { message_id: 90, chat: { id: -100115, type: "supergroup" }, message_thread_id: 77, from: { id: 42, first_name: "A" }, text: "what's your take on the France thing?", reply_to_message: { message_id: 900, message_thread_id: 77, from: { id: 424242, is_bot: true, username: "IVAI_Llm_bot" }, text: "Group answer" } } };
+    assert.equal((await postGroupUpdate(env, followUp)).status, 200);
+    assert.equal(aiCalls.length, 2);
+    const context = aiCalls[1].payload.messages.slice(1, -1);
+    // Both the original post and the bot's comment (which is also the replied
+    // message) reach the model, so the follow-up cannot lose its topic.
+    assert.ok(context.some((entry) => entry.role === "user" && entry.content.includes("France just passed")));
+    assert.ok(context.some((entry) => entry.role === "assistant" && entry.content === "Group answer"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a follow-up outside the thread view still loads the thread seed via the reply target", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
+    const post = { update_id: 3048, message: { message_id: 77, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "City council approves the new night-train line to the coast." } };
+    assert.equal((await postGroupUpdate(env, post)).status, 200);
+    assert.equal(aiCalls.length, 1);
+    // Same follow-up, but sent from the main group view: the message itself
+    // has no message_thread_id — only its reply target carries the thread id.
+    const followUp = { update_id: 3049, message: { message_id: 91, chat: { id: -100115, type: "supergroup" }, from: { id: 42, first_name: "A" }, text: "and why does that matter?", reply_to_message: { message_id: 900, message_thread_id: 77, from: { id: 424242, is_bot: true, username: "IVAI_Llm_bot" }, text: "Group answer" } } };
+    assert.equal((await postGroupUpdate(env, followUp)).status, 200);
+    assert.equal(aiCalls.length, 2);
+    const context = aiCalls[1].payload.messages.slice(1, -1);
+    assert.ok(context.some((entry) => entry.content.includes("night-train")));
+    assert.ok(context.some((entry) => entry.role === "assistant" && entry.content === "Group answer"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("caps group model context at the last 5 chain messages", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls);
+    const scope = conversationKey({ chatId: -100135, userId: 42, threadId: null });
+    await saveConversationSession(scope, [
+      { role: "user", content: "ctx-1" },
+      { role: "assistant", content: "ctx-2" },
+      { role: "user", content: "ctx-3" },
+      { role: "assistant", content: "ctx-4" },
+      { role: "user", content: "ctx-5" },
+      { role: "assistant", content: "ctx-6" }
+    ], env);
+    const update = { update_id: 3050, message: { message_id: 7, chat: { id: -100135, type: "supergroup" }, from: { id: 42, first_name: "A" }, text: "@IVAI_Llm_bot continue please", entities: [{ type: "mention", offset: 0, length: 13 }] } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 1);
+    // System + exactly the last 5 context messages + the current user turn.
+    const context = aiCalls[0].payload.messages.slice(1, -1);
+    assert.deepEqual(context.map((entry) => entry.content), ["ctx-2", "ctx-3", "ctx-4", "ctx-5", "ctx-6"]);
   } finally {
     globalThis.fetch = originalFetch;
   }
