@@ -1,6 +1,6 @@
 export const APP = Object.freeze({
   name: "IVAI",
-  version: "3.4.1",
+  version: "3.5.0",
   botUsername: "IVAI_Llm_bot",
   terminalAppUrl: "https://ivai-bot.ivai-bot.workers.dev/app",
   // Bot-owned file IDs from the IVAILlmBot pack; refresh deliberately when that pack changes.
@@ -133,7 +133,7 @@ export const FREE_MODEL_POLICY = Object.freeze({
       "@cf/ibm-granite/granite-4.0-h-micro",
       "@cf/meta/llama-3.2-1b-instruct",
       "@cf/meta/llama-3.2-3b-instruct",
-      "@cf/meta/llama-3.1-8b-instruct-fp8-fast",
+      "@cf/meta/llama-3.1-8b-instruct-fp8",
       "@cf/meta/llama-4-scout-17b-16e-instruct",
       "@cf/qwen/qwen3-30b-a3b-fp8"
     ]),
@@ -151,19 +151,18 @@ export const FREE_MODEL_POLICY = Object.freeze({
   }),
   // The official free router selects only currently available zero-cost models.
   openRouter: Object.freeze(["openrouter/free"]),
-  // Groq retired llama-3.1-8b-instant on 2026-08-16; these are active production models.
+  // Groq retired llama-3.1-8b-instant on 2026-08-16 and qwen/qwen3.6-27b on
+  // 2026-09-14; its successor qwen3.8-27b is a Preview-tier model.
   groq: Object.freeze([
     "openai/gpt-oss-20b",
     "openai/gpt-oss-120b",
-    "qwen/qwen3.6-27b"
+    "qwen/qwen3.8-27b"
   ]),
   // Text-only Gemini calls: no Search grounding, Maps, media generation, or paid-only model.
   google: Object.freeze([
-    "gemini-3.7-flash",
+    "gemini-3.8-flash",
     "gemini-3.6-flash",
-    "gemini-3.5-flash",
     "gemini-3.5-flash-lite",
-    "gemini-3.1-flash-lite",
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite"
   ])
