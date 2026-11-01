@@ -1,4 +1,4 @@
-import { APP, MODES, SUPPORTED_LANGUAGE_CODES, USER_FACING_MODES } from "./config.js";
+import { APP, GROUP_POLICY, MODES, SUPPORTED_LANGUAGE_CODES, USER_FACING_MODES } from "./config.js";
 import { generateReply } from "./ai.js";
 import { getFreeModelCatalog, refreshFreeModelCatalog, renderModelList, selectCatalogModel } from "./catalog.js";
 import { analyzePhoto, transcribeVoice } from "./media.js";
@@ -57,18 +57,54 @@ function membershipCheckAlertText(language, { checkFailed = false } = {}) {
 }
 
 async function isRequiredChannelMember(userId, env) {
-  return getRequiredChannelMembership(userId, env);
+  const first = await getRequiredChannelMembership(userId, env);
+  // A denial served from the cache may be stale by the time a prompt would be
+  // shown (the user may have joined since). Re-verify live once before any
+  // membership prompt is sent; a denial that was already checked live stands.
+  if (first.allowed || !first.fromCache) return first;
+  return getRequiredChannelMembership(userId, env, { fresh: true });
 }
 
 async function sendMembershipRequired(message, language, membership, env) {
   if (!message?.chat?.id) return;
-  await sendMessage(env, {
-    chatId: message.chat.id,
-    text: requiredMembershipText(language, { checkFailed: membership?.reason === "CHECK_FAILED" }),
-    keyboard: requiredMembershipKeyboard(language),
-    replyTo: message.message_id,
-    ...messageSendContext(message)
-  });
+  const context = messageSendContext(message);
+  const text = requiredMembershipText(language, { checkFailed: membership?.reason === "CHECK_FAILED" });
+  const keyboard = requiredMembershipKeyboard(language);
+  // The prompt is a Rich Message with the Join/Check buttons inside the message
+  // itself; fall back to a plain message when Rich is unavailable.
+  try {
+    await sendRichMessage(env, {
+      chatId: message.chat.id,
+      html: text,
+      keyboard,
+      replyTo: message.message_id,
+      rtl: ["fa", "ar"].includes(language),
+      ...context
+    });
+  } catch {
+    await sendMessage(env, { chatId: message.chat.id, text, keyboard, replyTo: message.message_id, ...context });
+  }
+}
+
+// Private entry-point messages (start/menu/help and similar) carry their
+// keyboard inside a Rich Message instead of as buttons under a plain message.
+// Groups and any Rich failure keep the plain sendMessage path.
+async function sendEntryMessage(env, message, { html, keyboard, language = "en" }) {
+  const context = messageSendContext(message);
+  if (message.chat?.type === "private") {
+    try {
+      await sendRichMessage(env, {
+        chatId: message.chat.id,
+        html,
+        keyboard,
+        replyTo: message.message_id,
+        rtl: ["fa", "ar"].includes(language),
+        ...context
+      });
+      return;
+    } catch { /* Fall through to the plain message. */ }
+  }
+  await sendMessage(env, { chatId: message.chat.id, text: html, keyboard, replyTo: message.message_id, ...context });
 }
 
 async function answerInlineMembershipRequired(query, language, env) {
@@ -110,7 +146,133 @@ function languageFromMessage(message) {
 }
 
 function activeConversationLanguage(message, settings, session) {
-  return scriptLanguageFromMessage(message) || session?.language || settings?.language || languageFromMessage(message) || "en";
+  return scriptLanguageFromMessage(message) || session?.language || settings?.language || "en";
+}
+
+// --- Group gate (v3.4.0) -------------------------------------------------------
+// In groups the bot stays silent unless a message is a real trigger: a post from
+// the required channel, a reply to the bot, or a mention/command addressed to it.
+function botIdFromEnv(env) {
+  const id = Number(String(env.TELEGRAM_BOT_TOKEN || "").split(":")[0]);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+function isGroupChat(message) {
+  return ["group", "supergroup"].includes(message?.chat?.type);
+}
+
+function isChannelPost(message) {
+  return String(message?.sender_chat?.id ?? "") === String(APP.requiredChannelId);
+}
+
+function hasBotMention(message, botId) {
+  const text = String(message?.text || message?.caption || "");
+  const suffix = `@${APP.botUsername.toLowerCase()}`;
+  const entities = message?.entities || message?.caption_entities || [];
+  for (const entity of entities) {
+    const slice = text.slice(entity.offset, entity.offset + entity.length).toLowerCase();
+    if (entity.type === "text_mention" && botId && Number(entity.user?.id) === botId) return true;
+    if ((entity.type === "mention" || entity.type === "bot_command") && slice.endsWith(suffix)) return true;
+  }
+  if (!entities.length && text.toLowerCase().includes(suffix)) return true;
+  const firstToken = text.trim().split(/\s+/)[0] || "";
+  return firstToken.startsWith("/") && firstToken.toLowerCase().endsWith(suffix);
+}
+
+function groupTrigger(message, env) {
+  if (!isGroupChat(message)) return null;
+  if (isChannelPost(message)) return "channel_post";
+  // Other bots and anonymous senders (Telegram 777000, GroupAnonymousBot 1087968824)
+  // never trigger the bot; the channel-post case above is the only exception.
+  if (message.from?.is_bot || message.sender_chat || [777000, 1087968824].includes(message.from?.id)) return null;
+  const botId = botIdFromEnv(env);
+  const repliedFrom = message.reply_to_message?.from;
+  if (repliedFrom && ((botId && Number(repliedFrom.id) === botId) || String(repliedFrom.username || "").toLowerCase() === APP.botUsername.toLowerCase())) return "reply";
+  return hasBotMention(message, botId) ? "mention" : null;
+}
+
+function stripBotMention(text) {
+  return String(text || "").replace(new RegExp(`@${APP.botUsername}\\b`, "gi"), "").replace(/\s+/g, " ").trim();
+}
+
+// Primary tier: the group linked to the required channel (resolved lazily via
+// getChat and cached for a day), an explicit PRIMARY_GROUP_CHAT_ID, or any chat
+// receiving a channel post. Everything else is the stricter "other" tier.
+async function groupTier(message, env, trigger) {
+  if (trigger === "channel_post") return "primary";
+  if (env.PRIMARY_GROUP_CHAT_ID && String(env.PRIMARY_GROUP_CHAT_ID) === String(message.chat.id)) return "primary";
+  try {
+    const key = `linked:${APP.requiredChannelId}`;
+    let linked = await env.IVAI_KV?.get(key);
+    if (linked === null || linked === undefined) {
+      const chat = await telegram(env, "getChat", { chat_id: APP.requiredChannelId });
+      linked = String(chat?.linked_chat_id || "");
+      await env.IVAI_KV?.put(key, linked, { expirationTtl: 24 * 60 * 60 });
+    }
+    if (linked && String(linked) === String(message.chat.id)) return "primary";
+  } catch { /* Fail safe to the stricter tier. */ }
+  return "other";
+}
+
+async function passGroupLimits(message, env, tier, trigger) {
+  const chatId = message.chat.id;
+  if (trigger === "channel_post") {
+    return (await allowUsage({ scope: "chanpost", id: chatId, limit: GROUP_POLICY.channelPostHourlyLimit }, env)).allowed;
+  }
+  try {
+    if (await env.IVAI_KV?.get(`groupcd:${chatId}`)) return false;
+  } catch { /* A cache read failure must not block a legitimate trigger. */ }
+  const hourly = await allowUsage({ scope: "group", id: chatId, limit: tier === "primary" ? GROUP_POLICY.primaryHourlyLimit : GROUP_POLICY.otherHourlyLimit }, env);
+  if (!hourly.allowed) return false;
+  if (tier === "other") {
+    const daily = await allowUsage({ scope: "groupday", id: chatId, limit: GROUP_POLICY.otherDailyLimit, windowSeconds: 24 * 60 * 60 }, env);
+    if (!daily.allowed) return false;
+  }
+  return true;
+}
+
+async function setGroupCooldown(message, env, tier) {
+  try {
+    await env.IVAI_KV?.put(`groupcd:${message.chat.id}`, "1", {
+      expirationTtl: tier === "primary" ? GROUP_POLICY.primaryCooldownSeconds : GROUP_POLICY.otherCooldownSeconds
+    });
+  } catch { /* Best-effort. */ }
+}
+
+async function handleChannelPost(message, env) {
+  const postText = String(message.text || message.caption || "").trim();
+  // A photo-only post (no text/caption) gets one vision analysis instead of a
+  // text summary; any other media-only post (video, audio, ...) stays silent.
+  const photo = !postText ? message.photo?.at(-1) : null;
+  if (!postText && !photo) return;
+  if (!await passGroupLimits(message, env, "primary", "channel_post")) return;
+  await sendTyping(env, message.chat.id, messageSendContext(message)).catch(() => {});
+  try {
+    if (photo) {
+      const vision = await analyzePhoto({ fileId: photo.file_id, caption: "", language: "en" }, env);
+      await sendMessage(env, {
+        chatId: message.chat.id,
+        text: `${renderStandardAiText(vision.text)}\n\n${responseMeta({ model: vision.model, language: "en" })}`,
+        replyTo: message.message_id,
+        ...messageSendContext(message)
+      });
+      return;
+    }
+    const result = await generateReply({
+      text: `A post from the IVAI channel was just shared in its discussion group. Write a short summary of the post and a brief opinion or take on it for the group, in English, in at most about 120 words. Do not invent facts beyond the post.\n\nPost:\n${postText}`,
+      selectedMode: MODES.AUTO,
+      language: "en",
+      context: []
+    }, env);
+    await sendMessage(env, {
+      chatId: message.chat.id,
+      text: `${renderStandardAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: result.mode, language: "en" })}`,
+      replyTo: message.message_id,
+      ...messageSendContext(message)
+    });
+  } catch (error) {
+    console.error(JSON.stringify({ event: "channel_post_reply_failure", code: safeError(error), chatId: String(message.chat.id) }));
+  }
 }
 
 function userMessage(update) {
@@ -312,9 +474,9 @@ async function modelPickerView(language, selectedModel, env, page = 0, scope = "
   };
 }
 
-async function sendModelList(chatId, language, selectedModel, env, replyTo) {
+async function sendModelList(message, language, selectedModel, env) {
   const view = await modelPickerView(language, selectedModel, env);
-  await sendMessage(env, { chatId, text: view.text, keyboard: view.keyboard, replyTo });
+  await sendEntryMessage(env, message, { html: view.text, keyboard: view.keyboard, language });
 }
 
 async function handleCommand(message, env, language) {
@@ -331,7 +493,7 @@ async function handleCommand(message, env, language) {
         console.warn(JSON.stringify({ event: "welcome_sticker_fallback", error: String(error?.message || "unknown") }));
       });
     }
-    await sendMessage(env, { chatId, text: welcomeText(language), keyboard: welcomeKeyboard(language, message), replyTo: message.message_id });
+    await sendEntryMessage(env, message, { html: welcomeText(language), keyboard: welcomeKeyboard(language, message), language });
     return true;
   }
   if (command === "/new") {
@@ -343,12 +505,11 @@ async function handleCommand(message, env, language) {
     return true;
   }
   if (command === "/menu") {
-    const settings = await getUserSettings(userId, env);
-    await sendMessage(env, { chatId, text: menuText(language, settings), keyboard: mainKeyboard(language, message), replyTo: message.message_id });
+    await sendEntryMessage(env, message, { html: menuText(language, settings), keyboard: mainKeyboard(language, message), language });
     return true;
   }
   if (command === "/help") {
-    await sendMessage(env, { chatId, text: helpText(language), keyboard: mainKeyboard(language, message), replyTo: message.message_id });
+    await sendEntryMessage(env, message, { html: helpText(language), keyboard: mainKeyboard(language, message), language });
     return true;
   }
   if (command === "/terminal") {
@@ -357,7 +518,7 @@ async function handleCommand(message, env, language) {
       return true;
     }
     const text = language === "fa" ? "<b>IVAI Terminal</b> آماده است. پیام‌ها در همان رابط سبک ردوبدل می‌شوند و از همان مسیرهای رایگان IVAI استفاده می‌کنند." : "<b>IVAI Terminal</b> is ready. Messages stay inside the lightweight terminal and use the same IVAI free-only routes.";
-    await sendMessage(env, { chatId, text, keyboard: terminalKeyboard(language), replyTo: message.message_id });
+    await sendEntryMessage(env, message, { html: text, keyboard: terminalKeyboard(language), language });
     return true;
   }
   if (COMMAND_MODE[command]) {
@@ -370,23 +531,18 @@ async function handleCommand(message, env, language) {
     return true;
   }
   if (command === "/lang") {
-    await sendMessage(env, {
-      chatId,
-      text: languageMenuText(language),
-      keyboard: languageKeyboard(language),
-      replyTo: message.message_id
-    });
+    await sendEntryMessage(env, message, { html: languageMenuText(language), keyboard: languageKeyboard(language), language });
     return true;
   }
   if (command === "/notify") {
     const action = String(args[0] || "show").toLowerCase();
     if (action === "on" || action === "off") await setReengagementPreference(userId, action === "on", env);
     const preference = await getReengagementPreference(userId, env);
-    await sendMessage(env, { chatId, text: reengagementText(language, preference.enabled), keyboard: reengagementKeyboard(language, preference.enabled), replyTo: message.message_id });
+    await sendEntryMessage(env, message, { html: reengagementText(language, preference.enabled), keyboard: reengagementKeyboard(language, preference.enabled), language });
     return true;
   }
   if (command === "/models" || (command === "/model" && !argumentText)) {
-    await sendModelList(chatId, language, settings.selectedModel, env, message.message_id);
+    await sendModelList(message, language, settings.selectedModel, env);
     return true;
   }
   if (command === "/model" && args[0] === "off") {
@@ -529,18 +685,35 @@ async function handleCommand(message, env, language) {
 }
 
 async function processText(message, env) {
+  // Group gate first: no trigger means total silence — no membership check,
+  // settings load, upsert, session, or quota work happens for ordinary chatter.
+  const isGroup = isGroupChat(message);
+  let trigger = null;
+  if (isGroup) {
+    const commandSuffix = /^\/\S+@(\S+)/.exec(message.text.trim())?.[1];
+    if (commandSuffix && commandSuffix.toLowerCase() !== APP.botUsername.toLowerCase()) return;
+    trigger = groupTrigger(message, env);
+    if (!trigger) return;
+    if (trigger === "channel_post") return handleChannelPost(message, env);
+  }
   let text = message.text.trim();
   const detailsCommand = text.match(/^\/details(?:@\w+)?\s+(.+)$/is);
   const richDetailsRequested = Boolean(detailsCommand);
   if (detailsCommand) text = detailsCommand[1].trim();
+  if (trigger === "mention") {
+    text = stripBotMention(text);
+    if (!text) return;
+  }
   const userId = message.from?.id;
   const chatId = message.chat.id;
   const delivery = messageSendContext(message);
   const knownSettings = await getUserSettings(userId, env);
-  // UI language is an explicit, persistent user preference. The response language may
-  // follow a prompt's script or an active Session, but must not localize bot metadata.
-  const uiLanguage = knownSettings.language || languageFromMessage(message) || "en";
-  let responseLanguage = scriptLanguageFromMessage(message) || knownSettings.language || languageFromMessage(message) || "en";
+  // UI language is an explicit, persistent user preference (default English, only
+  // changed via /lang). It is never derived from the Telegram client's language.
+  const uiLanguage = knownSettings.language || "en";
+  // Groups: the triggering user's explicit language or English — no script
+  // detection. Private chats keep script detection as a fallback only.
+  let responseLanguage = isGroup ? uiLanguage : scriptLanguageFromMessage(message) || knownSettings.language || "en";
   const membership = await isRequiredChannelMember(userId, env);
   if (!membership.allowed) {
     await sendMembershipRequired(message, uiLanguage, membership, env);
@@ -550,10 +723,17 @@ async function processText(message, env) {
   if (message.chat?.type === "private") await ensureTerminalMenuButton(env);
   if (text.startsWith("/") && await handleCommand(message, env, uiLanguage)) return;
 
-  const settings = await getUserSettings(userId, env);
+  // handleCommand only mutates settings when it handles the message (and returns),
+  // so the already-loaded settings are still authoritative here.
+  const settings = knownSettings;
   const key = contextKey(message);
   const session = await ensureConversationSession(key, env, { language: responseLanguage });
-  responseLanguage = activeConversationLanguage(message, settings, session);
+  responseLanguage = isGroup ? settings.language || "en" : activeConversationLanguage(message, settings, session);
+  let tier = null;
+  if (isGroup) {
+    tier = await groupTier(message, env, trigger);
+    if (!await passGroupLimits(message, env, tier, trigger)) return;
+  }
   const modelInput = richDetailsRequested
     ? `${text}\n\nFor this opt-in expandable answer, provide the normal answer first. Only if a short user-visible supplement adds value, wrap that supplement exactly as:\n:::details Optional details\nvisible supporting explanation\n:::enddetails\nNever include hidden reasoning, chain-of-thought, private analysis, policies, or instructions inside the details block.`
     : text;
@@ -574,14 +754,16 @@ async function processText(message, env) {
         draftId: Number(message.message_id) || 1,
         html: `<tg-thinking>${uiLanguage === "fa" ? "IVAI در حال فکر کردن" : "IVAI is thinking"}</tg-thinking>`,
         threadId: delivery.threadId,
-        rtl: ["fa", "ar"].includes(uiLanguage)
+        rtl: ["fa", "ar"].includes(responseLanguage)
       });
       richDraftActive = true;
     } catch (error) {
       console.info(JSON.stringify({ event: "rich_draft_fallback", error: String(error?.message || "unknown") }));
     }
   }
-  const progress = richDraftActive ? null : await sendMessage(env, {
+  // Groups get no progress/thinking message at all: one typing action, then the
+  // final answer as a single reply to the trigger message.
+  const progress = richDraftActive || isGroup ? null : await sendMessage(env, {
     chatId,
     text: thinkingText(uiLanguage, 0),
     replyTo: message.message_id,
@@ -591,6 +773,7 @@ async function processText(message, env) {
 
   try {
     const result = await generateReply({ text: modelInput, selectedMode: settings.mode, selectedModel: settings.selectedModel, language: responseLanguage, context }, env);
+    if (isGroup) await setGroupCooldown(message, env, tier);
     await thinking?.stop();
     await saveConversationSession(key, [...context, { role: "user", content: text }, { role: "assistant", content: result.text }], env, { session, language: responseLanguage });
       const finalText = `${renderStandardAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: result.mode, language: uiLanguage })}`;
@@ -625,7 +808,7 @@ async function processText(message, env) {
       const last = index === rawParts.length - 1;
       const formattedPart = renderStandardAiText(rawParts[index]);
       const textPart = last ? `${formattedPart}\n\n${responseMeta({ model: result.model, mode: result.mode, language: uiLanguage })}` : formattedPart;
-      await sendMessage(env, { chatId, text: textPart, replyTo: index === 0 ? message.message_id : undefined, ...delivery });
+      await sendMessage(env, { chatId, text: textPart, replyTo: isGroup || index === 0 ? message.message_id : undefined, ...delivery });
     }
   } catch (error) {
     await thinking?.stop();
@@ -638,14 +821,32 @@ async function processText(message, env) {
 }
 
 async function processMedia(message, env) {
+  const isGroup = isGroupChat(message);
+  let groupTriggerType = null;
+  if (isGroup) {
+    // Group media only proceeds as a reply to the bot or with a caption mention.
+    groupTriggerType = groupTrigger(message, env);
+    if (!groupTriggerType || groupTriggerType === "channel_post") return;
+  }
   const userId = message.from?.id;
   const chatId = message.chat?.id;
   const delivery = messageSendContext(message);
-  const language = (await getUserSettings(userId, env)).language || languageFromMessage(message) || "en";
+  const language = (await getUserSettings(userId, env)).language || "en";
   const membership = await isRequiredChannelMember(userId, env);
   if (!membership.allowed) {
     await sendMembershipRequired(message, language, membership, env);
     return;
+  }
+  let tier = null;
+  if (isGroup) {
+    // Group media counts against the same per-chat limits/cooldown as group
+    // text; without this it would bypass the group anti-spam policy entirely.
+    tier = await groupTier(message, env, groupTriggerType);
+    if (!await passGroupLimits(message, env, tier, groupTriggerType)) return;
+    // Dedicated per-chat media cap on top of the shared group limits; a
+    // blocked media is dropped silently like every other group limit.
+    const mediaCap = await allowUsage({ scope: "groupmedia", id: chatId, limit: tier === "primary" ? GROUP_POLICY.primaryMediaHourlyLimit : GROUP_POLICY.otherMediaHourlyLimit }, env);
+    if (!mediaCap.allowed) return;
   }
   await upsertUser({ user: message.from, chat: message.chat, language }, env);
   const usage = await allowUsage({ scope: "media", id: userId, limit: APP.userDailyMediaLimit, windowSeconds: 24 * 60 * 60 }, env);
@@ -653,6 +854,7 @@ async function processMedia(message, env) {
     await sendMessage(env, { chatId, text: responseText(language, "busy"), replyTo: message.message_id, ...delivery });
     return;
   }
+  if (isGroup) await sendTyping(env, chatId, delivery).catch(() => {});
   try {
     let result;
     let prefix = "";
@@ -671,6 +873,7 @@ async function processMedia(message, env) {
       replyTo: message.message_id,
       ...delivery
     });
+    if (isGroup) await setGroupCooldown(message, env, tier);
   } catch (error) {
     const code = safeError(error);
     await sendMessage(env, { chatId, text: responseText(language, code === "RATE_LIMIT" ? "busy" : "temporary"), replyTo: message.message_id, ...delivery });
@@ -680,7 +883,8 @@ async function processMedia(message, env) {
 
 async function handleInlineQuery(query, env) {
   const userId = query.from?.id;
-  const language = (await getUserSettings(userId, env)).language || (query.from?.language_code === "fa" ? "fa" : "en");
+  const settings = await getUserSettings(userId, env);
+  const language = settings.language || "en";
   const prompt = String(query.query || "").trim();
   const membership = await isRequiredChannelMember(userId, env);
   if (!membership.allowed) return answerInlineMembershipRequired(query, language, env);
@@ -702,7 +906,6 @@ async function handleInlineQuery(query, env) {
     return;
   }
   try {
-    const settings = await getUserSettings(userId, env);
     const result = await generateReply({ text: prompt, selectedMode: settings.mode, selectedModel: settings.selectedModel, language, context: [] }, env);
     const token = crypto.randomUUID().replaceAll("-", "").slice(0, 24);
     if (env.IVAI_KV) await env.IVAI_KV.put(`inline:${token}`, JSON.stringify({ userId, model: result.model, mode: result.mode }), { expirationTtl: 24 * 60 * 60 });
@@ -764,7 +967,9 @@ async function processCallback(query, env) {
   if (!chatId || !messageId) return;
 
   if (data === "membership:check") {
-    const membership = await isRequiredChannelMember(userId, env);
+    // The Check button always re-verifies live; a cached denial must never
+    // decide the outcome of an explicit user-requested check.
+    const membership = await getRequiredChannelMembership(userId, env, { fresh: true });
     if (!membership.allowed) {
       await answerCallback(env, query.id, membershipCheckAlertText(language, { checkFailed: membership.reason === "CHECK_FAILED" }), { showAlert: true }).catch(() => {});
       return;
@@ -917,12 +1122,16 @@ async function processCallback(query, env) {
     const settings = await getUserSettings(userId, env);
     // A standalone confirmation remains visible even if the user has scrolled
     // past the Menu or Telegram folds an edited message into chat history.
-    await sendMessage(env, {
-      chatId,
-      text: modeChangedText(mode, language),
-      replyTo: messageId,
-      ...messageSendContext(query.message)
-    });
+    // Groups skip it: the edited Menu is confirmation enough and an extra
+    // message per mode tap is exactly the clutter the group flow avoids.
+    if (!isGroupChat(query.message)) {
+      await sendMessage(env, {
+        chatId,
+        text: modeChangedText(mode, language),
+        replyTo: messageId,
+        ...messageSendContext(query.message)
+      });
+    }
     await editMessage(env, {
       chatId,
       messageId,
@@ -1017,9 +1226,14 @@ export async function handleUpdate(update, env) {
   if (update.callback_query) return processCallback(update.callback_query, env);
   const message = userMessage(update);
   if (!message) return;
+  // Edited group messages are ignored entirely; channel posts in the linked
+  // group go straight to the summary path regardless of media type.
+  if (update.edited_message && isGroupChat(message)) return;
+  if (isGroupChat(message) && isChannelPost(message)) return handleChannelPost(message, env);
   if (message.text) return processText(message, env);
   if (message.voice || message.photo?.length) return processMedia(message, env);
-  const language = languageFromMessage(message) || "en";
+  if (isGroupChat(message)) return;
+  const language = (await getUserSettings(message.from?.id, env)).language || "en";
   const membership = await isRequiredChannelMember(message.from?.id, env);
   if (!membership.allowed) {
     await sendMembershipRequired(message, language, membership, env);

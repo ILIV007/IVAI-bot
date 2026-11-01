@@ -1,6 +1,7 @@
 export const APP = Object.freeze({
   name: "IVAI",
-  version: "3.3.46",
+  version: "3.4.0",
+  botUsername: "IVAI_Llm_bot",
   terminalAppUrl: "https://ivai-bot.ivai-bot.workers.dev/app",
   // Bot-owned file IDs from the IVAILlmBot pack; refresh deliberately when that pack changes.
   welcomeStickerFileIds: Object.freeze([
@@ -38,6 +39,21 @@ export const APP = Object.freeze({
     management: 900,
     thread: 900
   }
+});
+
+// Group anti-spam policy (v3.4.0): the primary tier is the discussion group linked
+// to the required channel; every other group gets stricter limits so quota burns slowly.
+export const GROUP_POLICY = Object.freeze({
+  primaryCooldownSeconds: 20,
+  primaryHourlyLimit: 30,
+  primaryMediaHourlyLimit: 10,
+  channelPostHourlyLimit: 10,
+  otherCooldownSeconds: 120,
+  otherHourlyLimit: 5,
+  otherDailyLimit: 30,
+  otherMediaHourlyLimit: 3,
+  membershipCacheTtlSeconds: 600,
+  membershipDeniedCacheTtlSeconds: 60
 });
 
 export const MODES = Object.freeze({

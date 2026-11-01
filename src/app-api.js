@@ -61,10 +61,18 @@ async function terminalUser(request, env) {
     console.warn(JSON.stringify({ event: "terminal_auth_rejected", initDataPresent: Boolean(initData), initDataLength: initData.length }));
     return null;
   }
-  const membership = await getRequiredChannelMembership(telegramUser.id, env);
+  let membership = await getRequiredChannelMembership(telegramUser.id, env);
+  // Same fresh-check rule as the chat flows: a cached denial is re-verified
+  // live before it blocks a (possibly just-joined) member.
+  if (!membership.allowed && membership.fromCache) {
+    membership = await getRequiredChannelMembership(telegramUser.id, env, { fresh: true });
+  }
   if (!membership.allowed) return { blocked: true, telegramUser, membership };
   const settings = await getUserSettings(telegramUser.id, env);
-  const requestedLanguage = String(settings.language || telegramUser.language_code || "en").replace("_", "-");
+  // English is the default; only a stored explicit /lang choice overrides it.
+  // Deriving (and persisting) the Telegram client's language_code is the exact
+  // bug the chat flows removed in v3.4.0.
+  const requestedLanguage = String(settings.language || "en").replace("_", "-");
   const language = SUPPORTED_LANGUAGE_CODES.has(requestedLanguage) ? requestedLanguage : "en";
   await upsertUser({ user: telegramUser, chat: { id: telegramUser.id, type: "private" }, language }, env);
   return { telegramUser, settings: { ...settings, language } };
