@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.7.2] - 2026-11-02
+
+### Changed
+
+- **Channel-post comments now work in two modes, chosen per post:** the v3.7.0 persona prompt always reached for the joke, so comments kept trying to be funny and rarely offered a useful opinion. The prompt now frames two explicit modes and teaches both by example, under separate `FUN examples:` and `ANALYSIS examples:` headings. FUN is the existing comedy behavior — unchanged, its three worked examples (Xbox trade-in, RTX 5090 mod, StreamVibe) kept verbatim. ANALYSIS is new: the bot as a very smart friend — what is genuinely good or interesting about the topic AND what else matters (the catch, the trade-off, the limit), balanced and concrete, not a roast and not a verdict — taught by two new worked examples (Pico11 booting Windows 11 on 128 MB of RAM: the official 4 GB "minimum" is mostly the weight of Microsoft's services, but what was removed to get there makes it a demo, not a daily system; Nota, the offline Ollama PDF reader: your files never leave your device, set against the quality gap of small local models and browser storage ceilings on a large archive). The model picks the mode the post honestly deserves — tool/project announcements with real trade-offs usually get ANALYSIS, absurd or gossipy posts get FUN — and never mixes the two in one comment (a new hard rule); the "land a real take" rule now reads as a take OR a balanced analysis point. Comment model (Qwen3 30B), `/no_think`, the 1600-token budget, completeness guard, ~75% sampling, eligibility, and limits are unchanged.
+
 ## [3.7.1] - 2026-11-02
 
 ### Fixed

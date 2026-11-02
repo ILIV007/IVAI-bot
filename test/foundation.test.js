@@ -238,8 +238,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.7.1 release version", () => {
-  assert.equal(APP.version, "3.7.1");
+test("declares the official v3.7.2 release version", () => {
+  assert.equal(APP.version, "3.7.2");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -3030,17 +3030,34 @@ test("channel-post comment prompt is a persona with worked examples and hard rul
     // v3.7.0 rewrote the comment prompt from scratch: the accreted rule
     // list of v3.4.1–v3.6.4 (specific detail, silent who-did-what step,
     // catch-first anchor, comparison-as-exception, …) is replaced by a
-    // short persona, three worked examples that teach the voice, and a
-    // short hard-rules block — the model still runs on Qwen3 30B.
+    // short persona, worked examples that teach the voice, and a short
+    // hard-rules block — the model still runs on Qwen3 30B.
+    // v3.7.2: the prompt now teaches TWO modes chosen per post — FUN
+    // (the three v3.7.0 examples, unchanged) and ANALYSIS (two new
+    // examples: the smart friend naming what is good AND what else
+    // matters — balanced, not a roast, not a verdict).
     assert.match(prompt, /witty regular of this group/);
     assert.match(prompt, /embarrassing, funny, revealing, or absurd beat/);
-    assert.equal((prompt.match(/→ Comment:/g) || []).length, 3);
+    assert.match(prompt, /You comment in ONE of two modes/);
+    assert.match(prompt, /the very smart friend/);
+    assert.match(prompt, /what is genuinely good or interesting here AND what else matters/);
+    assert.match(prompt, /not a roast, not a verdict/);
+    assert.match(prompt, /Never mix the two modes in one comment/);
+    assert.match(prompt, /FUN examples:/);
+    assert.match(prompt, /ANALYSIS examples:/);
+    assert.equal((prompt.match(/→ Comment:/g) || []).length, 5);
     assert.match(prompt, /انباره‌شون داره پر می‌شه/);
     assert.match(prompt, /همون کارت ۱۶ هزار دلاری انویدیا/);
     assert.match(prompt, /butt in every five seconds/);
+    assert.match(prompt, /وزن سرویس‌های مایکروسافته تا خود ویندوز/);
+    assert.match(prompt, /بیشتر یه نمایشه تا سیستمی برای استفاده‌ی روزمره/);
+    assert.match(prompt, /PDFهات از دستگاهت بیرون نمی‌رن/);
+    assert.match(prompt, /ذخیره‌سازی مرورگر برای یه آرشیو بزرگ مقاله‌ها زود سقف می‌خوره/);
     assert.match(prompt, /typically 1–3 short lines/);
-    assert.match(prompt, /Always land a real take/);
-    assert.match(prompt, /verdict, a prediction, or one line of cause-and-effect/);
+    assert.match(prompt, /Always land something real/);
+    assert.match(prompt, /in FUN mode a take — a prediction, or one line of cause-and-effect/);
+    assert.match(prompt, /in ANALYSIS mode a balanced point/);
+    assert.match(prompt, /One mode per comment — do not blend a joke into an analysis/);
     assert.match(prompt, /bare question/);
     assert.match(prompt, /No summaries, no report-speak/);
     assert.match(prompt, /could fit any post/);
