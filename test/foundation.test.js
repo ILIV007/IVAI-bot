@@ -238,8 +238,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.6.3 release version", () => {
-  assert.equal(APP.version, "3.6.3");
+test("declares the official v3.6.4 release version", () => {
+  assert.equal(APP.version, "3.6.4");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -2966,6 +2966,10 @@ test("channel-post comment prompt demands a specific first-person take with soul
     // the preferred anchor. Since v3.6.3 the prompt first silently works
     // out who did what to whom and anchors on the post's most human
     // moment, and the comment runs on Qwen3 30B instead of the GLM pin.
+    // Since v3.6.4 comparisons are the exception, not the default shape:
+    // the default is a sharp observation or verdict with no comparison at
+    // all, and number-heavy posts anchor on the relationship between the
+    // numbers (a ratio, a gap, a before/after).
     assert.match(prompt, /do NOT summarize/i);
     assert.match(prompt, /SPECIFIC detail/);
     assert.match(prompt, /personal take/);
@@ -2975,7 +2979,11 @@ test("channel-post comment prompt demands a specific first-person take with soul
     assert.match(prompt, /1–3 lines/);
     assert.match(prompt, /never claim you owned/i);
     assert.match(prompt, /invented memories/);
-    assert.match(prompt, /comparison is welcome ONLY/);
+    assert.match(prompt, /DEFAULT SHAPE is a sharp observation/);
+    assert.match(prompt, /NO comparison at all/);
+    assert.match(prompt, /comparison is the exception/);
+    assert.match(prompt, /if in doubt, leave it out/);
+    assert.match(prompt, /RELATIONSHIP between them/);
     assert.match(prompt, /short and simple/);
     assert.match(prompt, /catch is usually the sharpest anchor/);
     assert.match(prompt, /silently work out who did what to whom/);
