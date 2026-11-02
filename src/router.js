@@ -123,8 +123,71 @@ async function answerInlineMembershipRequired(query, language, env) {
   });
 }
 
+// Rich Message posts (Bot API 10.1) carry no text/caption: their content
+// lives in message.rich_message.blocks as RichText trees. Flattening those
+// blocks to plain text lets rich posts flow through the same paths as
+// ordinary posts (channel-post comments, language detection, reply-chain
+// context). The walk is defensive — the payload shape is outside our
+// control, so malformed nodes (wrong types, missing fields, absurd
+// nesting) degrade to "" instead of throwing.
+export function richTextToPlain(node, depth = 0) {
+  if (typeof node === "string") return node;
+  if (depth > 32) return "";
+  if (Array.isArray(node)) return node.map((child) => richTextToPlain(child, depth + 1)).join("");
+  if (node && typeof node === "object") return richTextToPlain(node.text, depth + 1);
+  return "";
+}
+
+export function richBlockToPlain(block, depth = 0) {
+  if (typeof block === "string") return block;
+  if (!block || typeof block !== "object" || Array.isArray(block) || depth > 32) return "";
+  const next = depth + 1;
+  const parts = [];
+  // A block's own text comes first, then its title and caption (a caption is
+  // an object with a text field, or a RichText itself — richTextToPlain
+  // handles both).
+  for (const field of ["text", "title", "caption"]) {
+    const value = richTextToPlain(block[field], next);
+    if (value) parts.push(value);
+  }
+  if (Array.isArray(block.items)) {
+    for (const item of block.items) {
+      const value = richBlockToPlain(item, next);
+      if (value) parts.push(value);
+    }
+  }
+  if (Array.isArray(block.rows)) {
+    for (const row of block.rows) {
+      const cells = Array.isArray(row) ? row : (Array.isArray(row?.cells) ? row.cells : []);
+      const line = cells.map((cell) => richTextToPlain(cell, next)).filter(Boolean).join(" | ");
+      if (line) parts.push(line);
+    }
+  }
+  for (const field of ["blocks", "media"]) {
+    if (Array.isArray(block[field])) {
+      for (const child of block[field]) {
+        const value = richBlockToPlain(child, next);
+        if (value) parts.push(value);
+      }
+    }
+  }
+  return parts.join("\n");
+}
+
+export function messagePlainText(message) {
+  const direct = String(message?.text || message?.caption || "");
+  if (direct.trim()) return direct;
+  const blocks = message?.rich_message?.blocks;
+  if (!Array.isArray(blocks)) return "";
+  try {
+    return blocks.map((block) => richBlockToPlain(block)).filter(Boolean).join("\n").trim();
+  } catch {
+    return "";
+  }
+}
+
 function scriptLanguageFromMessage(message) {
-  const text = String(message?.text || message?.caption || "");
+  const text = messagePlainText(message);
   if (/[\u0600-\u06ff]/.test(text)) {
     const telegramLanguage = String(message?.from?.language_code || "").replace("_", "-").toLowerCase();
     const persianSpecific = /[\u067e\u0686\u0698\u06af\u06a9\u06cc]/.test(text);
@@ -313,7 +376,7 @@ async function setGroupCooldown(message, env, tier) {
 // as a user turn otherwise; it is saved with the turn so the chain persists.
 function repliedContextEntry(message, env) {
   const target = message?.reply_to_message;
-  const content = String(target?.text || target?.caption || "").trim().slice(0, 600);
+  const content = messagePlainText(target).trim().slice(0, 600);
   if (!target || !content) return null;
   const botId = botIdFromEnv(env);
   const fromBot = (botId && Number(target.from?.id) === botId)
@@ -378,13 +441,16 @@ export function completeChannelComment(comment) {
 
 async function handleChannelPost(message, env) {
   // A channel post's text is its text or, for a media post, its caption —
-  // the caption IS the post text, whatever media it carries (v3.5.4).
-  const postText = String(message.text || message.caption || "").trim();
+  // the caption IS the post text, whatever media it carries (v3.5.4). A post
+  // sent as a Rich Message carries neither: its blocks are flattened to
+  // plain text instead (v3.7.3), and a rich post whose blocks carry no text
+  // counts as media-only, exactly like a photo without a caption.
+  const postText = messagePlainText(message).trim();
   // Eligibility and sampling run BEFORE the channel-post limit bucket: a
   // skipped post performs no work, so it must not burn quota (v3.5.1).
   if (!postText) {
     // A media-only post (photo, video, sticker, GIF, file, audio...) with no
-    // text/caption never earns a comment (v3.5.4).
+    // text/caption — or no text in its rich blocks — never earns a comment.
     logChannelCommentSkip(message, "media_type");
     return;
   }
