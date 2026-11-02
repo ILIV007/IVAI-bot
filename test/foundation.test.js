@@ -14,7 +14,7 @@ import { getRequiredChannelMembership } from "../src/membership.js";
 import { renderRichAiText, renderStandardAiText } from "../src/rich-renderer.js";
 import { renderAppPage } from "../src/app-page.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
-import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelPickToken, modelSelectionText, pickWelcomeSticker, secureRandomIndex, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, stabilizeRtlText, startKeyboard, startTypingRefresher, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
+import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelPickToken, modelSelectionText, pickWelcomeSticker, secureRandomIndex, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, stabilizeRtlText, startKeyboard, startTypingRefresher, telegram, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
 
 class KV {
   constructor() { this.values = new Map(); }
@@ -238,8 +238,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.5.1 release version", () => {
-  assert.equal(APP.version, "3.5.1");
+test("declares the official v3.5.2 release version", () => {
+  assert.equal(APP.version, "3.5.2");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -977,6 +977,175 @@ test("applies one Auto Response Profile consistently to OpenRouter, Groq, and Go
     assert.match(calls[1].body.messages[0].content, /complete, appropriately sized answer/i);
     assert.match(calls[2].body.systemInstruction.parts[0].text, /complete, appropriately sized answer/i);
   } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// --- Hotfix v3.5.2: provider/Telegram timeouts + per-attempt failure logs ---
+// Advance fake time (flushing microtasks between ticks) until the promise
+// settles, so 15–25s timeout races resolve deterministically with no real wait.
+async function driveUntilSettled(t, promise) {
+  let outcome = null;
+  promise.then(
+    (value) => { outcome = { ok: true, value }; },
+    (error) => { outcome = { ok: false, error }; }
+  );
+  for (let index = 0; index < 40 && !outcome; index += 1) {
+    t.mock.timers.tick(5000);
+    for (let inner = 0; inner < 100; inner += 1) await Promise.resolve();
+  }
+  assert.ok(outcome, "expected the promise to settle under fake time");
+  return outcome;
+}
+
+function captureProviderFailures() {
+  const originalError = console.error;
+  const lines = [];
+  console.error = (...args) => lines.push(args.join(" "));
+  return {
+    failures: () => lines.map((line) => JSON.parse(line)).filter((entry) => entry.event === "provider_attempt_failed"),
+    restore: () => { console.error = originalError; }
+  };
+}
+
+// A fetch that hangs forever and, like a real fetch, rejects when aborted.
+function hangingFetch(onCall) {
+  return (url, init) => {
+    onCall?.(String(url), init);
+    return new Promise((_, reject) => {
+      init.signal.addEventListener("abort", () => reject(new Error("The operation was aborted")));
+    });
+  };
+}
+
+test("a stuck Workers AI call times out and the chain falls through to the next provider", async (t) => {
+  const originalFetch = globalThis.fetch;
+  const logs = captureProviderFailures();
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("openrouter.ai")) {
+      return new Response(JSON.stringify({ choices: [{ message: { content: "OpenRouter rescued the reply." } }] }), { status: 200 });
+    }
+    throw new Error(`Unexpected provider endpoint: ${url}`);
+  };
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  try {
+    const env = {
+      ...baseEnv(),
+      OPENROUTER_API_KEY: "configured",
+      AI: { run: () => new Promise(() => {}) }
+    };
+    const outcome = await driveUntilSettled(t, generateReply({ text: "Hello", selectedMode: MODES.AUTO, selectedModel: null, language: "en", context: [] }, env));
+    assert.equal(outcome.ok, true);
+    assert.equal(outcome.value.provider, "openrouter");
+    assert.equal(outcome.value.text, "OpenRouter rescued the reply.");
+    const failed = logs.failures();
+    assert.equal(failed.length, 1);
+    assert.equal(failed[0].provider, "workers-ai");
+    assert.ok(failed[0].ms >= 25_000);
+    assert.match(failed[0].error, /timed out/);
+  } finally {
+    t.mock.timers.reset();
+    logs.restore();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a stuck fetch provider is aborted and the chain moves on", async (t) => {
+  const originalFetch = globalThis.fetch;
+  const logs = captureProviderFailures();
+  let groqSignal;
+  globalThis.fetch = (url, init) => {
+    const endpoint = String(url);
+    if (endpoint.includes("api.groq.com")) {
+      groqSignal = init.signal;
+      return hangingFetch()(url, init);
+    }
+    if (endpoint.includes("openrouter.ai")) {
+      return Promise.resolve(new Response(JSON.stringify({ choices: [{ message: { content: "OpenRouter after Groq." } }] }), { status: 200 }));
+    }
+    throw new Error(`Unexpected provider endpoint: ${endpoint}`);
+  };
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  try {
+    const env = { ...baseEnv(), GROQ_API_KEY: "configured", OPENROUTER_API_KEY: "configured" };
+    const outcome = await driveUntilSettled(t, generateReply({ text: "Hello", selectedMode: MODES.AUTO, selectedModel: "openai/gpt-oss-20b", language: "en", context: [] }, env));
+    assert.equal(outcome.ok, true);
+    assert.equal(outcome.value.provider, "openrouter");
+    assert.equal(groqSignal.aborted, true);
+    const failed = logs.failures();
+    assert.equal(failed[0].provider, "groq");
+    assert.ok(failed[0].ms >= 15_000);
+  } finally {
+    t.mock.timers.reset();
+    logs.restore();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("the generation chain stops starting attempts after the overall deadline", async (t) => {
+  const originalFetch = globalThis.fetch;
+  const logs = captureProviderFailures();
+  const fetched = [];
+  globalThis.fetch = hangingFetch((url) => fetched.push(url));
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  try {
+    const env = {
+      ...baseEnv(),
+      OPENROUTER_API_KEY: "configured", GROQ_API_KEY: "configured", GOOGLE_API_KEY: "configured",
+      AI: { run: () => new Promise(() => {}) }
+    };
+    // Workers AI burns 25s, OpenRouter 15s, Groq 15s: past the 45s deadline,
+    // so Google must never be attempted and the aggregated error is thrown.
+    const outcome = await driveUntilSettled(t, generateReply({ text: "Hello", selectedMode: MODES.AUTO, selectedModel: null, language: "en", context: [] }, env));
+    assert.equal(outcome.ok, false);
+    assert.match(outcome.error.message, /No free AI provider is currently available/);
+    assert.ok(fetched.some((url) => url.includes("openrouter.ai")));
+    assert.ok(fetched.some((url) => url.includes("api.groq.com")));
+    assert.ok(!fetched.some((url) => url.includes("generativelanguage.googleapis.com")));
+  } finally {
+    t.mock.timers.reset();
+    logs.restore();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("when every provider fails, generateReply throws and logs each failed attempt", async () => {
+  const originalFetch = globalThis.fetch;
+  const logs = captureProviderFailures();
+  globalThis.fetch = async () => new Response("nope", { status: 500 });
+  try {
+    const env = {
+      ...baseEnv(),
+      OPENROUTER_API_KEY: "configured", GROQ_API_KEY: "configured", GOOGLE_API_KEY: "configured",
+      AI: { async run() { throw new Error("Workers AI exploded"); } }
+    };
+    await assert.rejects(
+      generateReply({ text: "Hello", selectedMode: MODES.AUTO, selectedModel: null, language: "en", context: [] }, env),
+      /No free AI provider is currently available/
+    );
+    const failed = logs.failures();
+    assert.deepEqual(failed.map((entry) => entry.provider), ["workers-ai", "openrouter", "groq", "google"]);
+    for (const entry of failed) {
+      assert.equal(typeof entry.ms, "number");
+      assert.ok(entry.error.length > 0 && entry.error.length <= 120);
+    }
+  } finally {
+    logs.restore();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("telegram API calls time out instead of hanging the handler", async (t) => {
+  const originalFetch = globalThis.fetch;
+  let seenSignal;
+  globalThis.fetch = hangingFetch((url, init) => { seenSignal = init.signal; });
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const outcome = await driveUntilSettled(t, telegram(baseEnv(), "sendMessage", { chat_id: 1, text: "hi" }));
+    assert.equal(outcome.ok, false);
+    assert.equal(seenSignal.aborted, true);
+  } finally {
+    t.mock.timers.reset();
     globalThis.fetch = originalFetch;
   }
 });
