@@ -238,8 +238,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.5.2 release version", () => {
-  assert.equal(APP.version, "3.5.2");
+test("declares the official v3.5.3 release version", () => {
+  assert.equal(APP.version, "3.5.3");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -351,8 +351,8 @@ test("presents the requested Start controls and five-row Menu hierarchy", () => 
   assert.match(selectedCopy, /Provider:/);
   assert.match(selectedCopy, /Model route pinned/);
   assert.match(selectedCopy, /Response mode:<\/b> <code>Auto<\/code> \(unchanged\)/);
-  assert.equal(thinkingText("en", 0), "<i>IVAI is thinking.</i>");
-  assert.equal(thinkingText("en", 2), "<i>IVAI is thinking...</i>");
+  assert.equal(thinkingText("en", 0), "<i>⏳ IVAI is thinking.</i>");
+  assert.equal(thinkingText("en", 2), "<i>⏳ IVAI is thinking...</i>");
   assert.equal(modeLabel(MODES.DEEP, "en"), "Deep");
   assert.equal(terminalKeyboard("en").inline_keyboard[0][0].web_app.url, APP.terminalAppUrl);
   assert.equal(requiredMembershipKeyboard("en").inline_keyboard[0][0].url, "https://t.me/ILIVIR3");
