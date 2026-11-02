@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.2] - 2026-11-02
+
+### Fixed
+
+- **Hard timeouts on AI provider and Telegram API calls:** a stuck provider can no longer stall group replies indefinitely (previously the bot could show "typing" for a long time and never send any message, not even the failure notice). HTTP providers (OpenRouter, Groq, Google) now abort after 15s, Workers AI binding calls time out after 25s, the provider fallback chain stops starting new attempts after an overall 45s deadline and throws so the caller's failure path still runs, and Telegram API calls abort after 15s. Every failed provider attempt is logged immediately as a structured `provider_attempt_failed` event (provider, elapsed ms, truncated error), giving production the diagnostic trail it was missing.
+
 ## [3.5.1] - 2026-11-01
 
 ### Changed
