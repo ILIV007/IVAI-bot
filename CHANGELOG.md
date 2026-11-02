@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.5] - 2026-11-02
+
+### Fixed
+
+- **Short-post detection for channel comments:** now measures content amount — characters and words — instead of line count, so long paragraph-style posts are no longer wrongly skipped. A post is short when it has under 200 characters or under 20 words.
+
 ## [3.5.4] - 2026-11-02
 
 ### Fixed
