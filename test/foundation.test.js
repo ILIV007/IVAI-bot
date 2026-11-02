@@ -238,8 +238,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.5.3 release version", () => {
-  assert.equal(APP.version, "3.5.3");
+test("declares the official v3.5.4 release version", () => {
+  assert.equal(APP.version, "3.5.4");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -2871,7 +2871,7 @@ test("skips a video channel post silently", async () => {
   }
 });
 
-test("describes a photo-only channel post with one vision call and replies to the post", async () => {
+test("ignores a photo-only channel post — media-only posts get no comment", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   const aiCalls = [];
@@ -2881,19 +2881,12 @@ test("describes a photo-only channel post with one vision call and replies to th
     const update = { update_id: 3019, message: { message_id: 54, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, photo: [{ file_id: "small" }, { file_id: "large" }] } };
     const response = await postGroupUpdate(env, update);
     assert.equal(response.status, 200);
-    // Exactly one AI call and it is the vision call (image_url content), not
-    // the text-summary generateReply path.
-    assert.equal(aiCalls.length, 1);
-    const content = aiCalls[0].payload.messages[0].content;
-    assert.ok(Array.isArray(content) && content.some((part) => part.type === "image_url"));
-    assert.equal(calls.filter((call) => /getFile$/.test(call.url)).length, 1);
-    assert.equal(calls.some((call) => /getChatMember$/.test(call.url)), false);
-    const sends = calls.filter((call) => /sendMessage$/.test(call.url));
-    assert.equal(sends.length, 1);
-    assert.equal(sends[0].body.reply_parameters.message_id, 54);
-    assert.match(sends[0].body.text, /Group answer/);
-    // Vision replies to channel posts carry no model/mode footer either.
-    assert.doesNotMatch(sends[0].body.text, /🪐|IVAI ·|GLM/);
+    // v3.5.4 (owner decision superseding the Phase 8 vision reply): a
+    // media-only post — photo included — earns no comment at all, even
+    // though message 54 is sampled in. No AI call (analyzePhoto never runs:
+    // no getFile, no vision call) and no send of any kind.
+    assert.equal(aiCalls.length, 0);
+    assert.equal(calls.length, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -3197,7 +3190,7 @@ test("skips a long channel post that is sampled out, silently", async () => {
   }
 });
 
-test("never comments on sticker, animation, or captioned-video channel posts", async () => {
+test("never comments on media-only sticker or animation channel posts", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   const aiCalls = [];
@@ -3206,8 +3199,6 @@ test("never comments on sticker, animation, or captioned-video channel posts", a
     const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
     assert.equal((await postGroupUpdate(env, channelPostUpdate(3103, 102, { sticker: { file_id: "stk1" } }))).status, 200);
     assert.equal((await postGroupUpdate(env, channelPostUpdate(3104, 103, { animation: { file_id: "gif1" } }))).status, 200);
-    // A caption does not rescue non-commentable media: the media type wins.
-    assert.equal((await postGroupUpdate(env, channelPostUpdate(3105, 104, { video: { file_id: "vid2", mime_type: "video/mp4" }, caption: LONG_CHANNEL_POST }))).status, 200);
     assert.equal(aiCalls.length, 0);
     assert.equal(calls.length, 0);
   } finally {
@@ -3215,15 +3206,61 @@ test("never comments on sticker, animation, or captioned-video channel posts", a
   }
 });
 
-test("skips a photo-only channel post that is sampled out — no vision call", async () => {
+test("comments on a video channel post from its long Persian caption", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
+    // v3.5.4: the caption IS the post text — a media post with a long
+    // caption is commented from the caption, whatever media it carries.
+    // Message 120 in chat -100115 is sampled in (see the sampling test).
+    const caption = "ترایلر رسمی بازی جدید منتشر شد و طرفدارها حسابی ذوق کردن!\nتوی این ویدیو چند مرحله و شخصیت تازه رو برای اولین بار می‌بینیم.\nگرافیک و نورپردازی نسبت به نسخه قبلی خیلی بهتر شده و جزئیات محیط فوق‌العاده‌ست.\nحجم دانلودش حدود بیست گیگابایته و از امشب برای همه در دسترسه.\nنظرتون رو درباره این ترایلر با ما توی کامنت‌ها به اشتراک بذارید!";
+    const response = await postGroupUpdate(env, channelPostUpdate(3113, 120, { video: { file_id: "vid7", mime_type: "video/mp4" }, caption }));
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 1);
+    // generateReply received the caption as the post text, in Persian.
+    assert.match(aiCalls[0].payload.messages[0].content, /Respond in Persian/);
+    assert.match(aiCalls[0].payload.messages.at(-1).content, /ترایلر رسمی بازی جدید/);
+    const sends = calls.filter((call) => /sendMessage$/.test(call.url));
+    assert.equal(sends.length, 1);
+    assert.equal(sends[0].body.reply_parameters.message_id, 120);
+    assert.match(sends[0].body.text, /Group answer/);
+    // Channel-post comments carry no model/mode footer in the group.
+    assert.doesNotMatch(sends[0].body.text, /🪐|IVAI ·|GLM/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("skips a video channel post whose caption is short, as a short post", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
+    // Message 123 is sampled in, so only the short-caption rule can block
+    // it: a caption counts as post text, and a short one is a short post.
+    const caption = "یه کلیپ کوتاه!\nببینید و لذت ببرید";
+    assert.equal((await postGroupUpdate(env, channelPostUpdate(3114, 123, { video: { file_id: "vid8", mime_type: "video/mp4" }, caption }))).status, 200);
+    assert.equal(aiCalls.length, 0);
+    assert.equal(calls.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("skips a photo-only channel post silently — no vision call", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   const aiCalls = [];
   globalThis.fetch = mockGroupMediaFetch(calls);
   try {
     const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
-    // Message 58 in chat -100115 is sampled out; the vision path is subject
-    // to the same rate, so not even a getFile call may happen.
+    // Photo-only posts are media-only: skipped before sampling is even
+    // consulted, so not even a getFile call may happen.
     assert.equal((await postGroupUpdate(env, channelPostUpdate(3106, 58, { photo: [{ file_id: "small" }, { file_id: "large" }] }))).status, 200);
     assert.equal(aiCalls.length, 0);
     assert.equal(calls.length, 0);

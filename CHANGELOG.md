@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.4] - 2026-11-02
+
+### Fixed
+
+- **Channel-post comments:** media posts with captions are now commented from their caption; media-only posts without a caption, including photo-only posts, no longer receive comments, superseding the v3.4.0 photo-vision comment.
+
 ## [3.5.3] - 2026-11-02
 
 ### Fixed

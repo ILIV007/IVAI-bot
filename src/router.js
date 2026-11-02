@@ -334,57 +334,37 @@ export function channelPostSampled(message) {
   return hash % 100 < Math.round(GROUP_POLICY.channelPostReplyRate * 100);
 }
 
-// Media a channel post can carry that never earns a comment, with or without
-// a caption: stickers, GIFs/animations, documents, video, audio, voice.
-function isNonCommentableChannelMedia(message) {
-  return Boolean(message.sticker || message.animation || message.document
-    || message.video || message.video_note || message.audio || message.voice);
-}
-
 function logChannelCommentSkip(message, reason) {
   console.info(JSON.stringify({ event: "channel_comment_skip", reason, chatId: String(message?.chat?.id || "") }));
 }
 
 async function handleChannelPost(message, env) {
+  // A channel post's text is its text or, for a media post, its caption —
+  // the caption IS the post text, whatever media it carries (v3.5.4).
   const postText = String(message.text || message.caption || "").trim();
-  // A photo-only post (no text/caption) gets one vision analysis instead of a
-  // text comment; any other media-only post (video, audio, ...) stays silent.
-  const photo = !postText ? message.photo?.at(-1) : null;
   // Eligibility and sampling run BEFORE the channel-post limit bucket: a
   // skipped post performs no work, so it must not burn quota (v3.5.1).
-  const mediaBlocked = isNonCommentableChannelMedia(message);
-  if (postText && !mediaBlocked) {
-    // Short posts never earn a comment: fewer than 5 non-empty lines or
-    // under 200 characters of text.
-    const lineCount = postText.split("\n").filter((line) => line.trim()).length;
-    if (lineCount < 5 || postText.length < 200) {
-      logChannelCommentSkip(message, "short_post");
-      return;
-    }
-  }
-  if (!mediaBlocked && (postText || photo) && !channelPostSampled(message)) {
-    logChannelCommentSkip(message, "sampled_out");
+  if (!postText) {
+    // A media-only post (photo, video, sticker, GIF, file, audio...) with no
+    // text/caption never earns a comment (v3.5.4).
+    logChannelCommentSkip(message, "media_type");
     return;
   }
-  if (mediaBlocked || (!postText && !photo)) {
-    logChannelCommentSkip(message, "media_type");
+  // Short posts never earn a comment: fewer than 5 non-empty lines or
+  // under 200 characters of text.
+  const lineCount = postText.split("\n").filter((line) => line.trim()).length;
+  if (lineCount < 5 || postText.length < 200) {
+    logChannelCommentSkip(message, "short_post");
+    return;
+  }
+  if (!channelPostSampled(message)) {
+    logChannelCommentSkip(message, "sampled_out");
     return;
   }
   if (!await passGroupLimits(message, env, "primary", "channel_post")) return;
   await sendTyping(env, message.chat.id, messageSendContext(message)).catch(() => {});
   const typing = startTypingRefresher(env, { chatId: message.chat.id, ...messageSendContext(message) });
   try {
-    if (photo) {
-      const vision = await analyzePhoto({ fileId: photo.file_id, caption: "", language: "en" }, env);
-      await typing.stop();
-      await sendMessage(env, {
-        chatId: message.chat.id,
-        text: renderStandardAiText(vision.text),
-        replyTo: message.message_id,
-        ...messageSendContext(message)
-      });
-      return;
-    }
     // The reply is ONE short comment in the post's own language — a genuinely
     // new take (joke, critique, consequence, comparison, prediction), never a
     // summary of the post — and carries no model/mode footer in the group.
