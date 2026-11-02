@@ -364,7 +364,7 @@ export function thinkingText(language = "en", frame = 0) {
   return language === "fa" ? `<i>⚡ IVAI در حال فکر کردن${dots}</i>` : `<i>⚡ IVAI is thinking${dots}</i>`;
 }
 
-export function startThinkingAnimation(env, { chatId, messageId, language = "en", intervalMs = 900, threadId, businessConnectionId, directMessagesTopicId }) {
+export function startThinkingAnimation(env, { chatId, messageId, language = "en", intervalMs = 2000, threadId, businessConnectionId, directMessagesTopicId }) {
   let stopped = false;
   let frame = 1;
   let timer;
@@ -377,10 +377,10 @@ export function startThinkingAnimation(env, { chatId, messageId, language = "en"
       });
       timer = undefined;
       if (stopped) break;
-      await Promise.all([
-        editMessage(env, { chatId, messageId, text: thinkingText(language, frame), businessConnectionId }).catch(() => {}),
-        sendTyping(env, chatId, { threadId, businessConnectionId, directMessagesTopicId }).catch(() => {})
-      ]);
+      // The animated progress message is itself the indicator (v3.7.5): a 2s
+      // edit cadence is plenty, and the old per-tick typing call doubled the
+      // Telegram traffic for no visible gain.
+      await editMessage(env, { chatId, messageId, text: thinkingText(language, frame), businessConnectionId }).catch(() => {});
       frame += 1;
     }
   })();

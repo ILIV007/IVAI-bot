@@ -3,6 +3,10 @@ import { reserveWorkersAiBudget } from "./security.js";
 
 const TELEGRAM_FILE_BASE = "https://api.telegram.org/file";
 const MAX_MEDIA_BYTES = 8 * 1024 * 1024;
+// Voice gets a tighter cap than other media (v3.7.5): transcription spreads
+// the audio into a plain number array, which multiplies its memory footprint
+// several times over, so large voice messages are refused before download.
+const VOICE_MAX_BYTES = 2 * 1024 * 1024;
 const NETWORK_TIMEOUT_MS = 15_000;
 
 async function fetchWithTimeout(url, init = {}, timeoutMs = NETWORK_TIMEOUT_MS) {
@@ -26,21 +30,21 @@ async function telegramApi(env, method, body) {
   return payload.result;
 }
 
-export async function downloadTelegramFile(fileId, env) {
+export async function downloadTelegramFile(fileId, env, { maxBytes = MAX_MEDIA_BYTES } = {}) {
   if (!env.TELEGRAM_BOT_TOKEN) throw new Error("Telegram token is not configured");
   const metadata = await telegramApi(env, "getFile", { file_id: fileId });
   if (!metadata?.file_path) throw new Error("Telegram file metadata is incomplete");
-  if (Number(metadata.file_size || 0) > MAX_MEDIA_BYTES) throw new Error("Media is too large for the free-tier policy");
+  if (Number(metadata.file_size || 0) > maxBytes) throw new Error("Media is too large for the free-tier policy");
   const response = await fetchWithTimeout(`${TELEGRAM_FILE_BASE}/bot${env.TELEGRAM_BOT_TOKEN}/${metadata.file_path}`);
   if (!response.ok) throw new Error("Telegram file download failed");
   const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.byteLength > MAX_MEDIA_BYTES) throw new Error("Media is too large for the free-tier policy");
+  if (bytes.byteLength > maxBytes) throw new Error("Media is too large for the free-tier policy");
   return { bytes, filePath: metadata.file_path, mimeType: response.headers.get("content-type") || "application/octet-stream" };
 }
 
 export async function transcribeVoice({ fileId, languageHint }, env) {
   if (!env.AI?.run) throw new Error("Workers AI is not configured");
-  const media = await downloadTelegramFile(fileId, env);
+  const media = await downloadTelegramFile(fileId, env, { maxBytes: VOICE_MAX_BYTES });
   // Reserve enough of the daily free budget for transcription plus a bounded response; refusal is safer than nearing the paid boundary.
   const budget = await reserveWorkersAiBudget(600, env);
   if (!budget.allowed) throw new Error("Workers AI free quota guard blocked voice transcription");

@@ -14,7 +14,7 @@ import { getRequiredChannelMembership } from "../src/membership.js";
 import { renderRichAiText, renderStandardAiText } from "../src/rich-renderer.js";
 import { renderAppPage } from "../src/app-page.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
-import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelPickToken, modelSelectionText, pickWelcomeSticker, secureRandomIndex, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, stabilizeRtlText, startKeyboard, startTypingRefresher, telegram, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
+import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelPickToken, modelSelectionText, pickWelcomeSticker, secureRandomIndex, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, stabilizeRtlText, startKeyboard, startThinkingAnimation, startTypingRefresher, telegram, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
 
 class KV {
   constructor() { this.values = new Map(); }
@@ -238,8 +238,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.7.4 release version", () => {
-  assert.equal(APP.version, "3.7.4");
+test("declares the official v3.7.5 release version", () => {
+  assert.equal(APP.version, "3.7.5");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -1417,6 +1417,39 @@ test("rejects oversized Telegram media before downloading bytes", async () => {
     await assert.rejects(downloadTelegramFile("oversized", baseEnv()), /Media is too large/);
     assert.equal(calls.length, 1);
     assert.match(calls[0].url, /getFile$/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("rejects a voice message over the 2 MB voice cap before downloading it; photos keep the 8 MB cap", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const binary = new Uint8Array([1, 2, 3, 4]);
+  globalThis.fetch = async (url, init) => {
+    calls.push(String(url));
+    if (String(url).includes("getFile")) {
+      const { file_id: fileId } = JSON.parse(init.body);
+      const fileSize = fileId === "big-voice" ? 2 * 1024 * 1024 + 1 : 3 * 1024 * 1024;
+      return new Response(JSON.stringify({ ok: true, result: { file_path: "asset.bin", file_size: fileSize } }), { status: 200 });
+    }
+    return new Response(binary, { status: 200, headers: { "content-type": "image/jpeg" } });
+  };
+  try {
+    const env = {
+      ...baseEnv(),
+      AI: { async run(model, input) { return input.audio ? { text: "voice transcript" } : { response: "photo description" }; } }
+    };
+    // Voice is capped at 2 MB from the getFile metadata alone (v3.7.5): the
+    // rejection must land with no file download ever attempted, so the audio
+    // bytes are never spread into the transcription number array.
+    await assert.rejects(transcribeVoice({ fileId: "big-voice", languageHint: "en" }, env), /Media is too large/);
+    assert.equal(calls.length, 1);
+    assert.match(calls[0], /getFile$/);
+    // A 3 MB photo is over the voice cap but well under the general 8 MB
+    // media cap, and still goes through.
+    const photo = await analyzePhoto({ fileId: "photo-3mb", caption: "Describe", language: "en" }, env);
+    assert.equal(photo.text, "photo description");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -2866,6 +2899,46 @@ test("skips a second immediate group mention in a non-primary chat (other-tier c
   }
 });
 
+test("rejects a rate-limited group mention before any user upsert or session write", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls);
+    const chatId = -100140;
+    // Pre-seed the per-chat cooldown so passGroupLimits rejects immediately.
+    await env.IVAI_KV.put(`groupcd:${chatId}`, "1");
+    const statements = [];
+    const originalPrepare = env.IVAI_DB.prepare.bind(env.IVAI_DB);
+    env.IVAI_DB.prepare = (sql) => { statements.push(sql); return originalPrepare(sql); };
+    const kvPuts = [];
+    const originalPut = env.IVAI_KV.put.bind(env.IVAI_KV);
+    env.IVAI_KV.put = async (key, value, options) => { kvPuts.push(key); return originalPut(key, value, options); };
+    const mention = (updateId, messageId) => ({ update_id: updateId, message: { message_id: messageId, chat: { id: chatId, type: "supergroup" }, from: { id: 42, first_name: "A" }, text: "@IVAI_Llm_bot one question", entities: [{ type: "mention", offset: 0, length: 13 }] } });
+    assert.equal((await postGroupUpdate(env, mention(3211, 41))).status, 200);
+    // Rejected silently — no AI call, no message — and the rejection landed
+    // before any settings/upsert/session work (v3.7.5): no user/chat upsert
+    // statement ran and no Session key was written.
+    assert.equal(aiCalls.length, 0);
+    assert.equal(calls.filter((call) => /sendMessage$/.test(call.url)).length, 0);
+    assert.equal(statements.some((sql) => /INSERT INTO users|INSERT INTO chats/.test(sql)), false);
+    assert.equal(kvPuts.some((key) => key.startsWith("session:")), false);
+    // Admitted turns behave exactly as before: with the cooldown lifted, the
+    // same mention is answered and does write the user and the Session.
+    await env.IVAI_KV.delete(`groupcd:${chatId}`);
+    statements.length = 0;
+    kvPuts.length = 0;
+    assert.equal((await postGroupUpdate(env, mention(3212, 42))).status, 200);
+    assert.equal(aiCalls.length, 1);
+    assert.equal(calls.filter((call) => /sendMessage$/.test(call.url)).length, 1);
+    assert.ok(statements.some((sql) => sql.includes("INSERT INTO users")));
+    assert.ok(kvPuts.some((key) => key.startsWith("session:")));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("sends no standalone mode confirmation for a group callback, only the menu edit", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
@@ -3581,6 +3654,47 @@ test("typing refresher re-sends every ~4 seconds until stopped; stop is idempote
     assert.equal(actions().length, 2);
     // A second stop is harmless.
     await typing.stop();
+  } finally {
+    t.mock.timers.reset();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("thinking animation edits every 2 seconds and never sends typing actions", async (t) => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: init?.body ? JSON.parse(init.body) : {} });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 7 } }), { status: 200 });
+  };
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  try {
+    const animation = startThinkingAnimation(baseEnv(), { chatId: 42, messageId: 7 });
+    const edits = () => calls.filter((call) => /editMessageText$/.test(call.url));
+    const actions = () => calls.filter((call) => /sendChatAction$/.test(call.url));
+    const flush = async () => { for (let index = 0; index < 50; index += 1) await Promise.resolve(); };
+    await flush();
+    assert.equal(edits().length, 0);
+    // The old 900 ms cadence would already have ticked by now (v3.7.5).
+    t.mock.timers.tick(900);
+    await flush();
+    assert.equal(edits().length, 0);
+    t.mock.timers.tick(1100);
+    await flush();
+    assert.equal(edits().length, 1);
+    assert.match(edits()[0].body.text, /is thinking\.\./);
+    t.mock.timers.tick(2000);
+    await flush();
+    assert.equal(edits().length, 2);
+    // The animated progress message is the indicator: no typing calls at all.
+    assert.equal(actions().length, 0);
+    await animation.stop();
+    // No leak: the interval cannot outlive stop().
+    t.mock.timers.tick(20000);
+    await flush();
+    assert.equal(edits().length, 2);
+    // A second stop is harmless.
+    await animation.stop();
   } finally {
     t.mock.timers.reset();
     globalThis.fetch = originalFetch;
