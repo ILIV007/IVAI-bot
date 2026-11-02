@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.5.3] - 2026-11-02
+
+### Fixed
+
+- **Thinking label:** the private-chat thinking text (progress message and Rich draft) now starts with ⏳, so Telegram's animated thinking shimmer can no longer visually swallow the first letter of "IVAI" (it rendered as "VAI thinking..."). The code text was already correct; this is a display-side guard.
+
 ## [3.5.2] - 2026-11-02
 
 ### Fixed
