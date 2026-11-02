@@ -238,8 +238,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.6.2 release version", () => {
-  assert.equal(APP.version, "3.6.2");
+test("declares the official v3.6.3 release version", () => {
+  assert.equal(APP.version, "3.6.3");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -2963,7 +2963,9 @@ test("channel-post comment prompt demands a specific first-person take with soul
     // and the shape is shorter: 1–3 lines. Since v3.6.2 the first person is
     // honest (no invented memories/possessions), comparisons must earn
     // their place, sentences stay short and simple, and a post's catch is
-    // the preferred anchor.
+    // the preferred anchor. Since v3.6.3 the prompt first silently works
+    // out who did what to whom and anchors on the post's most human
+    // moment, and the comment runs on Qwen3 30B instead of the GLM pin.
     assert.match(prompt, /do NOT summarize/i);
     assert.match(prompt, /SPECIFIC detail/);
     assert.match(prompt, /personal take/);
@@ -2976,8 +2978,15 @@ test("channel-post comment prompt demands a specific first-person take with soul
     assert.match(prompt, /comparison is welcome ONLY/);
     assert.match(prompt, /short and simple/);
     assert.match(prompt, /catch is usually the sharpest anchor/);
-    // 9A/9B: the comment call itself is Fast on the pinned light model.
-    assert.equal(aiCalls[0].model, "@cf/zai-org/glm-4.7-flash");
+    assert.match(prompt, /silently work out who did what to whom/);
+    assert.match(prompt, /most human moment/);
+    assert.match(prompt, /embarrassing, funny, or revealing/);
+    assert.match(prompt, /never print this working-out/);
+    // 9A/9B: the comment call itself is Fast — but since v3.6.3 it is the
+    // one group exception to the GLM pin, running on Qwen3 30B for
+    // stronger multilingual quality (group replies keep the GLM pin,
+    // asserted in the next test).
+    assert.equal(aiCalls[0].model, "@cf/qwen/qwen3-30b-a3b-fp8");
     assert.equal(aiCalls[0].payload.max_tokens, modeOutputLimit(MODES.FAST));
   } finally {
     globalThis.fetch = originalFetch;

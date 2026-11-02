@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.3] - 2026-11-02
+
+### Changed
+
+- **Channel-post comments now run on Qwen3 30B:** the comment call is pinned to `@cf/qwen/qwen3-30b-a3b-fp8` instead of GLM 4.7 Flash, whose Persian output turned to word salad on nuanced, gossip-style posts. Comments are capped at 10/hour in the linked group, so the stronger free model stays affordable there; group reply/mention turns keep the Fast GLM 4.7 Flash pin. The daily Workers AI budget is untouched: the reserve is a flat per-call amount keyed to the Fast response profile, not to the model. The comment prompt also gains a silent comprehension step — first work out who did what to whom and anchor the comment on the post's most human moment (the most embarrassing, funny, or revealing beat); that working-out is never printed, and every existing voice rule (specific detail, honest first person, earned comparisons only, catch-first, short simple sentences, no summary or report-speak, 1–3 lines) still applies.
+
 ## [3.6.2] - 2026-11-02
 
 ### Fixed
