@@ -2,6 +2,16 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.0] - 2026-11-02
+
+### Changed
+
+- **Channel-post comments now follow the Mira style:** the comment prompt requires anchoring the comment in at least one specific detail from the post (a number, a name, a concrete fact or consequence), building a short observation or mini-analysis around it, and landing a clear personal take. Generic one-liners and jokes that could fit any post on the topic are explicitly banned, as are summaries. Shape is typically 2–4 lines (5-line cap still enforced in code), in the post's own language, with no footer.
+
+### Removed
+
+- **Typing indicator in groups:** group turns (text, media, and channel-post comments) no longer send any `sendChatAction` — the answer simply arrives. The now-unused `startTypingRefresher` helper is deleted. Private chats keep their existing typing and thinking flow.
+
 ## [3.5.5] - 2026-11-02
 
 ### Fixed

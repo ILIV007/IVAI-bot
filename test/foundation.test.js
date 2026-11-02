@@ -14,7 +14,7 @@ import { getRequiredChannelMembership } from "../src/membership.js";
 import { renderRichAiText, renderStandardAiText } from "../src/rich-renderer.js";
 import { renderAppPage } from "../src/app-page.js";
 import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
-import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelPickToken, modelSelectionText, pickWelcomeSticker, secureRandomIndex, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, stabilizeRtlText, startKeyboard, startTypingRefresher, telegram, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
+import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelPickToken, modelSelectionText, pickWelcomeSticker, secureRandomIndex, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, stabilizeRtlText, startKeyboard, telegram, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
 
 class KV {
   constructor() { this.values = new Map(); }
@@ -238,8 +238,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.5.5 release version", () => {
-  assert.equal(APP.version, "3.5.5");
+test("declares the official v3.6.0 release version", () => {
+  assert.equal(APP.version, "3.6.0");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -2464,7 +2464,8 @@ test("answers a group mention and strips the mention from the prompt", async () 
     assert.doesNotMatch(sends[0].body.text, /thinking/);
     assert.equal(sends[0].body.reply_parameters.message_id, 2);
     assert.match(sends[0].body.text, /Group answer/);
-    assert.ok(calls.some((call) => /sendChatAction$/.test(call.url)));
+    // v3.6.0: groups get no typing indicator at all.
+    assert.equal(calls.some((call) => /sendChatAction$/.test(call.url)), false);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -2582,8 +2583,8 @@ test("replies to a mother-channel post in the linked group with a short comment 
     const response = await postGroupUpdate(env, { update_id: 3005, message: { message_id: 77, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "We released a new open-source tool for developers today.\nIt turns plain Markdown notes into a fast static site in seconds.\nThe build finishes almost instantly for most projects.\nPlugins are written in JavaScript with a tiny, stable API.\nDocs and examples are live now — tell us what you build with it!" } });
     assert.equal(response.status, 200);
     assert.equal(aiCalls.length, 1);
-    // The prompt asks for ONE short comment, not a summary/opinion essay.
-    assert.match(aiCalls[0].payload.messages.at(-1).content, /ONE short comment/);
+    // The prompt asks for ONE Mira-style comment, not a summary/opinion essay.
+    assert.match(aiCalls[0].payload.messages.at(-1).content, /ONE comment/);
     assert.match(aiCalls[0].payload.messages.at(-1).content, /SAME language as the post/);
     assert.equal(calls.some((call) => /getChatMember$/.test(call.url)), false);
     const reply = calls.find((call) => /sendMessage$/.test(call.url));
@@ -2943,7 +2944,7 @@ test("caps group media per chat in other-tier groups at 3 per hour", async () =>
 // --- Phase 9 (v3.5.0): fast/light group turns, real-take comments, no group
 // footer, message-language answers, reply-chain memory -------------------------
 
-test("channel-post comment prompt forbids summarizing and demands a new take", async () => {
+test("channel-post comment prompt demands a Mira-style specific take, not a generic quip", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   const aiCalls = [];
@@ -2955,9 +2956,14 @@ test("channel-post comment prompt forbids summarizing and demands a new take", a
     assert.equal(response.status, 200);
     assert.equal(aiCalls.length, 1);
     const prompt = aiCalls[0].payload.messages.at(-1).content;
-    // 9C: a summary/paraphrase is explicitly forbidden; a new angle is required.
+    // v3.6.0: a summary/paraphrase is explicitly forbidden, the comment must
+    // anchor in a specific detail from this post, land a personal take, ban
+    // generic one-liners, and run 2–4 lines.
     assert.match(prompt, /do NOT summarize/i);
-    assert.match(prompt, /NEW angle/);
+    assert.match(prompt, /SPECIFIC detail/);
+    assert.match(prompt, /personal take/);
+    assert.match(prompt, /generic one-liners/);
+    assert.match(prompt, /2–4 short lines/);
     // 9A/9B: the comment call itself is Fast on the pinned light model.
     assert.equal(aiCalls[0].model, "@cf/zai-org/glm-4.7-flash");
     assert.equal(aiCalls[0].payload.max_tokens, modeOutputLimit(MODES.FAST));
@@ -3129,7 +3135,9 @@ test("caps group model context at the last 5 chain messages", async () => {
   }
 });
 
-// --- Phase 10 (v3.5.1): channel-post comment sampling/skips, typing audit ----
+// --- Phase 10 (v3.5.1): channel-post comment sampling/skips -----------------
+// (The group no-typing tests at the end of this section lock in v3.6.0, which
+// removed the typing indicator — and its refresher — from groups entirely.)
 
 const LONG_CHANNEL_POST = "We released a new open-source tool for developers today.\nIt turns plain Markdown notes into a fast static site in seconds.\nThe build finishes almost instantly for most projects.\nPlugins are written in JavaScript with a tiny, stable API.\nDocs and examples are live now — tell us what you build with it!";
 
@@ -3325,46 +3333,8 @@ test("skipped channel posts do not consume the hourly comment bucket", async () 
   }
 });
 
-test("typing refresher re-sends every ~4 seconds until stopped; stop is idempotent", async (t) => {
-  const originalFetch = globalThis.fetch;
-  const calls = [];
-  globalThis.fetch = async (url, init) => {
-    calls.push({ url: String(url), body: init?.body ? JSON.parse(init.body) : {} });
-    return new Response(JSON.stringify({ ok: true, result: true }), { status: 200 });
-  };
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-  try {
-    const typing = startTypingRefresher(baseEnv(), { chatId: -100115, threadId: 77 });
-    const actions = () => calls.filter((call) => /sendChatAction$/.test(call.url));
-    const flush = async () => { for (let index = 0; index < 50; index += 1) await Promise.resolve(); };
-    // The refresher fires nothing on its own at t=0: each group call site
-    // sends the first typing action itself before starting the refresher.
-    await flush();
-    assert.equal(actions().length, 0);
-    t.mock.timers.tick(4000);
-    await flush();
-    assert.equal(actions().length, 1);
-    assert.equal(actions()[0].body.action, "typing");
-    // The delivery context is threaded into the comment thread.
-    assert.equal(actions()[0].body.message_thread_id, 77);
-    t.mock.timers.tick(4000);
-    await flush();
-    assert.equal(actions().length, 2);
-    await typing.stop();
-    // No leak: the interval cannot outlive stop().
-    t.mock.timers.tick(20000);
-    await flush();
-    assert.equal(actions().length, 2);
-    // A second stop is harmless.
-    await typing.stop();
-  } finally {
-    t.mock.timers.reset();
-    globalThis.fetch = originalFetch;
-  }
-});
-
 // An env whose AI calls join the same ordered log as the Telegram calls, so
-// tests can assert that typing starts before generation in each group path.
+// tests can assert call ordering in each group path.
 function markerAiEnv(calls, aiCalls) {
   return {
     ...groupTestEnv(calls, aiCalls),
@@ -3372,7 +3342,7 @@ function markerAiEnv(calls, aiCalls) {
   };
 }
 
-test("group text turns send typing before the AI call, threaded to the comment thread", async () => {
+test("group text turns send no typing indicator, just the answer", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   const aiCalls = [];
@@ -3381,18 +3351,18 @@ test("group text turns send typing before the AI call, threaded to the comment t
     const env = markerAiEnv(calls, aiCalls);
     const update = { update_id: 3130, message: { message_id: 80, chat: { id: -100126, type: "supergroup" }, message_thread_id: 77, from: { id: 42, first_name: "A" }, text: "tell me more", reply_to_message: { message_id: 50, from: { id: 424242, is_bot: true, username: "IVAI_Llm_bot" }, text: "Earlier answer" } } };
     assert.equal((await postGroupUpdate(env, update)).status, 200);
-    const typingIndex = calls.findIndex((call) => /sendChatAction$/.test(call.url));
+    // v3.6.0: no sendChatAction anywhere in a group turn.
+    assert.equal(calls.some((call) => /sendChatAction$/.test(call.url)), false);
     const aiIndex = calls.findIndex((call) => call.url === "ai:run");
     const sendIndex = calls.findIndex((call) => /sendMessage$/.test(call.url));
-    assert.ok(typingIndex !== -1 && aiIndex !== -1 && sendIndex !== -1);
-    assert.ok(typingIndex < aiIndex && aiIndex < sendIndex);
-    assert.equal(calls[typingIndex].body.message_thread_id, 77);
+    assert.ok(aiIndex !== -1 && sendIndex !== -1);
+    assert.ok(aiIndex < sendIndex);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test("group media turns send typing before the AI call", async () => {
+test("group media turns send no typing indicator, just the answer", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   const aiCalls = [];
@@ -3401,17 +3371,18 @@ test("group media turns send typing before the AI call", async () => {
     const env = markerAiEnv(calls, aiCalls);
     const update = { update_id: 3131, message: { message_id: 66, chat: { id: -100128, type: "supergroup" }, from: { id: 42, first_name: "A" }, photo: [{ file_id: "ph1" }], reply_to_message: { message_id: 50, from: { id: 424242, is_bot: true, username: "IVAI_Llm_bot" } } } };
     assert.equal((await postGroupUpdate(env, update)).status, 200);
-    const typingIndex = calls.findIndex((call) => /sendChatAction$/.test(call.url));
+    // v3.6.0: no sendChatAction anywhere in a group turn.
+    assert.equal(calls.some((call) => /sendChatAction$/.test(call.url)), false);
     const aiIndex = calls.findIndex((call) => call.url === "ai:run");
     const sendIndex = calls.findIndex((call) => /sendMessage$/.test(call.url));
-    assert.ok(typingIndex !== -1 && aiIndex !== -1 && sendIndex !== -1);
-    assert.ok(typingIndex < aiIndex && aiIndex < sendIndex);
+    assert.ok(aiIndex !== -1 && sendIndex !== -1);
+    assert.ok(aiIndex < sendIndex);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test("channel-post comments send typing before the AI call", async () => {
+test("channel-post comments send no typing indicator, just the comment", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   const aiCalls = [];
@@ -3419,11 +3390,12 @@ test("channel-post comments send typing before the AI call", async () => {
   try {
     const env = { ...markerAiEnv(calls, aiCalls), REQUIRED_CHANNEL_ENFORCED: "true" };
     assert.equal((await postGroupUpdate(env, channelPostUpdate(3132, 77, { text: LONG_CHANNEL_POST }))).status, 200);
-    const typingIndex = calls.findIndex((call) => /sendChatAction$/.test(call.url));
+    // v3.6.0: no sendChatAction anywhere in a group turn.
+    assert.equal(calls.some((call) => /sendChatAction$/.test(call.url)), false);
     const aiIndex = calls.findIndex((call) => call.url === "ai:run");
     const sendIndex = calls.findIndex((call) => /sendMessage$/.test(call.url));
-    assert.ok(typingIndex !== -1 && aiIndex !== -1 && sendIndex !== -1);
-    assert.ok(typingIndex < aiIndex && aiIndex < sendIndex);
+    assert.ok(aiIndex !== -1 && sendIndex !== -1);
+    assert.ok(aiIndex < sendIndex);
   } finally {
     globalThis.fetch = originalFetch;
   }
