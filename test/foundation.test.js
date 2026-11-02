@@ -238,8 +238,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.6.1 release version", () => {
-  assert.equal(APP.version, "3.6.1");
+test("declares the official v3.6.2 release version", () => {
+  assert.equal(APP.version, "3.6.2");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -2960,7 +2960,10 @@ test("channel-post comment prompt demands a specific first-person take with soul
     // must anchor in a specific detail from this post and land a personal
     // take, generic one-liners are banned — and since v3.6.1 the voice must
     // be a first-person group member with a soul, report-speak is banned,
-    // and the shape is shorter: 1–3 lines.
+    // and the shape is shorter: 1–3 lines. Since v3.6.2 the first person is
+    // honest (no invented memories/possessions), comparisons must earn
+    // their place, sentences stay short and simple, and a post's catch is
+    // the preferred anchor.
     assert.match(prompt, /do NOT summarize/i);
     assert.match(prompt, /SPECIFIC detail/);
     assert.match(prompt, /personal take/);
@@ -2968,6 +2971,11 @@ test("channel-post comment prompt demands a specific first-person take with soul
     assert.match(prompt, /first person/i);
     assert.match(prompt, /report-speak/);
     assert.match(prompt, /1–3 lines/);
+    assert.match(prompt, /never claim you owned/i);
+    assert.match(prompt, /invented memories/);
+    assert.match(prompt, /comparison is welcome ONLY/);
+    assert.match(prompt, /short and simple/);
+    assert.match(prompt, /catch is usually the sharpest anchor/);
     // 9A/9B: the comment call itself is Fast on the pinned light model.
     assert.equal(aiCalls[0].model, "@cf/zai-org/glm-4.7-flash");
     assert.equal(aiCalls[0].payload.max_tokens, modeOutputLimit(MODES.FAST));
