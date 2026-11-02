@@ -238,8 +238,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.6.4 release version", () => {
-  assert.equal(APP.version, "3.6.4");
+test("declares the official v3.7.0 release version", () => {
+  assert.equal(APP.version, "3.7.0");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -2944,7 +2944,7 @@ test("caps group media per chat in other-tier groups at 3 per hour", async () =>
 // --- Phase 9 (v3.5.0): fast/light group turns, real-take comments, no group
 // footer, message-language answers, reply-chain memory -------------------------
 
-test("channel-post comment prompt demands a specific first-person take with soul, not report-speak", async () => {
+test("channel-post comment prompt is a persona with worked examples and hard rules", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   const aiCalls = [];
@@ -2956,40 +2956,27 @@ test("channel-post comment prompt demands a specific first-person take with soul
     assert.equal(response.status, 200);
     assert.equal(aiCalls.length, 1);
     const prompt = aiCalls[0].payload.messages.at(-1).content;
-    // v3.6.0/v3.6.1: a summary/paraphrase is explicitly forbidden, the comment
-    // must anchor in a specific detail from this post and land a personal
-    // take, generic one-liners are banned — and since v3.6.1 the voice must
-    // be a first-person group member with a soul, report-speak is banned,
-    // and the shape is shorter: 1–3 lines. Since v3.6.2 the first person is
-    // honest (no invented memories/possessions), comparisons must earn
-    // their place, sentences stay short and simple, and a post's catch is
-    // the preferred anchor. Since v3.6.3 the prompt first silently works
-    // out who did what to whom and anchors on the post's most human
-    // moment, and the comment runs on Qwen3 30B instead of the GLM pin.
-    // Since v3.6.4 comparisons are the exception, not the default shape:
-    // the default is a sharp observation or verdict with no comparison at
-    // all, and number-heavy posts anchor on the relationship between the
-    // numbers (a ratio, a gap, a before/after).
-    assert.match(prompt, /do NOT summarize/i);
-    assert.match(prompt, /SPECIFIC detail/);
-    assert.match(prompt, /personal take/);
-    assert.match(prompt, /generic one-liners/);
-    assert.match(prompt, /first person/i);
-    assert.match(prompt, /report-speak/);
-    assert.match(prompt, /1–3 lines/);
-    assert.match(prompt, /never claim you owned/i);
-    assert.match(prompt, /invented memories/);
-    assert.match(prompt, /DEFAULT SHAPE is a sharp observation/);
-    assert.match(prompt, /NO comparison at all/);
-    assert.match(prompt, /comparison is the exception/);
-    assert.match(prompt, /if in doubt, leave it out/);
-    assert.match(prompt, /RELATIONSHIP between them/);
-    assert.match(prompt, /short and simple/);
-    assert.match(prompt, /catch is usually the sharpest anchor/);
-    assert.match(prompt, /silently work out who did what to whom/);
-    assert.match(prompt, /most human moment/);
-    assert.match(prompt, /embarrassing, funny, or revealing/);
-    assert.match(prompt, /never print this working-out/);
+    // v3.7.0 rewrote the comment prompt from scratch: the accreted rule
+    // list of v3.4.1–v3.6.4 (specific detail, silent who-did-what step,
+    // catch-first anchor, comparison-as-exception, …) is replaced by a
+    // short persona, three worked examples that teach the voice, and a
+    // short hard-rules block — the model still runs on Qwen3 30B.
+    assert.match(prompt, /witty regular of this group/);
+    assert.match(prompt, /embarrassing, funny, revealing, or absurd beat/);
+    assert.equal((prompt.match(/→ Comment:/g) || []).length, 3);
+    assert.match(prompt, /انباره‌شون داره پر می‌شه/);
+    assert.match(prompt, /همون کارت ۱۶ هزار دلاری انویدیا/);
+    assert.match(prompt, /butt in every five seconds/);
+    assert.match(prompt, /typically 1–3 short lines/);
+    assert.match(prompt, /Always land a real take/);
+    assert.match(prompt, /verdict, a prediction, or one line of cause-and-effect/);
+    assert.match(prompt, /bare question/);
+    assert.match(prompt, /No summaries, no report-speak/);
+    assert.match(prompt, /could fit any post/);
+    assert.match(prompt, /First person is opinions only/);
+    assert.match(prompt, /never invent memories, possessions/);
+    assert.match(prompt, /comparison only when it maps exactly/);
+    assert.match(prompt, /most comments need none/);
     // 9A/9B: the comment call itself is Fast — but since v3.6.3 it is the
     // one group exception to the GLM pin, running on Qwen3 30B for
     // stronger multilingual quality (group replies keep the GLM pin,

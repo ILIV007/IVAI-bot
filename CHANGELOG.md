@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.7.0] - 2026-11-02
+
+### Changed
+
+- **Channel-post comment prompt rewritten from scratch:** the accreted rule list built up over v3.4.1–v3.6.4 (specific-detail anchor, silent who-did-what step, honest first person, catch-first anchor, comparison-as-exception, numbers-relationship anchor, …) kept producing whack-a-mole failures, so it is replaced wholesale by a compact persona-plus-few-shot prompt: a sharp, witty group regular with real taste who spots the one moment everyone will talk about, three worked examples (two Persian, one English) that teach the voice, and a short hard-rules block — write in the post's language, typically 1–3 short lines; always land a real take (a verdict, a prediction, or one line of cause-and-effect — never a bare question or empty amazement); no summaries, no report-speak, no generic lines that could fit any post; first person is opinions only, never invented memories or possessions; a comparison only when it maps exactly and exposes the point. The comment model stays pinned to Qwen3 30B (`@cf/qwen/qwen3-30b-a3b-fp8`); eligibility, ~75% sampling, limits, the ≤5-line code trim, and the no-footer rule are unchanged.
+
 ## [3.6.4] - 2026-11-02
 
 ### Fixed
