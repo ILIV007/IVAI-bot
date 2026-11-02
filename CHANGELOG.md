@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.7.4] - 2026-11-03
+
+### Changed
+
+- The private-chat thinking label now leads with a lightning bolt (⚡) instead of the hourglass (⏳), in both the rich draft thinking block and the classic fallback label.
+
 ## [3.7.3] - 2026-11-03
 
 ### Added
