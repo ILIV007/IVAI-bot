@@ -2,6 +2,16 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.1] - 2026-11-02
+
+### Changed
+
+- **Channel-post comment voice:** the comment prompt now demands a comment with a soul — written as a smart, witty friend in the group rather than an analyst: first-person voice with feelings and taste allowed, one specific detail from the post turned where possible into a vivid everyday picture or comparison, and one clear personal take. Report-speak is banned outright ("this shows that", "this indicates", "could be improved by", implication lists, neutral explainer tone). Comments are shorter: typically 1–3 lines, with a single emoji allowed when it genuinely fits.
+
+### Restored
+
+- **Typing indicator for group reply/mention turns:** group text and media turns triggered by a reply, mention, or post reply once again send a typing action plus the ~4-second refresher while the answer is generated (the `startTypingRefresher` helper returns with its original contract). Channel-post comments remain typing-free, as they have been since v3.6.0.
+
 ## [3.6.0] - 2026-11-02
 
 ### Changed

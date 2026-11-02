@@ -30,7 +30,7 @@ import {
   upsertUser,
   writeAdminAudit
 } from "./storage.js";
-import { adminKeyboard, answerCallback, editMessage, ensureTerminalMenuButton, escapeHtml, languageKeyboard, languageMenuText, menuText, modelPickerKeyboard, modelPickerText, modelPickToken, modelRouteLabel, modelSelectionText, modeKeyboard, modeLabel, pickWelcomeSticker, requiredMembershipKeyboard, requiredMembershipText, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendSticker, sendTyping, settingsKeyboard, splitText, startKeyboard, startThinkingAnimation, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
+import { adminKeyboard, answerCallback, editMessage, ensureTerminalMenuButton, escapeHtml, languageKeyboard, languageMenuText, menuText, modelPickerKeyboard, modelPickerText, modelPickToken, modelRouteLabel, modelSelectionText, modeKeyboard, modeLabel, pickWelcomeSticker, requiredMembershipKeyboard, requiredMembershipText, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendSticker, sendTyping, settingsKeyboard, splitText, startKeyboard, startThinkingAnimation, startTypingRefresher, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
 import { renderRichAiText, renderStandardAiText } from "./rich-renderer.js";
 
 const COMMAND_MODE = Object.freeze({
@@ -364,13 +364,13 @@ async function handleChannelPost(message, env) {
   }
   if (!await passGroupLimits(message, env, "primary", "channel_post")) return;
   try {
-    // The reply is ONE comment in the post's own language, in the engaged,
-    // specific voice of Telegram's Mira: anchored in a concrete detail from
-    // the post, never a summary and never a generic one-liner — and it
-    // carries no model/mode footer in the group.
+    // The reply is ONE comment in the post's own language, written like a
+    // smart, witty group member with a soul: anchored in a concrete detail
+    // from the post, first-person with a real take, never report-speak and
+    // never a summary — and it carries no model/mode footer in the group.
     const language = scriptLanguageFromMessage(message) || "en";
     const result = await generateReply({
-      text: `A post from the IVAI channel was just shared in its discussion group. Write ONE comment reacting to this post, in the SAME language as the post, in the voice of a sharp, engaged group member: (1) anchor the comment in at least one SPECIFIC detail from THIS post — a number, a name, a concrete fact, or a consequence it mentions — and build a short observation or mini-analysis around that detail; (2) land a clear personal take on it — a judgment, a verdict, or a wry conclusion. Hard rules: do NOT summarize, restate, paraphrase, or quote the post back; NO generic one-liners or jokes that could fit any post on this topic — if the comment would still work under a different post about the same subject, it is wrong. Typically 2–4 short lines, at most 5. No headings, no 'Summary' or 'Opinion' labels, no preamble, just the comment itself.\n\nPost:\n${postText}`,
+      text: `A post from the IVAI channel was just shared in its discussion group. Write ONE comment reacting to this post, in the SAME language as the post, as a smart, witty friend who actually hangs out in this group — never as an analyst filing a report. How: (1) pick one SPECIFIC detail from THIS post — a number, a name, a concrete fact, or a consequence it mentions — and if you can, turn it into a small vivid picture or an everyday-life comparison; (2) react like a person: first person is natural ("به نظرم", "in my view"), feelings and taste are welcome, and land one clear personal take — a judgment, a verdict, or a wry line. Hard rules: do NOT summarize, restate, paraphrase, or quote the post back; NO report-speak — never "this shows that", "this indicates", "could be improved by", no listing of implications, no neutral explainer tone; NO generic one-liners that could fit any post on this topic — if the comment would still work under a different post about the same subject, it is wrong. Keep it short: typically 1–3 lines (one or two sentences is often enough), at most 5. A single emoji is welcome when it genuinely fits, never required. No headings, no 'Summary' or 'Opinion' labels, no preamble, just the comment itself.\n\nPost:\n${postText}`,
       selectedMode: MODES.FAST,
       selectedModel: GROUP_MODEL,
       language,
@@ -899,7 +899,7 @@ async function processText(message, env) {
     context = [...context, repliedEntry];
   }
   if (isGroup) context = context.slice(-GROUP_CONTEXT_LIMIT);
-  if (!isGroup) await sendTyping(env, chatId, delivery).catch(() => {});
+  await sendTyping(env, chatId, delivery).catch(() => {});
   const richEligible = message.chat?.type === "private" && !delivery.businessConnectionId;
   let richDraftActive = false;
   if (richEligible) {
@@ -916,9 +916,8 @@ async function processText(message, env) {
       console.info(JSON.stringify({ event: "rich_draft_fallback", error: String(error?.message || "unknown") }));
     }
   }
-  // Groups get no progress/thinking message and no typing indicator at all
-  // (v3.6.0): the final answer simply arrives as a single reply to the
-  // trigger message.
+  // Groups get no progress/thinking message at all: one typing action, then the
+  // final answer as a single reply to the trigger message.
   const progress = richDraftActive || isGroup ? null : await sendMessage(env, {
     chatId,
     text: thinkingText(uiLanguage, 0),
@@ -926,6 +925,9 @@ async function processText(message, env) {
     ...delivery
   }).catch(() => null);
   const thinking = progress?.message_id ? startThinkingAnimation(env, { chatId, messageId: progress.message_id, language: uiLanguage, ...delivery }) : null;
+  // Groups have no progress message; a typing refresher keeps the indicator
+  // alive while the model runs instead (chat actions expire after ~5 seconds).
+  const typing = isGroup ? startTypingRefresher(env, { chatId, ...delivery }) : null;
 
   try {
     const result = await generateReply({
@@ -937,6 +939,7 @@ async function processText(message, env) {
     }, env);
     if (isGroup) await setGroupCooldown(message, env, tier);
     await thinking?.stop();
+    await typing?.stop();
     await saveConversationSession(key, [...context, { role: "user", content: text }, { role: "assistant", content: result.text }], env, { session, language: responseLanguage });
       // Groups never carry the model/mode footer (v3.5.0); private chats do.
       const footer = isGroup ? "" : `\n\n${responseMeta({ model: result.model, mode: result.mode, language: uiLanguage })}`;
@@ -976,6 +979,7 @@ async function processText(message, env) {
     }
   } catch (error) {
     await thinking?.stop();
+    await typing?.stop();
     const code = safeError(error);
     const failureText = responseText(uiLanguage, code === "RATE_LIMIT" ? "busy" : "temporary");
     if (progress?.message_id) await editMessage(env, { chatId, messageId: progress.message_id, text: failureText, businessConnectionId: delivery.businessConnectionId }).catch(() => {});
@@ -1025,6 +1029,8 @@ async function processMedia(message, env) {
     await sendMessage(env, { chatId, text: responseText(language, "busy"), replyTo: message.message_id, ...delivery });
     return;
   }
+  if (isGroup) await sendTyping(env, chatId, delivery).catch(() => {});
+  const typing = isGroup ? startTypingRefresher(env, { chatId, ...delivery }) : null;
   try {
     let result;
     let prefix = "";
@@ -1034,9 +1040,11 @@ async function processMedia(message, env) {
     } else if (message.photo?.length) {
       result = await analyzePhoto({ fileId: message.photo.at(-1).file_id, caption: message.caption || "", language }, env);
     } else {
+      await typing?.stop();
       await sendMessage(env, { chatId, text: responseText(language, "unsupportedMedia"), replyTo: message.message_id, ...delivery });
       return;
     }
+    await typing?.stop();
     await sendMessage(env, {
       chatId,
       // Groups never carry the model/mode footer (v3.5.0); private chats do.
@@ -1046,6 +1054,7 @@ async function processMedia(message, env) {
     });
     if (isGroup) await setGroupCooldown(message, env, tier);
   } catch (error) {
+    await typing?.stop();
     const code = safeError(error);
     await sendMessage(env, { chatId, text: responseText(language, code === "RATE_LIMIT" ? "busy" : "temporary"), replyTo: message.message_id, ...delivery });
     console.error(JSON.stringify({ event: "media_failure", code, userId: String(userId) }));
