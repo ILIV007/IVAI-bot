@@ -1,6 +1,8 @@
 import { APP, getLanguageOption, LANGUAGE_OPTIONS, MODES } from "./config.js";
 
 const API = "https://api.telegram.org";
+// A stuck Telegram API call must not hang the handler either.
+const TELEGRAM_TIMEOUT_MS = 15_000;
 
 export function escapeHtml(value = "") {
   return String(value)
@@ -329,11 +331,19 @@ export function adminKeyboard() {
 
 export async function telegram(env, method, body) {
   if (!env.TELEGRAM_BOT_TOKEN) throw new Error("Telegram token is not configured");
-  const response = await fetch(`${API}/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body)
-  });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TELEGRAM_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(`${API}/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timer);
+  }
   const json = await response.json().catch(() => ({}));
   if (!response.ok || !json.ok) throw new Error(`Telegram ${method} failed: ${json.description || response.status}`);
   return json.result;

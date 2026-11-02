@@ -2,6 +2,28 @@ import { APP, defaultFreeModelFor, FREE_MODEL_POLICY, getBrand, getLanguageOptio
 import { responseProfile, resolveResponseMode } from "./response-profile.js";
 import { reserveWorkersAiBudget } from "./security.js";
 
+// Hard timeouts (mirroring media.js): one stuck provider must never stall the
+// whole fallback chain until the platform kills the invocation.
+const FETCH_TIMEOUT_MS = 15_000;
+const BINDING_TIMEOUT_MS = 25_000;
+const CHAIN_DEADLINE_MS = 45_000;
+
+function fetchWithTimeout(url, init = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...init, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
+// Binding calls (env.AI.run) cannot be aborted, so race them against a timer;
+// the abandoned call is left behind and the chain moves on.
+function withTimeout(promise, timeoutMs, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 function systemInstruction(profile, language) {
   const brand = getBrand();
   const selectedLanguage = getLanguageOption(language);
@@ -44,11 +66,11 @@ async function runGuard({ text, language }, env) {
   const budget = await reserveWorkersAiBudget(profile.workersAiReserve, env);
   if (!budget.allowed) throw new Error("Workers AI free quota guard blocked Guard Mode");
   const model = FREE_MODEL_POLICY.workersAi.guard[0];
-  const result = await env.AI.run(model, {
+  const result = await withTimeout(env.AI.run(model, {
     messages: [{ role: "user", content: String(text).slice(0, APP.maxInputCharacters) }],
     max_tokens: 96,
     temperature: 0
-  });
+  }), BINDING_TIMEOUT_MS, "Workers AI");
   const raw = result?.response || result?.result?.response || result?.choices?.[0]?.message?.content;
   if (!String(raw || "").trim()) throw new Error("Llama Guard returned an empty response");
   return { text: guardReplyText(raw, language), provider: "workers-ai", model };
@@ -61,11 +83,11 @@ async function runWorkersAi({ messages, profile, selectedModel }, env) {
   const model = FREE_MODEL_POLICY.workersAi.text.includes(selectedModel)
     ? selectedModel
     : defaultFreeModelFor("workers-ai");
-  const result = await env.AI.run(model, {
+  const result = await withTimeout(env.AI.run(model, {
     messages,
     max_tokens: profile.maxOutputTokens,
     temperature: profile.temperature
-  });
+  }), BINDING_TIMEOUT_MS, "Workers AI");
   const text = result?.response || result?.result?.response || result?.choices?.[0]?.message?.content;
   if (!String(text || "").trim()) throw new Error("Workers AI returned an empty response");
   return { text: String(text).trim(), provider: "workers-ai", model };
@@ -80,7 +102,7 @@ async function runOpenRouter({ messages, profile, selectedModel }, env) {
   const model = isOpenRouterFreeModel(selectedModel)
     ? selectedModel
     : defaultFreeModelFor("openrouter");
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  const response = await fetchWithTimeout("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
       authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
@@ -102,7 +124,7 @@ async function runGroq({ messages, profile, selectedModel }, env) {
   const model = FREE_MODEL_POLICY.groq.includes(selectedModel)
     ? selectedModel
     : defaultFreeModelFor("groq");
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+  const response = await fetchWithTimeout("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: { authorization: `Bearer ${env.GROQ_API_KEY}`, "content-type": "application/json" },
     body: JSON.stringify({ model, messages, max_tokens: Math.min(profile.maxOutputTokens, 1024), temperature: profile.temperature })
@@ -124,7 +146,7 @@ async function runGoogle({ messages, profile, selectedModel }, env) {
     role: message.role === "assistant" ? "model" : "user",
     parts: [{ text: message.content }]
   }));
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GOOGLE_API_KEY}`, {
+  const response = await fetchWithTimeout(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${env.GOOGLE_API_KEY}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -150,12 +172,20 @@ export async function generateReply({ text, selectedMode, selectedModel, languag
         : FREE_MODEL_POLICY.google.includes(selectedModel) ? runGoogle
           : null;
   const attempts = preferred ? [preferred, ...[runWorkersAi, runOpenRouter, runGroq, runGoogle].filter((attempt) => attempt !== preferred)] : [runWorkersAi, runOpenRouter, runGroq, runGoogle];
+  const providerOf = new Map([[runWorkersAi, "workers-ai"], [runOpenRouter, "openrouter"], [runGroq, "groq"], [runGoogle, "google"]]);
+  const startedAt = Date.now();
   const failures = [];
-  for (const attempt of attempts) {
+  for (const [index, attempt] of attempts.entries()) {
+    // Overall deadline: never start another attempt once the chain has burned
+    // its budget — bail out so the caller's failure path still runs.
+    if (index > 0 && Date.now() - startedAt > CHAIN_DEADLINE_MS) break;
+    const attemptStartedAt = Date.now();
     try {
       return { ...(await attempt({ messages, profile, selectedModel }, env)), mode: profile.mode };
     } catch (error) {
-      failures.push(String(error.message || error).slice(0, 100));
+      const message = String(error.message || error);
+      failures.push(message.slice(0, 100));
+      console.error(JSON.stringify({ event: "provider_attempt_failed", provider: providerOf.get(attempt), ms: Date.now() - attemptStartedAt, error: message.slice(0, 120) }));
     }
   }
   throw new Error(`No free AI provider is currently available: ${failures.join(" | ")}`);
