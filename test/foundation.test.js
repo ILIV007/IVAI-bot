@@ -7,7 +7,7 @@ import { processSecretaryReminderBatch } from "../src/secretary.js";
 import { processReengagementBatch } from "../src/reengagement.js";
 import { analyzePhoto, downloadTelegramFile, transcribeVoice } from "../src/media.js";
 import { APP, defaultFreeModelFor, FREE_MODEL_POLICY, GROUP_POLICY, LANGUAGE_OPTIONS, MODES, modeOutputLimit } from "../src/config.js";
-import { channelPostSampled, completeChannelComment } from "../src/router.js";
+import { channelPostSampled, completeChannelComment, messagePlainText, richBlockToPlain, richTextToPlain } from "../src/router.js";
 import { defaultFreeModels, refreshFreeModelCatalog } from "../src/catalog.js";
 import { conversationKey, ensureConversationSession, getAdminOperationalStats, getConversationSession, getUserSettings, saveConversationSession, setMemoryEnabled, setSelectedModel, setUserLanguage, setUserMode, startNewConversationSession, upsertUser } from "../src/storage.js";
 import { getRequiredChannelMembership } from "../src/membership.js";
@@ -238,8 +238,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.7.2 release version", () => {
-  assert.equal(APP.version, "3.7.2");
+test("declares the official v3.7.3 release version", () => {
+  assert.equal(APP.version, "3.7.3");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -2706,6 +2706,110 @@ test("trims a truncated channel-post comment to its last complete segment before
     assert.ok(reply);
     assert.match(reply.body.text, /چه ربطی داشته باشه چه نه/);
     assert.doesNotMatch(reply.body.text, /فقط خدا به داد/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("flattens Rich Message blocks to plain text without throwing on malformed input", () => {
+  // Nested formatting wrappers resolve to their innermost text.
+  assert.equal(richTextToPlain({ type: "bold", text: { type: "italic", text: "hello" } }), "hello");
+  assert.equal(richTextToPlain(["Price: ", { type: "bold", text: ["$5", { type: "code", text: "0" }] }]), "Price: $50");
+  assert.equal(richTextToPlain("plain"), "plain");
+  // Lists join items line by line; tables join cells with " | ", whether
+  // rows are bare cell arrays or objects carrying a cells array.
+  assert.equal(richBlockToPlain({ type: "list", items: [{ text: "one" }, { text: "two" }] }), "one\ntwo");
+  assert.equal(
+    richBlockToPlain({ type: "table", rows: [[{ text: "Name" }, { text: "Price" }], [{ text: "Apple" }, { text: "3" }]] }),
+    "Name | Price\nApple | 3"
+  );
+  assert.equal(richBlockToPlain({ type: "table", rows: [{ cells: [{ text: "A" }, { text: "B" }] }] }), "A | B");
+  // Nested containers and media collections recurse.
+  assert.equal(
+    richBlockToPlain({ type: "details", title: "More", blocks: [{ type: "paragraph", text: "inside" }] }),
+    "More\ninside"
+  );
+  assert.equal(
+    richBlockToPlain({ type: "collage", media: [{ type: "photo", caption: { text: "first" } }, { type: "photo", caption: { text: "second" } }] }),
+    "first\nsecond"
+  );
+  // Media captions count as text, whether a caption object or a bare RichText.
+  assert.equal(richBlockToPlain({ type: "photo", caption: { text: "a cat" } }), "a cat");
+  assert.equal(richBlockToPlain({ type: "photo", caption: ["cap", { text: "tion" }] }), "caption");
+  // Direct text/caption win over rich blocks; rich blocks are the fallback.
+  assert.equal(messagePlainText({ text: "hello", rich_message: { blocks: [{ text: "rich" }] } }), "hello");
+  assert.equal(messagePlainText({ caption: "cap" }), "cap");
+  assert.equal(messagePlainText({ rich_message: { blocks: [{ type: "paragraph", text: "rich body" }] } }), "rich body");
+  // Malformed input degrades to "" and never throws.
+  assert.equal(richTextToPlain(null), "");
+  assert.equal(richTextToPlain(42), "");
+  assert.equal(richTextToPlain({}), "");
+  assert.equal(richTextToPlain({ text: 42 }), "");
+  assert.equal(richBlockToPlain(null), "");
+  assert.equal(richBlockToPlain({ text: 42 }), "");
+  assert.equal(messagePlainText(null), "");
+  assert.equal(messagePlainText({}), "");
+  assert.equal(messagePlainText({ rich_message: { blocks: "nope" } }), "");
+  assert.equal(messagePlainText({ rich_message: { blocks: [null, 42, { text: "ok" }] } }), "ok");
+  let deep = "bottom";
+  for (let index = 0; index < 200; index += 1) deep = { text: deep };
+  assert.equal(richTextToPlain(deep), "");
+});
+
+test("comments on a Persian Rich Message channel post, flattened from its blocks", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
+    // A Rich Message post (Bot API 10.1) carries no text/caption at all —
+    // its content lives in rich_message.blocks (v3.7.3).
+    const update = { update_id: 3030, message: { message_id: 77, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, rich_message: { is_rtl: true, blocks: [
+      { type: "heading", text: "نسخه جدید ویرایشگر عکس ما منتشر شد" },
+      { type: "paragraph", text: ["این نسخه با موتور پردازش تازه، ", { type: "bold", text: "خروجی گرفتن از عکس‌های حجیم را چند برابر سریع‌تر کرده" }, " و حالا از فرمت‌های حرفه‌ای هم پشتیبانی می‌کند تا عکاس‌ها بدون افت کیفیت کارشان را تحویل بدهند و پروژه‌ها را سریع‌تر از همیشه ببندند."] },
+      { type: "list", items: [
+        { text: "پشتیبانی کامل از فایل‌های خام دوربین‌های جدید بازار امروز" },
+        { text: "حالت شب تازه برای عکس‌های کم‌نور با نویز بسیار کمتر از قبل" },
+        { text: "همگام‌سازی ابری اختیاری برای ادامه کار روی چند دستگاه مختلف" }
+      ] },
+      { type: "table", rows: [
+        [{ text: "قابلیت" }, { text: "نسخه قبلی" }, { text: "نسخه جدید" }],
+        [{ text: "سرعت خروجی" }, { text: "معمولی" }, { text: "سه برابر سریع‌تر" }],
+        [{ text: "حجم نصب" }, { text: "۴۰۰ مگابایت" }, { text: "۲۵۰ مگابایت" }]
+      ] }
+    ] } } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 1);
+    const prompt = aiCalls[0].payload.messages.at(-1).content;
+    // The model sees the flattened blocks: heading, paragraph, and table.
+    assert.match(prompt, /ویرایشگر عکس/);
+    assert.match(prompt, /سه برابر سریع‌تر/);
+    // Language detection reads the same flattened text: the post is Persian.
+    assert.match(aiCalls[0].payload.messages[0].content, /Respond in Persian/);
+    const reply = calls.find((call) => /sendMessage$/.test(call.url));
+    assert.equal(reply.body.reply_parameters.message_id, 77);
+    assert.doesNotMatch(reply.body.text, /🪐|IVAI ·|GLM/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("gives no comment to a Rich Message channel post whose blocks carry no text", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
+    // A lone photo block without a caption flattens to no text at all, so
+    // the post is media-only — exactly like a photo post with no caption.
+    const update = { update_id: 3031, message: { message_id: 77, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, rich_message: { blocks: [{ type: "photo", photo: { file_id: "ph1", width: 100, height: 100 } }] } } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 0);
+    assert.equal(calls.some((call) => /sendMessage$/.test(call.url)), false);
   } finally {
     globalThis.fetch = originalFetch;
   }

@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.7.3] - 2026-11-03
+
+### Added
+
+- **Channel posts sent as Telegram Rich Messages are now read and commented on:** a rich post (Bot API 10.1) carries no `text`/`caption` — its content lives in `message.rich_message.blocks` — so IVAI silently skipped every rich post as if it were media-only. A defensive recursive extractor (`messagePlainText` / `richBlockToPlain` / `richTextToPlain` in `router.js`) now flattens rich blocks — paragraphs, headings, preformatted text, footers, lists, tables (cells joined with ` | `), quotations, details, and media captions — to plain text, and rich posts flow through the existing channel-post path unchanged: same eligibility (≥200 characters, ≥20 words), ~75% sampling, limits, two-mode comment prompt, and completeness guard. Script-language detection and reply-chain context read the same flattened text, so a Persian rich post is answered in Persian and a reply on a rich post carries its content as context. A rich post whose blocks carry no text (e.g. a lone photo block without a caption) still earns no comment, exactly like today's media-only rule, and malformed rich payloads degrade to no text instead of throwing.
+
 ## [3.7.2] - 2026-11-02
 
 ### Changed
