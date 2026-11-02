@@ -76,7 +76,7 @@ async function runGuard({ text, language }, env) {
   return { text: guardReplyText(raw, language), provider: "workers-ai", model };
 }
 
-async function runWorkersAi({ messages, profile, selectedModel }, env) {
+async function runWorkersAi({ messages, profile, selectedModel, maxTokens }, env) {
   if (!env.AI?.run) throw new Error("Workers AI is not configured");
   const budget = await reserveWorkersAiBudget(profile.workersAiReserve, env);
   if (!budget.allowed) throw new Error("Workers AI free quota guard blocked the request");
@@ -85,7 +85,9 @@ async function runWorkersAi({ messages, profile, selectedModel }, env) {
     : defaultFreeModelFor("workers-ai");
   const result = await withTimeout(env.AI.run(model, {
     messages,
-    max_tokens: profile.maxOutputTokens,
+    // A call site may override the profile's output budget (channel-post
+    // comments do — see CHANNEL_COMMENT_MAX_TOKENS in router.js).
+    max_tokens: maxTokens ?? profile.maxOutputTokens,
     temperature: profile.temperature
   }), BINDING_TIMEOUT_MS, "Workers AI");
   const text = result?.response || result?.result?.response || result?.choices?.[0]?.message?.content;
@@ -162,7 +164,7 @@ async function runGoogle({ messages, profile, selectedModel }, env) {
   return { text: String(text).trim(), provider: "google", model };
 }
 
-export async function generateReply({ text, selectedMode, selectedModel, language, context }, env) {
+export async function generateReply({ text, selectedMode, selectedModel, language, context, maxTokens }, env) {
   const profile = responseProfile(selectedMode);
   if (profile.mode === MODES.GUARD) return { ...(await runGuard({ text, language }, env)), mode: profile.mode };
   const messages = normalizeMessages({ text, context, profile, language });
@@ -181,7 +183,7 @@ export async function generateReply({ text, selectedMode, selectedModel, languag
     if (index > 0 && Date.now() - startedAt > CHAIN_DEADLINE_MS) break;
     const attemptStartedAt = Date.now();
     try {
-      return { ...(await attempt({ messages, profile, selectedModel }, env)), mode: profile.mode };
+      return { ...(await attempt({ messages, profile, selectedModel, maxTokens }, env)), mode: profile.mode };
     } catch (error) {
       const message = String(error.message || error);
       failures.push(message.slice(0, 100));
