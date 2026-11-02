@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.2] - 2026-11-02
+
+### Fixed
+
+- **Channel-post comments:** the first-person voice is now kept honest and grounded. Fabricated memories and possessions are banned — first person covers opinions and reactions only, never a claim of having owned, bought, used, played, done, or remembered anything. Decorative comparisons that illuminate nothing are banned: a comparison is allowed only when it makes the post's number or point feel real, and a short honest reaction beats a forced metaphor. Sentences must stay short and simple, one idea each. And when a post hides a hedge or catch ("up to" pricing, conditions, "selected users only"), that catch is the preferred anchor for the take.
+
 ## [3.6.1] - 2026-11-02
 
 ### Changed
