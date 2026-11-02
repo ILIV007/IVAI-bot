@@ -350,10 +350,11 @@ async function handleChannelPost(message, env) {
     logChannelCommentSkip(message, "media_type");
     return;
   }
-  // Short posts never earn a comment: fewer than 5 non-empty lines or
-  // under 200 characters of text.
-  const lineCount = postText.split("\n").filter((line) => line.trim()).length;
-  if (lineCount < 5 || postText.length < 200) {
+  // Short posts never earn a comment: under 200 characters of text or
+  // fewer than 20 words. The metric is content amount, not line count —
+  // a long paragraph-style post is not a short post (v3.5.5).
+  const wordCount = postText.split(/\s+/).filter(Boolean).length;
+  if (postText.length < 200 || wordCount < 20) {
     logChannelCommentSkip(message, "short_post");
     return;
   }

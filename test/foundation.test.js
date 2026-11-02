@@ -238,8 +238,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.5.4 release version", () => {
-  assert.equal(APP.version, "3.5.4");
+test("declares the official v3.5.5 release version", () => {
+  assert.equal(APP.version, "3.5.5");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -3153,21 +3153,50 @@ test("channel-post sampling is stable per post and keeps about 75% of posts", ()
   assert.ok(kept >= 700 && kept <= 800, `kept ${kept} of 1000 posts`);
 });
 
-test("skips short channel posts silently — by line count and by length", async () => {
+test("skips short channel posts silently — by character count and by word count", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   const aiCalls = [];
   globalThis.fetch = mockGroupFetch(calls);
   try {
     const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
-    // Fewer than 5 non-empty lines, even with well over 200 characters.
-    const threeLines = "A very long opening line that goes on and on about the announcement and why it matters to everyone here.\nA second long line with even more detail about the features, the roadmap, and all the people involved.\nA third long line wrapping things up with links, credits, and thanks.";
-    assert.ok(threeLines.length >= 200);
-    assert.equal((await postGroupUpdate(env, channelPostUpdate(3100, 100, { text: threeLines }))).status, 200);
-    // Five-plus lines, but under 200 characters in total.
-    assert.equal((await postGroupUpdate(env, channelPostUpdate(3101, 101, { text: "One\nTwo\nThree\nFour\nFive\nSix" }))).status, 200);
+    // Plenty of words, but under 200 characters in total: short by length.
+    const manyWords = "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty";
+    assert.ok(manyWords.length < 200);
+    assert.ok(manyWords.split(/\s+/).filter(Boolean).length >= 20);
+    assert.equal((await postGroupUpdate(env, channelPostUpdate(3100, 100, { text: manyWords }))).status, 200);
+    // Well over 200 characters, but fewer than 20 words: short by word count.
+    const fewWords = Array(12).fill("a".repeat(30)).join(" ");
+    assert.ok(fewWords.length >= 200);
+    assert.ok(fewWords.split(/\s+/).filter(Boolean).length < 20);
+    assert.equal((await postGroupUpdate(env, channelPostUpdate(3101, 101, { text: fewWords }))).status, 200);
     assert.equal(aiCalls.length, 0);
     assert.equal(calls.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("comments on a paragraph-style channel post with few lines but enough content", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
+    // Regression (v3.5.5): only 3 non-empty lines, but 277 characters and
+    // 50 words — a substantial post that the old line-count rule wrongly
+    // skipped as short. Message 100 in chat -100115 is sampled in.
+    const paragraphPost = "A very long opening line that goes on and on about the announcement and why it matters to everyone here.\nA second long line with even more detail about the features, the roadmap, and all the people involved.\nA third long line wrapping things up with links, credits, and thanks.";
+    assert.equal(paragraphPost.split("\n").filter((line) => line.trim()).length, 3);
+    assert.ok(paragraphPost.length >= 200);
+    assert.ok(paragraphPost.split(/\s+/).filter(Boolean).length >= 20);
+    const response = await postGroupUpdate(env, channelPostUpdate(3115, 100, { text: paragraphPost }));
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 1);
+    const sends = calls.filter((call) => /sendMessage$/.test(call.url));
+    assert.equal(sends.length, 1);
+    assert.equal(sends[0].body.reply_parameters.message_id, 100);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -3242,7 +3271,8 @@ test("skips a video channel post whose caption is short, as a short post", async
   try {
     const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
     // Message 123 is sampled in, so only the short-caption rule can block
-    // it: a caption counts as post text, and a short one is a short post.
+    // it: a caption counts as post text, and this one is genuinely small
+    // by the amount metric (33 characters, 7 words).
     const caption = "یه کلیپ کوتاه!\nببینید و لذت ببرید";
     assert.equal((await postGroupUpdate(env, channelPostUpdate(3114, 123, { video: { file_id: "vid8", mime_type: "video/mp4" }, caption }))).status, 200);
     assert.equal(aiCalls.length, 0);
