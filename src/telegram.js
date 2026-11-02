@@ -394,34 +394,6 @@ export function startThinkingAnimation(env, { chatId, messageId, language = "en"
   };
 }
 
-// Telegram chat actions expire after ~5 seconds, so a single sendTyping is
-// invisible on slow routes. This refresher re-sends the action until stop(),
-// mirroring startThinkingAnimation's start/stop contract; it sends no messages.
-export function startTypingRefresher(env, { chatId, intervalMs = 4000, threadId, businessConnectionId, directMessagesTopicId }) {
-  let stopped = false;
-  let timer;
-  let wake;
-  const task = (async () => {
-    while (!stopped) {
-      await new Promise((resolve) => {
-        wake = resolve;
-        timer = setTimeout(resolve, intervalMs);
-      });
-      timer = undefined;
-      if (stopped) break;
-      await sendTyping(env, chatId, { threadId, businessConnectionId, directMessagesTopicId }).catch(() => {});
-    }
-  })();
-  return {
-    stop: async () => {
-      stopped = true;
-      if (timer) clearTimeout(timer);
-      wake?.();
-      await task;
-    }
-  };
-}
-
 export async function sendRichMessage(env, { chatId, html, replyTo, keyboard, threadId, businessConnectionId, directMessagesTopicId, silent = false, rtl = false }) {
   return telegram(env, "sendRichMessage", {
     chat_id: chatId,
