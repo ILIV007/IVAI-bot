@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.7.1] - 2026-11-02
+
+### Fixed
+
+- **Channel-post comments could arrive truncated mid-sentence** — live comments were cut off mid-word ("…اگه این یه جریان باشه، حتم", "…فقط خدا به داد"). The Fast profile's 900-token cap is ample for 1–3 lines, but the pinned comment model (`@cf/qwen/qwen3-30b-a3b-fp8`) is a reasoning model whose internal reasoning shares that budget and on some generations left too little room for the comment itself. Three-part fix: the comment prompt now opens with Qwen3's `/no_think` soft switch so reasoning is disabled for comment generation; the comment call carries its own larger output budget (1600 tokens via a new optional `maxTokens` override plumbed through `generateReply` to Workers AI — group replies keep the Fast profile's 900); and a completeness guard (`completeChannelComment`) now post-processes every comment — one that still stops mid-sentence is trimmed back to its last complete sentence (a segment ending at terminal punctuation or an emoji cluster), and if nothing complete remains, or only a lone bare question, the post is skipped (logged as `channel_comment_skip` with reason `incomplete_comment`) instead of receiving a broken comment.
+
 ## [3.7.0] - 2026-11-02
 
 ### Changed

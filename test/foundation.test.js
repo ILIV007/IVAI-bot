@@ -7,7 +7,7 @@ import { processSecretaryReminderBatch } from "../src/secretary.js";
 import { processReengagementBatch } from "../src/reengagement.js";
 import { analyzePhoto, downloadTelegramFile, transcribeVoice } from "../src/media.js";
 import { APP, defaultFreeModelFor, FREE_MODEL_POLICY, GROUP_POLICY, LANGUAGE_OPTIONS, MODES, modeOutputLimit } from "../src/config.js";
-import { channelPostSampled } from "../src/router.js";
+import { channelPostSampled, completeChannelComment } from "../src/router.js";
 import { defaultFreeModels, refreshFreeModelCatalog } from "../src/catalog.js";
 import { conversationKey, ensureConversationSession, getAdminOperationalStats, getConversationSession, getUserSettings, saveConversationSession, setMemoryEnabled, setSelectedModel, setUserLanguage, setUserMode, startNewConversationSession, upsertUser } from "../src/storage.js";
 import { getRequiredChannelMembership } from "../src/membership.js";
@@ -238,8 +238,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.7.0 release version", () => {
-  assert.equal(APP.version, "3.7.0");
+test("declares the official v3.7.1 release version", () => {
+  assert.equal(APP.version, "3.7.1");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -2393,7 +2393,10 @@ function groupTestEnv(calls, aiCalls, { enforced = "false", memberStatus = "memb
     TELEGRAM_BOT_TOKEN: "424242:test-token",
     REQUIRED_CHANNEL_ENFORCED: enforced,
     IVAI_DB: new PreferenceD1(),
-    AI: { async run(model, payload) { aiCalls.push({ model, payload }); return { response: "Group answer" }; } }
+    // The stub answer ends with a period so channel-post comments pass the
+    // v3.7.1 completeness guard (a bare "Group answer" would be skipped as
+    // an unfinished fragment).
+    AI: { async run(model, payload) { aiCalls.push({ model, payload }); return { response: "Group answer." }; } }
   };
 }
 
@@ -2627,7 +2630,9 @@ test("trims a channel-post comment longer than 5 lines down to 5", async () => {
   try {
     const env = {
       ...groupTestEnv(calls, []),
-      AI: { async run() { return { response: "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight" }; } }
+      // Each line is a complete segment (terminal period) so the v3.7.1
+      // completeness guard passes the trimmed comment through.
+      AI: { async run() { return { response: "one.\ntwo.\nthree.\nfour.\nfive.\nsix.\nseven.\neight." }; } }
     };
     const update = { update_id: 3023, message: { message_id: 79, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "Our community just passed ten thousand members this week.\nThank you to everyone who shares, comments, and helps newcomers.\nWe are planning a small celebration stream for Friday night.\nThere will be giveaways, a Q&A, and a look at the roadmap.\nBring your questions — the whole team will be there live." } };
     const response = await postGroupUpdate(env, update);
@@ -2635,6 +2640,72 @@ test("trims a channel-post comment longer than 5 lines down to 5", async () => {
     const reply = calls.find((call) => /sendMessage$/.test(call.url));
     assert.match(reply.body.text, /five/);
     assert.doesNotMatch(reply.body.text, /six|seven|eight/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("comment completeness guard keeps complete comments and cuts or skips broken ones", () => {
+  // v3.7.1: live truncated comments (reasoning ate the token budget) —
+  // trimming the Binance one back leaves only a bare question, which is
+  // not a take, so the whole comment is dropped.
+  assert.equal(completeChannelComment("۶.۳ میلیارد دلار در ۲۰ دقیقه؟ اگر این یه جریان باشه، حتم"), "");
+  // The carousel one trims back to its emoji-terminated first segment.
+  assert.equal(
+    completeChannelComment("از فردا دیگه توی هر اپلیکیشنی که باز کنی این افکت شیشه‌ای رو می‌بینی، چه ربطی داشته باشه چه نه 😄 ظاهرش فوق‌العاده‌ست، فقط خدا به داد"),
+    "از فردا دیگه توی هر اپلیکیشنی که باز کنی این افکت شیشه‌ای رو می‌بینی، چه ربطی داشته باشه چه نه 😄"
+  );
+  // Complete comments pass through byte-identical, including a ZWJ emoji
+  // cluster ending and a multi-segment comment that ends on a question.
+  assert.equal(completeChannelComment("The verdict is simple: it works."), "The verdict is simple: it works.");
+  assert.equal(completeChannelComment("زامبی‌ها برگشتن و شهر دیگه مال آدم‌ها نیست 🧟‍♂️"), "زامبی‌ها برگشتن و شهر دیگه مال آدم‌ها نیست 🧟‍♂️");
+  assert.equal(completeChannelComment("قیمتش نصف شده! واقعاً کی فکرشو می‌کرد؟"), "قیمتش نصف شده! واقعاً کی فکرشو می‌کرد؟");
+  // An English comment truncated after one complete sentence keeps it.
+  assert.equal(
+    completeChannelComment("The update ships today. It also fixes the crash on older phones and makes sync noticeably"),
+    "The update ships today."
+  );
+  // One unfinished fragment, and a lone bare question, earn no comment.
+  assert.equal(completeChannelComment("this changes everything about how the"), "");
+  assert.equal(completeChannelComment("واقعاً قراره این اتفاق بیفته؟"), "");
+  assert.equal(completeChannelComment(""), "");
+});
+
+test("skips a channel-post comment that generation truncated to a bare question", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = {
+      ...groupTestEnv(calls, []),
+      AI: { async run() { return { response: "۶.۳ میلیارد دلار در ۲۰ دقیقه؟ اگر این یه جریان باشه، حتم" }; } }
+    };
+    const update = { update_id: 3027, message: { message_id: 77, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: LONG_CHANNEL_POST } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    // The guard dropped the broken comment: nothing is sent at all.
+    assert.equal(calls.some((call) => /sendMessage$/.test(call.url)), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("trims a truncated channel-post comment to its last complete segment before sending", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = {
+      ...groupTestEnv(calls, []),
+      AI: { async run() { return { response: "از فردا دیگه توی هر اپلیکیشنی که باز کنی این افکت شیشه‌ای رو می‌بینی، چه ربطی داشته باشه چه نه 😄 ظاهرش فوق‌العاده‌ست، فقط خدا به داد" }; } }
+    };
+    const update = { update_id: 3028, message: { message_id: 77, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: LONG_CHANNEL_POST } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    const reply = calls.find((call) => /sendMessage$/.test(call.url));
+    assert.ok(reply);
+    assert.match(reply.body.text, /چه ربطی داشته باشه چه نه/);
+    assert.doesNotMatch(reply.body.text, /فقط خدا به داد/);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -2982,7 +3053,11 @@ test("channel-post comment prompt is a persona with worked examples and hard rul
     // stronger multilingual quality (group replies keep the GLM pin,
     // asserted in the next test).
     assert.equal(aiCalls[0].model, "@cf/qwen/qwen3-30b-a3b-fp8");
-    assert.equal(aiCalls[0].payload.max_tokens, modeOutputLimit(MODES.FAST));
+    // v3.7.1: the prompt opens with Qwen3's /no_think soft switch so the
+    // reasoning model spends no budget thinking, and the comment call
+    // carries its own 1600-token budget instead of the Fast profile's 900.
+    assert.match(prompt, /^\/no_think\n/);
+    assert.equal(aiCalls[0].payload.max_tokens, 1600);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -3004,6 +3079,9 @@ test("group turns run Fast on the pinned GLM model, overriding stored mode and m
     assert.equal(response.status, 200);
     assert.equal(aiCalls.length, 1);
     assert.equal(aiCalls[0].model, "@cf/zai-org/glm-4.7-flash");
+    // Group replies keep the Fast profile's 900-token budget — the 1600
+    // override is for channel-post comments only (v3.7.1).
+    assert.equal(aiCalls[0].payload.max_tokens, 900);
     assert.equal(aiCalls[0].payload.max_tokens, modeOutputLimit(MODES.FAST));
   } finally {
     globalThis.fetch = originalFetch;
@@ -3393,7 +3471,7 @@ test("typing refresher re-sends every ~4 seconds until stopped; stop is idempote
 function markerAiEnv(calls, aiCalls) {
   return {
     ...groupTestEnv(calls, aiCalls),
-    AI: { async run(model, payload) { calls.push({ url: "ai:run", body: {} }); aiCalls.push({ model, payload }); return { response: "Group answer" }; } }
+    AI: { async run(model, payload) { calls.push({ url: "ai:run", body: {} }); aiCalls.push({ model, payload }); return { response: "Group answer." }; } }
   };
 }
 

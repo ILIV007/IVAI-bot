@@ -165,6 +165,11 @@ const GROUP_MODEL = "@cf/zai-org/glm-4.7-flash";
 // GROUP_MODEL, and the budget reserve is unaffected (it is a flat per-call
 // amount keyed to the Fast profile, not to the model).
 const CHANNEL_COMMENT_MODEL = "@cf/qwen/qwen3-30b-a3b-fp8";
+// Comments get their own output budget (v3.7.1): Qwen3 30B is a reasoning
+// model whose internal reasoning shares the profile budget, and on some
+// generations it ate so much of the Fast profile's 900 tokens that the
+// comment itself was cut off mid-sentence. 1600 leaves room for both.
+const CHANNEL_COMMENT_MAX_TOKENS = 1600;
 // Group model context is capped at the last 5 chain messages (seed + injected
 // reply + Session), which is also what keeps group token spend minimal.
 const GROUP_CONTEXT_LIMIT = 5;
@@ -346,6 +351,31 @@ function logChannelCommentSkip(message, reason) {
   console.info(JSON.stringify({ event: "channel_comment_skip", reason, chatId: String(message?.chat?.id || "") }));
 }
 
+// Completeness guard for channel-post comments (v3.7.1): a segment counts as
+// complete when it ends at terminal punctuation or at an emoji cluster (ZWJ
+// chains, skin tones, and variation selectors included). Even with reasoning
+// disabled and a larger budget, a generation can still stop mid-sentence, so
+// a comment whose tail is an unfinished fragment is cut back to the end of
+// its last complete segment — and when nothing complete remains, or the only
+// complete segment is a lone bare question (a question alone is not a take),
+// the post gets no comment at all instead of a broken one.
+const COMMENT_SEGMENT_END = /[.!?؟…:]+(?=\s|$)|(?:\p{Extended_Pictographic}(?:[\u{1F3FB}-\u{1F3FF}]|\uFE0F|\u200D\p{Extended_Pictographic})*)(?=\s|$)/gu;
+
+export function completeChannelComment(comment) {
+  const text = String(comment || "").trim();
+  if (!text) return "";
+  let lastEnd = 0;
+  let segments = 0;
+  for (const match of text.matchAll(COMMENT_SEGMENT_END)) {
+    lastEnd = match.index + match[0].length;
+    segments += 1;
+  }
+  if (!lastEnd) return "";
+  const kept = text.slice(0, lastEnd);
+  if (segments === 1 && /[?؟]$/.test(kept)) return "";
+  return kept;
+}
+
 async function handleChannelPost(message, env) {
   // A channel post's text is its text or, for a media post, its caption —
   // the caption IS the post text, whatever media it carries (v3.5.4).
@@ -376,9 +406,14 @@ async function handleChannelPost(message, env) {
     // fresh start (v3.7.0): a short persona plus three worked examples and
     // a few hard rules, replacing the accreted rule list of v3.4.1–v3.6.4 —
     // and the comment carries no model/mode footer in the group.
+    // v3.7.1: the prompt opens with Qwen3's "/no_think" soft switch — the
+    // documented way to disable this hybrid model's reasoning — so reasoning
+    // cannot eat the comment's token budget; the switch is a control token
+    // in the instruction, not content, and is never echoed into the comment.
     const language = scriptLanguageFromMessage(message) || "en";
     const result = await generateReply({
-      text: `A post from the IVAI channel was just shared in its discussion group. Write ONE comment on it, in the SAME language as the post, and output only the comment itself.
+      text: `/no_think
+A post from the IVAI channel was just shared in its discussion group. Write ONE comment on it, in the SAME language as the post, and output only the comment itself.
 
 You are a sharp, witty regular of this group with real taste: you read the post like a person, spot the one moment everyone will talk about — the embarrassing, funny, revealing, or absurd beat — and say what a smart friend would say. You never sound like a news summary or an analyst report.
 
@@ -398,12 +433,19 @@ Post:
 ${postText}`,
       selectedMode: MODES.FAST,
       selectedModel: CHANNEL_COMMENT_MODEL,
+      maxTokens: CHANNEL_COMMENT_MAX_TOKENS,
       language,
       context: []
     }, env);
     // Models ignore length instructions, so the 5-line cap is enforced here too.
-    const comment = String(result.text || "").split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 5).join("\n");
-    if (!comment) return;
+    const generated = String(result.text || "").split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 5).join("\n");
+    // Completeness guard (v3.7.1): never send a comment that stops
+    // mid-sentence — trim it to its last complete segment, or skip the post.
+    const comment = completeChannelComment(generated);
+    if (!comment) {
+      if (generated) logChannelCommentSkip(message, "incomplete_comment");
+      return;
+    }
     await sendMessage(env, {
       chatId: message.chat.id,
       text: renderStandardAiText(comment),
