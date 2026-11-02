@@ -981,6 +981,18 @@ async function processText(message, env) {
   // The anonymous group admin has no user identity: no membership check and
   // no per-user quota apply to it (the per-chat group limits still do).
   const anonGroupAdmin = isGroup && isAnonGroupAdmin(message);
+  // Cheap group rejections (v3.7.5): a non-command group turn runs the tier +
+  // anti-spam limit check before any settings/membership/upsert/session work,
+  // so a turn the cooldown or hourly cap rejects costs nothing beyond the
+  // check itself. Command turns keep the legacy order further down — they are
+  // handled before limits there and never consume group reply quota.
+  let tier = null;
+  let groupLimitsPassed = false;
+  if (isGroup && !text.startsWith("/")) {
+    tier = await groupTier(message, env, trigger);
+    if (!await passGroupLimits(message, env, tier, trigger)) return;
+    groupLimitsPassed = true;
+  }
   const knownSettings = await getUserSettings(userId, env);
   // UI language is an explicit, persistent user preference (default English, only
   // changed via /lang). It is never derived from the Telegram client's language.
@@ -1008,8 +1020,9 @@ async function processText(message, env) {
   const key = contextKey(message);
   const session = await ensureConversationSession(key, env, { language: responseLanguage });
   responseLanguage = isGroup ? scriptLanguageFromMessage(message) || settings.language || "en" : activeConversationLanguage(message, settings, session);
-  let tier = null;
-  if (isGroup) {
+  // Command turns (and only they) reach the group limits here, in the legacy
+  // position after the session load; non-command turns already passed above.
+  if (isGroup && !groupLimitsPassed) {
     tier = await groupTier(message, env, trigger);
     if (!await passGroupLimits(message, env, tier, trigger)) return;
   }
@@ -1143,6 +1156,16 @@ async function processMedia(message, env) {
   const userId = message.from?.id;
   const chatId = message.chat?.id;
   const delivery = messageSendContext(message);
+  // Cheap group rejections (v3.7.5): the shared per-chat limits/cooldown run
+  // before the settings/membership load, mirroring processText — a media turn
+  // they reject pays nothing beyond the check itself.
+  let tier = null;
+  if (isGroup) {
+    // Group media counts against the same per-chat limits/cooldown as group
+    // text; without this it would bypass the group anti-spam policy entirely.
+    tier = await groupTier(message, env, groupTriggerType);
+    if (!await passGroupLimits(message, env, tier, groupTriggerType)) return;
+  }
   const storedLanguage = (await getUserSettings(userId, env)).language || "en";
   // Same v3.5.0 group rule as text turns: the answer follows the triggering
   // message's own language (e.g. a Persian photo caption) before stored/en.
@@ -1156,12 +1179,7 @@ async function processMedia(message, env) {
       return;
     }
   }
-  let tier = null;
   if (isGroup) {
-    // Group media counts against the same per-chat limits/cooldown as group
-    // text; without this it would bypass the group anti-spam policy entirely.
-    tier = await groupTier(message, env, groupTriggerType);
-    if (!await passGroupLimits(message, env, tier, groupTriggerType)) return;
     // Dedicated per-chat media cap on top of the shared group limits; a
     // blocked media is dropped silently like every other group limit.
     const mediaCap = await allowUsage({ scope: "groupmedia", id: chatId, limit: tier === "primary" ? GROUP_POLICY.primaryMediaHourlyLimit : GROUP_POLICY.otherMediaHourlyLimit }, env);

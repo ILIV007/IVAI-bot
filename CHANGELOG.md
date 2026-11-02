@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.7.5] - 2026-11-03
+
+### Fixed
+
+- Rejected group triggers are now nearly free — the anti-spam limit check runs before settings/membership/upsert/session work; voice transcription is capped at 2 MB before download; the classic thinking animation ticks at 2 s without a per-tick typing call.
+
 ## [3.7.4] - 2026-11-03
 
 ### Changed
