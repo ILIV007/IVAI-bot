@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.6.4] - 2026-11-02
+
+### Fixed
+
+- **Channel-post comments:** comparisons are now the exception rather than the default shape. The prompt's earlier wording ("turn it into a vivid picture", "a comparison is welcome ONLY when…") still read as an instruction to produce one, so comments kept forcing decorative metaphors — a 5090 memory-mod post got "replacing 2GB chips with 3GB chips is like changing a bag for a new phone" — while missing the real anchor. The prompt now states the default plainly: a sharp observation or a clear verdict with NO comparison at all (most good comments have none); a comparison survives only when its mapping is exact and it genuinely exposes the point, and if in doubt it is left out. And when a post contains numbers or prices, the sharpest angle is usually the RELATIONSHIP between them — a ratio, a gap, a before/after (that same post: ~$3,200 in chips versus Nvidia's own $16,000 for the same 96 GB) — so the take anchors there when the relationship is striking. All other voice rules (silent who-did-what and most-human-moment step, specific detail, honest first person, earned-anchor catch, short simple sentences, no summary or report-speak, 1–3 lines) are unchanged.
+
 ## [3.6.3] - 2026-11-02
 
 ### Changed
