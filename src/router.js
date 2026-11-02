@@ -1051,7 +1051,7 @@ async function processText(message, env) {
       await sendRichMessageDraft(env, {
         chatId,
         draftId: Number(message.message_id) || 1,
-        html: `<tg-thinking>${uiLanguage === "fa" ? "⏳ IVAI در حال فکر کردن" : "⏳ IVAI is thinking"}</tg-thinking>`,
+        html: `<tg-thinking>${uiLanguage === "fa" ? "⚡ IVAI در حال فکر کردن" : "⚡ IVAI is thinking"}</tg-thinking>`,
         threadId: delivery.threadId,
         rtl: ["fa", "ar"].includes(responseLanguage)
       });

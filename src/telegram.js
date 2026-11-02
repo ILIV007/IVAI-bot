@@ -361,7 +361,7 @@ export async function sendTyping(env, chatId, { threadId, businessConnectionId, 
 
 export function thinkingText(language = "en", frame = 0) {
   const dots = [".", "..", "..."][frame % 3];
-  return language === "fa" ? `<i>⏳ IVAI در حال فکر کردن${dots}</i>` : `<i>⏳ IVAI is thinking${dots}</i>`;
+  return language === "fa" ? `<i>⚡ IVAI در حال فکر کردن${dots}</i>` : `<i>⚡ IVAI is thinking${dots}</i>`;
 }
 
 export function startThinkingAnimation(env, { chatId, messageId, language = "en", intervalMs = 900, threadId, businessConnectionId, directMessagesTopicId }) {
