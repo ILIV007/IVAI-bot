@@ -1665,9 +1665,12 @@ export async function handleUpdate(update, env) {
   if (update.callback_query) return processCallback(update.callback_query, env);
   const message = userMessage(update);
   if (!message) return;
-  // Edited group messages are ignored entirely; channel posts in the linked
-  // group go straight to the comment path regardless of media type.
-  if (update.edited_message && isGroupChat(message)) return;
+  // Edited messages are ignored entirely, in groups and private chats alike
+  // (owner decision, v3.7.8): an edit is never a new turn. This also keeps
+  // edited channel posts dropped before the comment path below.
+  if (update.edited_message) return;
+  // Channel posts in the linked group go straight to the comment path
+  // regardless of media type.
   if (isGroupChat(message) && isChannelPost(message)) return handleChannelPost(message, env);
   if (message.text) return processText(message, env);
   if (message.voice || message.photo?.length) return processMedia(message, env);
