@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.7.9] - 2026-11-03
+
+### Changed
+
+- **The `post_reply` group trigger is removed (owner decision, superseding 2026-11-01):** a reply made directly on a channel post in the linked discussion group no longer triggers the bot — live behaviour showed it answering users who merely commented on a post and never addressed the bot. The bot now speaks in groups only on a mother-channel post (whose automatic comment is unchanged), a reply to the bot's own message, or a mention/command addressed to the bot; a reply on the post itself falls through to the `reply_target_unmatched` near-miss log and is ignored.
+
 ## [3.7.8] - 2026-11-03
 
 ### Changed

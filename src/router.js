@@ -300,10 +300,6 @@ function groupTrigger(message, env) {
   let trigger = null;
   if (target && repliedFrom && ((botId && Number(repliedFrom.id) === botId) || String(repliedFrom.username || "").toLowerCase() === APP.botUsername.toLowerCase())) {
     trigger = "reply";
-  } else if (target && (String(target.sender_chat?.id ?? "") === String(APP.requiredChannelId)
-    || (Number(repliedFrom?.id) === 777000 && String(target.forward_from_chat?.id ?? "") === String(APP.requiredChannelId)))) {
-    // A comment threaded directly on the channel post in the discussion group.
-    trigger = "post_reply";
   } else if (hasBotMention(message, botId)) {
     trigger = "mention";
   }
@@ -334,7 +330,7 @@ function stripBotMention(text) {
 // getChat and cached for a day), an explicit PRIMARY_GROUP_CHAT_ID, or any chat
 // receiving a channel post. Everything else is the stricter "other" tier.
 async function groupTier(message, env, trigger) {
-  if (trigger === "channel_post" || trigger === "post_reply") return "primary";
+  if (trigger === "channel_post") return "primary";
   if (env.PRIMARY_GROUP_CHAT_ID && String(env.PRIMARY_GROUP_CHAT_ID) === String(message.chat.id)) return "primary";
   try {
     const key = `linked:${APP.requiredChannelId}`;
