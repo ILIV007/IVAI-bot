@@ -1,5 +1,6 @@
 import { FREE_MODEL_POLICY } from "./config.js";
 import { reserveWorkersAiBudget } from "./security.js";
+import { withTimeout } from "./ai.js";
 
 const TELEGRAM_FILE_BASE = "https://api.telegram.org/file";
 const MAX_MEDIA_BYTES = 8 * 1024 * 1024;
@@ -8,6 +9,9 @@ const MAX_MEDIA_BYTES = 8 * 1024 * 1024;
 // several times over, so large voice messages are refused before download.
 const VOICE_MAX_BYTES = 2 * 1024 * 1024;
 const NETWORK_TIMEOUT_MS = 15_000;
+// Same 25s binding race as the text path (BINDING_TIMEOUT_MS in ai.js): a
+// stuck Workers AI call must never hang a media turn.
+const AI_BINDING_TIMEOUT_MS = 25_000;
 
 async function fetchWithTimeout(url, init = {}, timeoutMs = NETWORK_TIMEOUT_MS) {
   const controller = new AbortController();
@@ -49,11 +53,11 @@ export async function transcribeVoice({ fileId, languageHint }, env) {
   const budget = await reserveWorkersAiBudget(600, env);
   if (!budget.allowed) throw new Error("Workers AI free quota guard blocked voice transcription");
   const model = FREE_MODEL_POLICY.workersAi.speech[0];
-  const result = await env.AI.run(model, {
+  const result = await withTimeout(env.AI.run(model, {
     audio: [...media.bytes],
     task: "transcribe",
     language: languageHint === "fa" ? "fa" : undefined
-  });
+  }), AI_BINDING_TIMEOUT_MS, "Workers AI");
   const text = result?.text || result?.transcription || result?.result?.text;
   if (!String(text || "").trim()) throw new Error("Voice transcription returned an empty result");
   return { text: String(text).trim(), provider: "workers-ai", model };
@@ -68,7 +72,7 @@ export async function analyzePhoto({ fileId, caption = "", language = "en" }, en
   const model = FREE_MODEL_POLICY.workersAi.vision[0];
   const prompt = caption || (language === "fa" ? "این تصویر را دقیق و کوتاه توضیح بده." : "Describe this image accurately and concisely.");
   const dataUrl = `data:${media.mimeType};base64,${bytesToBase64(media.bytes)}`;
-  const result = await env.AI.run(model, {
+  const result = await withTimeout(env.AI.run(model, {
     messages: [{
       role: "user",
       content: [
@@ -78,7 +82,7 @@ export async function analyzePhoto({ fileId, caption = "", language = "en" }, en
     }],
     // Photo replies are concise by design; a bounded completion preserves the daily free allocation.
     max_tokens: 320
-  });
+  }), AI_BINDING_TIMEOUT_MS, "Workers AI");
   const text = result?.response || result?.result?.response || result?.choices?.[0]?.message?.content;
   if (!String(text || "").trim()) throw new Error("Vision model returned an empty result");
   return { text: String(text).trim(), provider: "workers-ai", model };

@@ -1,6 +1,6 @@
 import { generateReply } from "./ai.js";
 import { APP, SUPPORTED_LANGUAGE_CODES } from "./config.js";
-import { allowUsage, safeError } from "./security.js";
+import { allowUsage, parseAdminIds, safeError } from "./security.js";
 import { conversationKey, ensureConversationSession, getConversationSession, getUserSettings, resetUserAgentPreferences, saveConversationSession, startNewConversationSession, upsertUser } from "./storage.js";
 import { getVerifiedWebAppUser } from "./webapp-auth.js";
 import { getRequiredChannelMembership } from "./membership.js";
@@ -61,7 +61,11 @@ async function terminalUser(request, env) {
     console.warn(JSON.stringify({ event: "terminal_auth_rejected", initDataPresent: Boolean(initData), initDataLength: initData.length }));
     return null;
   }
-  let membership = await getRequiredChannelMembership(telegramUser.id, env);
+  // Same owner exemption as the chat flows: a membership-check outage must
+  // never lock the owner out of their own Terminal.
+  let membership = parseAdminIds(env).has(String(telegramUser.id))
+    ? { allowed: true, reason: "OWNER" }
+    : await getRequiredChannelMembership(telegramUser.id, env);
   // Same fresh-check rule as the chat flows: a cached denial is re-verified
   // live before it blocks a (possibly just-joined) member.
   if (!membership.allowed && membership.fromCache) {

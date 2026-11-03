@@ -248,7 +248,10 @@ export function languageMenuText(language = "en") {
 export function settingsKeyboard(language = "en", memoryEnabled = false) {
   const fa = language === "fa";
   return { inline_keyboard: [
-    [button(memoryEnabled ? (fa ? "✓ حافظه روشن" : "✓ Memory on") : (fa ? "حافظه خاموش" : "Memory off"), "settings:memory", memoryEnabled ? "success" : undefined)],
+    // The button names the state it switches TO, so a redelivered callback
+    // (Telegram retry, double tap) re-applies the same target instead of
+    // toggling twice and looking dead.
+    [button(memoryEnabled ? (fa ? "✓ حافظه روشن" : "✓ Memory on") : (fa ? "حافظه خاموش" : "Memory off"), memoryEnabled ? "settings:memory:off" : "settings:memory:on", memoryEnabled ? "success" : undefined)],
     [button(fa ? "↺ بازنشانی تنظیمات" : "↺ Reset settings", "settings:reset", "danger")],
     [button(fa ? "← منو" : "← Menu", "menu:main")]
   ] };

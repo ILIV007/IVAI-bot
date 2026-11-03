@@ -3,7 +3,7 @@ import { generateReply } from "./ai.js";
 import { getFreeModelCatalog, refreshFreeModelCatalog, renderModelList, selectCatalogModel } from "./catalog.js";
 import { analyzePhoto, transcribeVoice } from "./media.js";
 import { cancelBroadcast } from "./broadcast.js";
-import { allowUsage, canBroadcast, canManage, getRole, safeError } from "./security.js";
+import { allowUsage, canBroadcast, canManage, getRole, parseAdminIds, safeError } from "./security.js";
 import { getRequiredChannelMembership } from "./membership.js";
 import {
   conversationKey,
@@ -57,6 +57,10 @@ function membershipCheckAlertText(language, { checkFailed = false } = {}) {
 }
 
 async function isRequiredChannelMember(userId, env) {
+  // Owners are exempt from the membership gate at every call site that uses
+  // this wrapper (text, media, callbacks, inline, guest, fallback): a
+  // membership-check outage must never lock the owner out of their own bot.
+  if (userId && parseAdminIds(env).has(String(userId))) return { allowed: true, reason: "OWNER" };
   const first = await getRequiredChannelMembership(userId, env);
   // A denial served from the cache may be stale by the time a prompt would be
   // shown (the user may have joined since). Re-verify live once before any
@@ -1078,11 +1082,25 @@ async function processText(message, env) {
   if (!anonGroupAdmin) {
     const membership = await isRequiredChannelMember(userId, env);
     if (!membership.allowed) {
-      await sendMembershipRequired(message, uiLanguage, membership, env);
+      // The prompt is a side effect, not the turn's result: if Telegram
+      // rejects the send itself, end the turn gracefully instead of
+      // throwing into the webhook 500/retry path.
+      try {
+        await sendMembershipRequired(message, uiLanguage, membership, env);
+      } catch (error) {
+        console.error(JSON.stringify({ event: "membership_prompt_failed", error: String(error?.message || "unknown") }));
+      }
       return;
     }
   }
-  await upsertUser({ user: message.from, chat: message.chat, language: uiLanguage }, env);
+  // The upsert only refreshes profile metadata; the settings already loaded
+  // in memory stay authoritative for this turn, so a D1 write failure must
+  // not fail the turn.
+  try {
+    await upsertUser({ user: message.from, chat: message.chat, language: uiLanguage }, env);
+  } catch (error) {
+    console.error(JSON.stringify({ event: "user_upsert_failed", error: String(error?.message || "unknown") }));
+  }
   if (message.chat?.type === "private") await ensureTerminalMenuButton(env);
   if (text.startsWith("/") && await handleCommand(message, env, uiLanguage)) return;
 
@@ -1257,7 +1275,11 @@ async function processMedia(message, env) {
     const mediaCap = await allowUsage({ scope: "groupmedia", id: chatId, limit: tier === "primary" ? GROUP_POLICY.primaryMediaHourlyLimit : GROUP_POLICY.otherMediaHourlyLimit }, env);
     if (!mediaCap.allowed) return;
   }
-  await upsertUser({ user: message.from, chat: message.chat, language }, env);
+  // The UI language is a stored preference (default English, changed only
+  // via /lang): persist storedLanguage exactly as processText does, never
+  // the caption-script-derived answer language above, or a first-contact
+  // Persian caption would silently become a Persian UI preference.
+  await upsertUser({ user: message.from, chat: message.chat, language: storedLanguage }, env);
   const usage = anonGroupAdmin ? { allowed: true } : await allowUsage({ scope: "media", id: userId, limit: APP.userDailyMediaLimit, windowSeconds: 24 * 60 * 60 }, env);
   if (!usage.allowed) {
     await sendMessage(env, { chatId, text: responseText(language, "busy"), replyTo: message.message_id, ...delivery });
@@ -1500,10 +1522,13 @@ async function processCallback(query, env) {
     await editMessage(env, { chatId, messageId, text, keyboard: settingsKeyboard(language, settings.memoryEnabled) });
     return;
   }
-  if (data === "settings:memory") {
+  if (data === "settings:memory" || data === "settings:memory:on" || data === "settings:memory:off") {
     const settings = await getUserSettings(userId, env);
-    await setMemoryEnabled(userId, !settings.memoryEnabled, env);
-    const next = { ...settings, memoryEnabled: !settings.memoryEnabled };
+    // Explicit targets (settings:memory:on/off) apply idempotently; the
+    // legacy bare value on already-sent keyboards keeps its toggle meaning.
+    const target = data === "settings:memory" ? !settings.memoryEnabled : data === "settings:memory:on";
+    await setMemoryEnabled(userId, target, env);
+    const next = { ...settings, memoryEnabled: target };
     const text = `<b>${language === "fa" ? "تنظیمات IVAI" : "IVAI settings"}</b>\n\n${language === "fa" ? "حافظه" : "Memory"}: <code>${next.memoryEnabled ? "on" : "off"}</code>`;
     await editMessage(env, { chatId, messageId, text, keyboard: settingsKeyboard(language, next.memoryEnabled) });
     return;

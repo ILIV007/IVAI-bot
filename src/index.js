@@ -66,7 +66,13 @@ export default {
     }
 
     if (request.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, 405);
-    if (!hasValidWebhookSecret(request, env)) return json({ ok: false, error: "unauthorized" }, 401);
+    if (!hasValidWebhookSecret(request, env)) {
+      // A silent 401 is indistinguishable from a dead bot in production: log
+      // why the request was rejected (never the secret itself) so a missing
+      // or drifted TELEGRAM_WEBHOOK_SECRET is diagnosable from logs alone.
+      console.warn(JSON.stringify({ event: "webhook_unauthorized", reason: env.TELEGRAM_WEBHOOK_SECRET ? "secret_mismatch" : "secret_unset" }));
+      return json({ ok: false, error: "unauthorized" }, 401);
+    }
 
     let update;
     try {

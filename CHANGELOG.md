@@ -2,6 +2,21 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.7.7] - 2026-11-03
+
+### Fixed
+
+- **Session KV writes are fail-soft:** a failing session `put` (or the deletes behind /start and /new) no longer throws into the webhook 500/retry path — the turn completes with the in-memory session, matching every neighboring KV access.
+- **Webhook-secret rejections are logged:** a 401 now records a structured `webhook_unauthorized` event with the reason (`secret_unset` vs `secret_mismatch`, never any secret material), so a missing or drifted `TELEGRAM_WEBHOOK_SECRET` is diagnosable from logs alone.
+- **Owners are exempt from the membership gate:** a membership-check outage (CHECK_FAILED) no longer locks the owner out of text, media, callbacks, inline, guest, or the Terminal — owner ids bypass the gate entirely; everyone else keeps the fail-closed behavior.
+- **Voice and photo AI calls are time-bounded:** transcription and vision now race `env.AI.run` against the same 25 s timeout as the text path instead of hanging a media turn on a stuck binding call.
+- **Pre-AI side effects in a text turn are fail-soft:** a failing profile upsert is logged and the turn continues with the settings already loaded, and a membership prompt that Telegram rejects ends the turn gracefully instead of throwing.
+- **The Memory settings button is idempotent:** the keyboard now names the explicit target state (`settings:memory:on` / `settings:memory:off`), so a redelivered callback or double tap re-applies the same state instead of toggling twice; keyboards on already-sent messages keep working — the legacy bare value still toggles.
+- **Update-claim release clears both stores:** `releaseUpdateClaim` always attempts the KV delete as well as the D1 delete, so a claim that fell back to KV during a D1 error is actually released and Telegram's redelivery is not dropped as a duplicate.
+- **Runtime-guard cleanup actually expires same-day rows:** the periodic DELETEs compared ISO `expires_at` values (with a `T` separator) against `CURRENT_TIMESTAMP` (space separator), which never matched rows expiring the same UTC day; the comparison now uses a like-format ISO timestamp.
+- **The OpenRouter catalog fetch is time-bounded:** the refresh call uses the same 15 s bounded-fetch pattern as the other provider calls instead of an unbounded `fetch`.
+- **Group media turns no longer persist a derived UI language:** the profile upsert in the media path now stores the user's UI language (stored preference or English), exactly like text turns — a first-contact user's Persian photo caption still gets a Persian answer, but no longer silently turns their menus Persian.
+
 ## [3.7.6] - 2026-11-03
 
 ### Added
