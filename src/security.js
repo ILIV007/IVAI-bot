@@ -94,19 +94,21 @@ export async function claimUpdate(updateId, env) {
 
 export async function releaseUpdateClaim(updateId, env) {
   if (!updateId) return;
-  let releasedByD1 = false;
   if (env.IVAI_DB) {
     try {
       await env.IVAI_DB
         .prepare("DELETE FROM processed_updates WHERE telegram_update_id = ?")
         .bind(String(updateId))
         .run();
-      releasedByD1 = true;
     } catch (error) {
       logRuntimeGuardFallback("dedupe_release", error);
     }
   }
-  if (!releasedByD1 && env.IVAI_KV) {
+  // The claim may live in either store (claimUpdate falls back to KV when D1
+  // errors), and a no-op D1 DELETE cannot prove the KV claim is gone — so
+  // release always attempts both stores, or a failed update would be dropped
+  // as a "duplicate" when Telegram redelivers it.
+  if (env.IVAI_KV) {
     await env.IVAI_KV.delete(`dedupe:update:${updateId}`);
   }
 }
@@ -148,9 +150,14 @@ export async function reserveWorkersAiBudget(units, env) {
 export async function cleanupRuntimeGuards(env) {
   if (!env.IVAI_DB) return;
   try {
+    // expires_at values are ISO strings with a 'T' separator (expiryIso);
+    // CURRENT_TIMESTAMP uses a space, which sorts before 'T', so comparing
+    // against it never matched same-day rows. Compare against the same
+    // ISO format instead.
+    const nowIso = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
     await Promise.all([
-      env.IVAI_DB.prepare("DELETE FROM processed_updates WHERE expires_at < CURRENT_TIMESTAMP").run(),
-      env.IVAI_DB.prepare("DELETE FROM runtime_counters WHERE expires_at < CURRENT_TIMESTAMP").run()
+      env.IVAI_DB.prepare(`DELETE FROM processed_updates WHERE expires_at < ${nowIso}`).run(),
+      env.IVAI_DB.prepare(`DELETE FROM runtime_counters WHERE expires_at < ${nowIso}`).run()
     ]);
   } catch (error) {
     console.warn(JSON.stringify({ event: "runtime_guard_cleanup_failed", error: String(error?.message || "unknown") }));

@@ -15,8 +15,9 @@ function fetchWithTimeout(url, init = {}, timeoutMs = FETCH_TIMEOUT_MS) {
 }
 
 // Binding calls (env.AI.run) cannot be aborted, so race them against a timer;
-// the abandoned call is left behind and the chain moves on.
-function withTimeout(promise, timeoutMs, label) {
+// the abandoned call is left behind and the chain moves on. Exported so the
+// media paths (media.js) race their binding calls the same way.
+export function withTimeout(promise, timeoutMs, label) {
   let timer;
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => reject(new Error(`${label} timed out after ${timeoutMs}ms`)), timeoutMs);

@@ -391,7 +391,13 @@ async function writeConversationSession(scope, session, env, now) {
   if (!env.IVAI_KV) return session;
   const ttl = sessionTtlSeconds(session, now);
   if (ttl <= 0) return null;
-  await env.IVAI_KV.put(sessionStorageKey(scope), JSON.stringify(session), { expirationTtl: ttl });
+  try {
+    await env.IVAI_KV.put(sessionStorageKey(scope), JSON.stringify(session), { expirationTtl: ttl });
+  } catch {
+    // Session storage is best-effort like every other KV access: a KV outage
+    // (or a dead namespace binding) must never fail the turn — the caller
+    // keeps the in-memory session for this turn and the next turn retries.
+  }
   return session;
 }
 
@@ -432,10 +438,15 @@ export async function getConversationSession(scope, env, { now = Date.now() } = 
  */
 export async function startNewConversationSession(scope, env) {
   if (!env.IVAI_KV) return;
-  await Promise.all([
-    env.IVAI_KV.delete(sessionStorageKey(scope)),
-    clearGuestMemory(scope, env)
-  ]);
+  try {
+    await Promise.all([
+      env.IVAI_KV.delete(sessionStorageKey(scope)),
+      clearGuestMemory(scope, env)
+    ]);
+  } catch {
+    // Invalidating the old session is best-effort: a KV failure must not
+    // break /start or /new — a stale session simply expires on its own TTL.
+  }
 }
 
 /**

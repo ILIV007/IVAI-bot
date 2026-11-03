@@ -4,6 +4,19 @@ const CATALOG_KEY = "catalog:openrouter:free:v2";
 const CATALOG_TTL_SECONDS = 6 * 60 * 60;
 const REFRESH_COOLDOWN_SECONDS = 15 * 60;
 const MAX_OPENROUTER_MODELS = 48;
+const FETCH_TIMEOUT_MS = 15_000;
+
+// Same bounded-fetch pattern as ai.js/media.js: the catalog refresh must
+// never hang the invocation on a stuck OpenRouter response.
+async function fetchWithTimeout(url, init = {}, timeoutMs = FETCH_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 function categoryFor(model) {
   const value = `${model.id} ${model.name || ""}`.toLowerCase();
@@ -81,7 +94,7 @@ export async function refreshFreeModelCatalog(env) {
 
   const headers = { accept: "application/json" };
   if (env.OPENROUTER_API_KEY) headers.authorization = `Bearer ${env.OPENROUTER_API_KEY}`;
-  const response = await fetch("https://openrouter.ai/api/v1/models?output_modalities=text&max_price=0&max_output_price=0&sort=intelligence-high-to-low", { headers });
+  const response = await fetchWithTimeout("https://openrouter.ai/api/v1/models?output_modalities=text&max_price=0&max_output_price=0&sort=intelligence-high-to-low", { headers });
   if (!response.ok) throw new Error(`OpenRouter catalog request failed: ${response.status}`);
   const payload = await response.json();
   const models = (payload?.data || [])

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import worker from "../src/index.js";
 import { generateReply, getDetectedMode } from "../src/ai.js";
@@ -13,8 +15,8 @@ import { conversationKey, ensureConversationSession, getAdminOperationalStats, g
 import { getRequiredChannelMembership } from "../src/membership.js";
 import { renderRichAiText, renderStandardAiText } from "../src/rich-renderer.js";
 import { renderAppPage } from "../src/app-page.js";
-import { allowUsage, claimUpdate, hasValidWebhookSecret, parseAdminIds, reserveWorkersAiBudget } from "../src/security.js";
-import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelPickToken, modelSelectionText, pickWelcomeSticker, secureRandomIndex, requiredMembershipKeyboard, responseMeta, shortModelLabel, splitText, stabilizeRtlText, startKeyboard, startThinkingAnimation, startTypingRefresher, telegram, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
+import { allowUsage, claimUpdate, cleanupRuntimeGuards, hasValidWebhookSecret, parseAdminIds, releaseUpdateClaim, reserveWorkersAiBudget } from "../src/security.js";
+import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelPickToken, modelSelectionText, pickWelcomeSticker, secureRandomIndex, requiredMembershipKeyboard, responseMeta, settingsKeyboard, shortModelLabel, splitText, stabilizeRtlText, startKeyboard, startThinkingAnimation, startTypingRefresher, telegram, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
 
 class KV {
   constructor() { this.values = new Map(); }
@@ -238,8 +240,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.7.6 release version", () => {
-  assert.equal(APP.version, "3.7.6");
+test("declares the official v3.7.7 release version", () => {
+  assert.equal(APP.version, "3.7.7");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -504,7 +506,9 @@ test("blocks a non-member before bot commands and presents the correct join flow
     return new Response(JSON.stringify({ ok: true, result: { message_id: 78 } }), { status: 200 });
   };
   try {
-    const update = { update_id: 210, message: { message_id: 21, chat: { id: 42, type: "private" }, from: { id: 126679582, first_name: "Owner" }, text: "/start" } };
+    // A non-owner id: owners are exempt from the membership gate (v3.7.7),
+    // so a gate test must act as a regular user.
+    const update = { update_id: 210, message: { message_id: 21, chat: { id: 42, type: "private" }, from: { id: 555001, first_name: "Member" }, text: "/start" } };
     const response = await worker.fetch(new Request("https://worker.test/", { method: "POST", headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" }, body: JSON.stringify(update) }), { ...baseEnv(), REQUIRED_CHANNEL_ENFORCED: "true" });
     assert.equal(response.status, 200);
     assert.match(calls[0].url, /getChatMember$/);
@@ -564,7 +568,8 @@ test("lets a confirmed channel member enter without any join prompt", async () =
     return new Response(JSON.stringify({ ok: true, result: { message_id: 79 } }), { status: 200 });
   };
   try {
-    const update = { update_id: 211, message: { message_id: 22, chat: { id: 43, type: "private" }, from: { id: 126679582, first_name: "Member" }, text: "/start" } };
+    // Non-owner id (owners skip the membership check entirely, v3.7.7).
+    const update = { update_id: 211, message: { message_id: 22, chat: { id: 43, type: "private" }, from: { id: 555001, first_name: "Member" }, text: "/start" } };
     const response = await worker.fetch(new Request("https://worker.test/", { method: "POST", headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" }, body: JSON.stringify(update) }), { ...baseEnv(), REQUIRED_CHANNEL_ENFORCED: "true" });
     assert.equal(response.status, 200);
     assert.match(calls[0].url, /getChatMember$/);
@@ -739,7 +744,8 @@ test("denies an authenticated Terminal session to a user outside the required ch
     return new Response(JSON.stringify({ ok: true, result: { status: "left" } }), { status: 200 });
   };
   try {
-    const response = await worker.fetch(new Request("https://worker.test/app/session", { method: "POST", headers: { "x-telegram-init-data": signedWebAppInitData() }, body: "{}" }), { ...baseEnv(), REQUIRED_CHANNEL_ENFORCED: "true" });
+    // Non-owner id: owners are exempt from the Terminal membership gate too (v3.7.7).
+    const response = await worker.fetch(new Request("https://worker.test/app/session", { method: "POST", headers: { "x-telegram-init-data": signedWebAppInitData({ id: 555001, first_name: "Member", language_code: "en" }) }, body: "{}" }), { ...baseEnv(), REQUIRED_CHANNEL_ENFORCED: "true" });
     assert.equal(response.status, 403);
     assert.equal((await response.json()).code, "CHANNEL_REQUIRED");
   } finally { globalThis.fetch = originalFetch; }
@@ -3867,6 +3873,417 @@ test("channel-post comments send no typing indicator, just the comment", async (
     const sendIndex = calls.findIndex((call) => /sendMessage$/.test(call.url));
     assert.ok(aiIndex !== -1 && sendIndex !== -1);
     assert.ok(aiIndex < sendIndex);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// ---------------------------------------------------------------------------
+// v3.7.7 surgery pins: fail-soft storage, webhook logging, owner exemption,
+// media timeouts, claim/release symmetry, cleanup formats, memory-button
+// idempotency, the media language contract, and the audited coverage gaps.
+// ---------------------------------------------------------------------------
+
+class UnreliableKV extends KV {
+  async put() { throw new Error("KV write failed: namespace unavailable (10042)"); }
+  async delete() { throw new Error("KV delete failed: namespace unavailable (10042)"); }
+}
+
+test("completes a private text turn even when every session KV write fails", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    // Group helpers give a working D1 + AI stub; only KV is broken, so the
+    // session put inside ensureConversationSession throws — the turn must
+    // still complete with the in-memory session instead of a 500.
+    const env = { ...groupTestEnv(calls, aiCalls), IVAI_KV: new UnreliableKV() };
+    const update = { update_id: 4001, message: { message_id: 1, chat: { id: 42, type: "private" }, from: { id: 42, first_name: "A" }, text: "Hello IVAI" } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 1);
+    assert.ok(calls.some((call) => JSON.stringify(call.body).includes("Group answer")));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("completes /start even when the session KV deletes fail", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = { ...groupTestEnv(calls, aiCalls), IVAI_KV: new UnreliableKV() };
+    const update = { update_id: 4002, message: { message_id: 2, chat: { id: 42, type: "private" }, from: { id: 42, first_name: "A" }, text: "/start" } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    assert.ok(calls.some((call) => /sendRichMessage$/.test(call.url) && /a free AI assistant/.test(call.body.rich_message.html)));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("logs a structured webhook_unauthorized event with the rejection reason", async () => {
+  const originalWarn = console.warn;
+  const warnings = [];
+  console.warn = (...args) => warnings.push(args.join(" "));
+  try {
+    const mismatch = await worker.fetch(new Request("https://worker.test/", { method: "POST", headers: { "X-Telegram-Bot-Api-Secret-Token": "wrong-secret" }, body: "{}" }), baseEnv());
+    assert.equal(mismatch.status, 401);
+    const mismatchEvent = warnings.map((line) => { try { return JSON.parse(line); } catch { return null; } }).find((entry) => entry?.event === "webhook_unauthorized");
+    assert.equal(mismatchEvent?.reason, "secret_mismatch");
+
+    warnings.length = 0;
+    const { TELEGRAM_WEBHOOK_SECRET: _unset, ...envWithoutSecret } = baseEnv();
+    const unset = await worker.fetch(new Request("https://worker.test/", { method: "POST", body: "{}" }), envWithoutSecret);
+    assert.equal(unset.status, 401);
+    const unsetEvent = warnings.map((line) => { try { return JSON.parse(line); } catch { return null; } }).find((entry) => entry?.event === "webhook_unauthorized");
+    assert.equal(unsetEvent?.reason, "secret_unset");
+    // No secret material anywhere in the log lines.
+    assert.ok(!warnings.join(" ").includes("valid-secret"));
+  } finally {
+    console.warn = originalWarn;
+  }
+});
+
+test("exempts the owner from the membership gate when the check itself fails, but not a regular user", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  // getChatMember errors for every reference (CHECK_FAILED): before v3.7.7
+  // this locked out everyone, owner included.
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: init?.body ? JSON.parse(init.body) : {} });
+    if (/getChatMember$/.test(String(url))) return new Response(JSON.stringify({ ok: false, description: "Bad Request: bot is not an administrator in the channel" }), { status: 400 });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 900 } }), { status: 200 });
+  };
+  try {
+    const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
+    const ownerUpdate = { update_id: 4003, message: { message_id: 3, chat: { id: 42, type: "private" }, from: { id: 126679582, first_name: "Owner" }, text: "Hello IVAI" } };
+    assert.equal((await postGroupUpdate(env, ownerUpdate)).status, 200);
+    assert.equal(aiCalls.length, 1);
+    assert.equal(calls.filter((call) => /getChatMember$/.test(call.url)).length, 0);
+    assert.ok(!calls.some((call) => JSON.stringify(call.body).includes("Membership in @ILIVIR3 is required")));
+
+    const memberUpdate = { update_id: 4004, message: { message_id: 4, chat: { id: 42, type: "private" }, from: { id: 555001, first_name: "Member" }, text: "Hello IVAI" } };
+    assert.equal((await postGroupUpdate(env, memberUpdate)).status, 200);
+    assert.equal(aiCalls.length, 1);
+    assert.ok(calls.some((call) => /getChatMember$/.test(call.url)));
+    assert.ok(calls.some((call) => JSON.stringify(call.body).includes("Membership in @ILIVIR3 is required")));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("exempts the owner from the Terminal membership gate too", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: init?.body ? JSON.parse(init.body) : {} });
+    // Even with the membership check hard-failing, the owner gets a session.
+    return new Response(JSON.stringify({ ok: false, description: "Bad Request" }), { status: 400 });
+  };
+  try {
+    const response = await worker.fetch(new Request("https://worker.test/app/session", { method: "POST", headers: { "x-telegram-init-data": signedWebAppInitData() }, body: "{}" }), { ...baseEnv(), REQUIRED_CHANNEL_ENFORCED: "true" });
+    assert.equal(response.status, 200);
+    assert.equal(calls.filter((call) => /getChatMember$/.test(call.url)).length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("voice and photo AI calls time out instead of hanging on a stuck binding call", async (t) => {
+  const originalFetch = globalThis.fetch;
+  const binary = new Uint8Array([1, 2, 3, 4]);
+  globalThis.fetch = async (url) => {
+    if (String(url).includes("getFile")) return new Response(JSON.stringify({ ok: true, result: { file_path: "asset.bin", file_size: binary.byteLength } }), { status: 200 });
+    return new Response(binary, { status: 200, headers: { "content-type": "image/jpeg" } });
+  };
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  try {
+    const env = { ...baseEnv(), AI: { run: () => new Promise(() => {}) } };
+    const voice = await driveUntilSettled(t, transcribeVoice({ fileId: "voice", languageHint: "en" }, env));
+    assert.equal(voice.ok, false);
+    assert.match(voice.error.message, /timed out after 25000ms/);
+    const photo = await driveUntilSettled(t, analyzePhoto({ fileId: "photo", caption: "Describe", language: "en" }, env));
+    assert.equal(photo.ok, false);
+    assert.match(photo.error.message, /timed out after 25000ms/);
+  } finally {
+    t.mock.timers.reset();
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("releases a KV-fallback update claim even when the D1 delete changes nothing", async () => {
+  const kv = new KV();
+  let d1Down = true;
+  const d1 = {
+    prepare(sql) {
+      return {
+        bind: () => ({
+          run: async () => {
+            if (d1Down) throw new Error("D1 unavailable");
+            return { meta: { changes: sql.includes("INSERT") ? 1 : 0 } };
+          }
+        })
+      };
+    }
+  };
+  const env = { ...baseEnv(), IVAI_DB: d1, IVAI_KV: kv };
+  // Claim while D1 errors: the claim lands in KV only.
+  assert.equal(await claimUpdate(777, env), true);
+  assert.equal(await kv.get("dedupe:update:777"), "1");
+  assert.equal(await claimUpdate(777, env), false);
+  // D1 recovers before release: its DELETE succeeds but matches no row, so
+  // only an unconditional KV delete actually releases the claim.
+  d1Down = false;
+  await releaseUpdateClaim(777, env);
+  assert.equal(await kv.get("dedupe:update:777"), null);
+  assert.equal(await claimUpdate(777, env), true);
+});
+
+function sqliteD1(db) {
+  return {
+    prepare(sql) {
+      const statement = db.prepare(sql);
+      const bound = (...params) => ({
+        run: async () => ({ meta: { changes: Number(statement.run(...params).changes) } }),
+        first: async () => statement.get(...params) ?? null,
+        all: async () => ({ results: statement.all(...params) })
+      });
+      return { bind: bound, ...bound() };
+    }
+  };
+}
+
+test("runtime-guard cleanup deletes rows whose ISO expiry is earlier the same UTC day", async () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(readFileSync(new URL("../db/0002_runtime_guards.sql", import.meta.url), "utf8"));
+    const now = Date.now();
+    const startOfDay = new Date(now).setUTCHours(0, 0, 0, 0);
+    // An expiry between UTC midnight and now: 'T'-format ISO, so the old
+    // CURRENT_TIMESTAMP (space separator) comparison never matched it.
+    const expiredToday = new Date(startOfDay + Math.max(1, Math.floor((now - startOfDay) / 2))).toISOString();
+    const future = new Date(now + 60 * 60 * 1000).toISOString();
+    db.prepare("INSERT INTO processed_updates (telegram_update_id, expires_at) VALUES (?, ?)").run("expired", expiredToday);
+    db.prepare("INSERT INTO processed_updates (telegram_update_id, expires_at) VALUES (?, ?)").run("future", future);
+    db.prepare("INSERT INTO runtime_counters (scope, subject_id, bucket, value, expires_at) VALUES (?, ?, ?, ?, ?)").run("text", "1", "b", 1, expiredToday);
+    db.prepare("INSERT INTO runtime_counters (scope, subject_id, bucket, value, expires_at) VALUES (?, ?, ?, ?, ?)").run("text", "2", "b", 1, future);
+    await cleanupRuntimeGuards({ IVAI_DB: sqliteD1(db) });
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM processed_updates WHERE telegram_update_id = 'expired'").get().count, 0);
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM processed_updates WHERE telegram_update_id = 'future'").get().count, 1);
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM runtime_counters WHERE expires_at = ?").get(expiredToday).count, 0);
+    assert.equal(db.prepare("SELECT COUNT(*) AS count FROM runtime_counters WHERE expires_at = ?").get(future).count, 1);
+  } finally {
+    db.close();
+  }
+});
+
+test("stores language with real SQL semantics: an explicit choice survives later upserts", async () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    for (const file of ["0001_initial_schema.sql", "0002_runtime_guards.sql", "0003_secretary_reminders.sql", "0004_reengagement.sql", "0005_broadcast_claims.sql", "0006_reset_language_to_english.sql"]) {
+      db.exec(readFileSync(new URL(`../db/${file}`, import.meta.url), "utf8"));
+    }
+    const env = { IVAI_DB: sqliteD1(db) };
+    const message = (id) => ({ user: { id, username: "a", first_name: "A" }, chat: { id, type: "private" } });
+    // First contact stores what the router passes (English by default).
+    await upsertUser({ ...message(42), language: "en" }, env);
+    assert.equal((await getUserSettings(42, env)).language, "en");
+    // An explicit /lang choice overwrites it.
+    await setUserLanguage(42, "fa", env);
+    assert.equal((await getUserSettings(42, env)).language, "fa");
+    // A later routine upsert must not clobber the choice: the SQL COALESCE
+    // keeps the stored value (this is what the SQL ships, not a stub).
+    await upsertUser({ ...message(42), language: "en" }, env);
+    assert.equal((await getUserSettings(42, env)).language, "fa");
+    // The mirror image holds too: a stored 'fa' from first contact survives.
+    await upsertUser({ ...message(43), language: "fa" }, env);
+    await upsertUser({ ...message(43), language: "en" }, env);
+    assert.equal((await getUserSettings(43, env)).language, "fa");
+  } finally {
+    db.close();
+  }
+});
+
+test("the Memory settings button applies its named target idempotently; the legacy value still toggles", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: init?.body ? JSON.parse(init.body) : {} });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 505 } }), { status: 200 });
+  };
+  try {
+    // The keyboard names the state it switches TO.
+    assert.equal(settingsKeyboard("en", true).inline_keyboard[0][0].callback_data, "settings:memory:off");
+    assert.equal(settingsKeyboard("en", false).inline_keyboard[0][0].callback_data, "settings:memory:on");
+
+    const env = { ...baseEnv(), IVAI_DB: new PreferenceD1() };
+    await setMemoryEnabled(42, true, env);
+    const sendCallback = async (data, updateId) => {
+      const update = { update_id: updateId, callback_query: { id: `cb${updateId}`, from: { id: 42, first_name: "A" }, data, message: { message_id: 31, chat: { id: 42, type: "private" }, from: { id: 424242, is_bot: true, username: "IVAI_Llm_bot" } } } };
+      const response = await worker.fetch(new Request("https://worker.test/", { method: "POST", headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" }, body: JSON.stringify(update) }), env);
+      assert.equal(response.status, 200);
+    };
+    // Off, applied twice (redelivery / double tap): stays off, no toggle.
+    await sendCallback("settings:memory:off", 4101);
+    assert.equal(env.IVAI_DB.preferences.get("42").memoryEnabled, 0);
+    await sendCallback("settings:memory:off", 4102);
+    assert.equal(env.IVAI_DB.preferences.get("42").memoryEnabled, 0);
+    // The edited keyboard now offers the on-target.
+    const edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
+    assert.equal(edit.body.reply_markup.inline_keyboard[0][0].callback_data, "settings:memory:on");
+    // Legacy button on an already-sent message still toggles.
+    await sendCallback("settings:memory", 4103);
+    assert.equal(env.IVAI_DB.preferences.get("42").memoryEnabled, 1);
+    // On, applied twice: stays on.
+    await sendCallback("settings:memory:on", 4104);
+    await sendCallback("settings:memory:on", 4105);
+    assert.equal(env.IVAI_DB.preferences.get("42").memoryEnabled, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a first-contact group voice message with a Persian caption answers in Persian but stores English as the UI language", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupMediaFetch(calls);
+  try {
+    const env = {
+      ...groupTestEnv(calls, aiCalls),
+      AI: { async run(model, input) { aiCalls.push({ model, input }); return { text: "این متن پیاده‌سازی‌شده است." }; } }
+    };
+    const update = { update_id: 4200, message: { message_id: 90, chat: { id: -100129, type: "supergroup" }, from: { id: 42, first_name: "A" }, voice: { file_id: "v1", duration: 3 }, caption: "اینو گوش کن", reply_to_message: { message_id: 50, from: { id: 424242, is_bot: true, username: "IVAI_Llm_bot" } } } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    // The transcription — and therefore the answer — follows the caption.
+    assert.equal(aiCalls.length, 1);
+    assert.equal(aiCalls[0].input.language, "fa");
+    const send = calls.find((call) => /sendMessage$/.test(call.url));
+    assert.match(send.body.text, /متن صوت/);
+    // But the brand-new user's stored UI language stays English: the caption
+    // language is an answer language, never a UI preference.
+    assert.equal(env.IVAI_DB.users.get("42").language, "en");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+function linkedGroupFetch(calls, linkedChatId) {
+  return async (url, init) => {
+    calls.push({ url: String(url), body: init?.body ? JSON.parse(init.body) : {} });
+    if (/getChat$/.test(String(url))) return new Response(JSON.stringify({ ok: true, result: { id: APP.requiredChannelId, type: "channel", linked_chat_id: linkedChatId } }), { status: 200 });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 900 } }), { status: 200 });
+  };
+}
+
+test("a mention in the channel's linked group resolves to the primary tier, not the other tier", async () => {
+  const originalFetch = globalThis.fetch;
+  const mentionUpdate = (chatId) => (updateId, messageId) => ({ update_id: updateId, message: { message_id: messageId, chat: { id: chatId, type: "supergroup" }, from: { id: 42, first_name: "A" }, text: "@IVAI_Llm_bot one question", entities: [{ type: "mention", offset: 0, length: 13 }] } });
+  try {
+    // Linked group: the primary hourly cap (30) applies, so a sixth mention
+    // inside the hour is still answered. Counters live in KV (no D1); the
+    // per-turn cooldown key is cleared between turns so only the hourly
+    // bucket can block.
+    const linkedCalls = [];
+    const linkedAi = [];
+    globalThis.fetch = linkedGroupFetch(linkedCalls, -100222);
+    const linkedEnv = { ...groupTestEnv(linkedCalls, linkedAi), IVAI_DB: undefined };
+    const linkedMention = mentionUpdate(-100222);
+    for (let index = 0; index < 6; index += 1) {
+      await linkedEnv.IVAI_KV.delete("groupcd:-100222");
+      assert.equal((await postGroupUpdate(linkedEnv, linkedMention(4300 + index, 10 + index))).status, 200);
+    }
+    assert.equal(linkedAi.length, 6);
+    // The tier really was resolved through the channel's linked_chat_id.
+    assert.ok(linkedCalls.some((call) => /getChat$/.test(call.url)));
+
+    // Control: an unlinked group is the other tier — the sixth mention in
+    // the hour hits the stricter cap of 5 and stays silent.
+    const otherCalls = [];
+    const otherAi = [];
+    globalThis.fetch = linkedGroupFetch(otherCalls, -100222);
+    const otherEnv = { ...groupTestEnv(otherCalls, otherAi), IVAI_DB: undefined };
+    const otherMention = mentionUpdate(-100223);
+    for (let index = 0; index < 6; index += 1) {
+      await otherEnv.IVAI_KV.delete("groupcd:-100223");
+      assert.equal((await postGroupUpdate(otherEnv, otherMention(4310 + index, 20 + index))).status, 200);
+    }
+    assert.equal(otherAi.length, 5);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("stops at the hourly comment cap: the 11th eligible channel post gets no comment", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    // Counters in KV (no D1): the per-chat comment bucket is what stops the
+    // 11th post — every post below is sampler-kept and long enough.
+    const env = { ...groupTestEnv(calls, aiCalls, { enforced: "true" }), IVAI_DB: undefined };
+    for (const [index, messageId] of [90, 100, 101, 102, 103, 104, 106, 107, 109, 110, 111].entries()) {
+      const response = await postGroupUpdate(env, channelPostUpdate(4400 + index, messageId, { text: LONG_CHANNEL_POST }));
+      assert.equal(response.status, 200);
+    }
+    assert.equal(aiCalls.length, GROUP_POLICY.channelPostHourlyLimit);
+    assert.equal(calls.filter((call) => /sendMessage$/.test(call.url)).length, GROUP_POLICY.channelPostHourlyLimit);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("pins the locked group policy numbers so a config typo fails CI", () => {
+  assert.equal(GROUP_POLICY.primaryCooldownSeconds, 20);
+  assert.equal(GROUP_POLICY.otherCooldownSeconds, 120);
+  assert.equal(GROUP_POLICY.primaryHourlyLimit, 30);
+  assert.equal(GROUP_POLICY.otherHourlyLimit, 5);
+  assert.equal(GROUP_POLICY.otherDailyLimit, 30);
+  assert.equal(GROUP_POLICY.channelPostHourlyLimit, 10);
+  assert.equal(GROUP_POLICY.primaryMediaHourlyLimit, 10);
+  assert.equal(GROUP_POLICY.otherMediaHourlyLimit, 3);
+  assert.equal(GROUP_POLICY.channelPostReplyRate, 0.75);
+  assert.equal(GROUP_POLICY.channelCommentFunShare, 0.6);
+  assert.equal(GROUP_POLICY.channelCommentStreakCapMin, 2);
+  assert.equal(GROUP_POLICY.channelCommentStreakCapMax, 3);
+});
+
+test("ignores an edited group message entirely (pinned current behavior)", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls);
+    const update = { update_id: 4500, edited_message: { message_id: 5, chat: { id: -100130, type: "supergroup" }, from: { id: 42, first_name: "A" }, text: "@IVAI_Llm_bot edited question", entities: [{ type: "mention", offset: 0, length: 13 }], edit_date: 1700000000 } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 0);
+    assert.equal(calls.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("treats an edited private message as a new turn (pinned current behavior)", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls);
+    const update = { update_id: 4501, edited_message: { message_id: 6, chat: { id: 42, type: "private" }, from: { id: 42, first_name: "A" }, text: "Hello again, edited", edit_date: 1700000000 } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 1);
+    assert.ok(calls.some((call) => /sendRichMessage$/.test(call.url)));
   } finally {
     globalThis.fetch = originalFetch;
   }
