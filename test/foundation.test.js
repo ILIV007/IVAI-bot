@@ -240,8 +240,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.7.8 release version", () => {
-  assert.equal(APP.version, "3.7.8");
+test("declares the official v3.7.9 release version", () => {
+  assert.equal(APP.version, "3.7.9");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -2555,7 +2555,7 @@ test("answers a discussion-group thread reply to the bot's message", async () =>
   }
 });
 
-test("answers a reply made directly on the channel post in the discussion group", async () => {
+test("ignores a reply made directly on the channel post in the discussion group (owner decision, v3.7.9)", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   const aiCalls = [];
@@ -2564,14 +2564,15 @@ test("answers a reply made directly on the channel post in the discussion group"
     const env = groupTestEnv(calls, aiCalls);
     // The user comments on the post itself: the replied-to message is the
     // automatic forward (from 777000, sender_chat/forward_from_chat = channel).
+    // The v3.7.9 owner decision removed the post_reply trigger (superseding
+    // 2026-11-01): commenting on a post is not addressing the bot, so this is
+    // ignored entirely — no AI call, no send, no Telegram call at all.
     const update = { update_id: 3025, message: { message_id: 81, chat: { id: -100115, type: "supergroup" }, from: { id: 42, first_name: "A" }, text: "I agree — what is your take?", reply_to_message: { message_id: 77, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, forward_from_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "We released a new open-source tool for developers today." } } };
     const response = await postGroupUpdate(env, update);
     assert.equal(response.status, 200);
-    assert.equal(aiCalls.length, 1);
-    const sends = calls.filter((call) => /sendMessage$/.test(call.url));
-    assert.equal(sends.length, 1);
-    assert.equal(sends[0].body.reply_parameters.message_id, 81);
-    assert.match(sends[0].body.text, /Group answer/);
+    assert.equal(aiCalls.length, 0);
+    assert.equal(calls.filter((call) => /sendMessage$/.test(call.url)).length, 0);
+    assert.equal(calls.length, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -3260,6 +3261,28 @@ test("ignores video and audio messages from group members with no membership che
     assert.equal((await postGroupUpdate(env, video)).status, 200);
     assert.equal((await postGroupUpdate(env, audio)).status, 200);
     assert.equal(aiCalls.length, 0);
+    assert.equal(calls.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("ignores group media replied directly on the channel post (owner decision, v3.7.9)", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupMediaFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls);
+    // A photo attached to a comment on the post itself: the replied-to message
+    // is the channel post's automatic forward, not a bot message, so the media
+    // path must ignore it too — no file fetch, no AI call, no send.
+    const update = { update_id: 3034, message: { message_id: 83, chat: { id: -100115, type: "supergroup" }, from: { id: 42, first_name: "A" }, photo: [{ file_id: "ph1" }], reply_to_message: { message_id: 77, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, forward_from_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "We released a new open-source tool for developers today." } } };
+    const response = await postGroupUpdate(env, update);
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 0);
+    assert.equal(calls.some((call) => /getFile$/.test(call.url)), false);
+    assert.equal(calls.filter((call) => /sendMessage$/.test(call.url)).length, 0);
     assert.equal(calls.length, 0);
   } finally {
     globalThis.fetch = originalFetch;
