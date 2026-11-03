@@ -1,6 +1,6 @@
 export const APP = Object.freeze({
   name: "IVAI",
-  version: "3.7.5",
+  version: "3.7.6",
   botUsername: "IVAI_Llm_bot",
   terminalAppUrl: "https://ivai-bot.ivai-bot.workers.dev/app",
   // Bot-owned file IDs from the IVAILlmBot pack; refresh deliberately when that pack changes.
@@ -51,6 +51,13 @@ export const GROUP_POLICY = Object.freeze({
   // Share of eligible channel posts that earn a comment (v3.5.1); the rest
   // are skipped silently before any quota is consumed.
   channelPostReplyRate: 0.75,
+  // Comment mode balance (v3.7.6): the FUN/ANALYSIS mode is assigned in code,
+  // not picked by the model — its self-selection skewed heavily to ANALYSIS.
+  // Draws are weighted to this FUN share, and a per-chat streak cap (drawn
+  // per run from the range below) forces a switch so neither mode floods.
+  channelCommentFunShare: 0.6,
+  channelCommentStreakCapMin: 2,
+  channelCommentStreakCapMax: 3,
   otherCooldownSeconds: 120,
   otherHourlyLimit: 5,
   otherDailyLimit: 30,

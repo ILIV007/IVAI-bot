@@ -7,7 +7,7 @@ import { processSecretaryReminderBatch } from "../src/secretary.js";
 import { processReengagementBatch } from "../src/reengagement.js";
 import { analyzePhoto, downloadTelegramFile, transcribeVoice } from "../src/media.js";
 import { APP, defaultFreeModelFor, FREE_MODEL_POLICY, GROUP_POLICY, LANGUAGE_OPTIONS, MODES, modeOutputLimit } from "../src/config.js";
-import { channelPostSampled, completeChannelComment, messagePlainText, richBlockToPlain, richTextToPlain } from "../src/router.js";
+import { assignChannelCommentMode, channelPostSampled, completeChannelComment, messagePlainText, richBlockToPlain, richTextToPlain } from "../src/router.js";
 import { defaultFreeModels, refreshFreeModelCatalog } from "../src/catalog.js";
 import { conversationKey, ensureConversationSession, getAdminOperationalStats, getConversationSession, getUserSettings, saveConversationSession, setMemoryEnabled, setSelectedModel, setUserLanguage, setUserMode, startNewConversationSession, upsertUser } from "../src/storage.js";
 import { getRequiredChannelMembership } from "../src/membership.js";
@@ -238,8 +238,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.7.5 release version", () => {
-  assert.equal(APP.version, "3.7.5");
+test("declares the official v3.7.6 release version", () => {
+  assert.equal(APP.version, "3.7.6");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -2744,6 +2744,107 @@ test("trims a truncated channel-post comment to its last complete segment before
   }
 });
 
+test("assigns channel-post comment modes in code: 60/40 draw, streak cap of 2–3 forces switches", () => {
+  // v3.7.6: model self-selection skewed heavily to ANALYSIS, so the mode
+  // is assigned deterministically in code. Drive a long synthetic
+  // sequence through the real assignment + state transitions.
+  let state = null;
+  let fun = 0;
+  let currentRun = 0;
+  let previousMode = null;
+  const total = 1000;
+  for (let messageId = 1; messageId <= total; messageId += 1) {
+    const before = state;
+    const next = assignChannelCommentMode(state, { chat: { id: -100115 }, message_id: messageId });
+    // A run that reached its cap forces the next comment to switch modes,
+    // and the new run restarts with a freshly drawn cap.
+    if (before && before.run >= before.cap) {
+      assert.notEqual(next.mode, before.mode);
+      assert.equal(next.run, 1);
+    }
+    if (next.mode === "fun") fun += 1;
+    currentRun = next.mode === previousMode ? currentRun + 1 : 1;
+    previousMode = next.mode;
+    // No run ever exceeds the maximum cap, whatever the draws.
+    assert.ok(currentRun <= 3, `run of ${next.mode} reached ${currentRun}`);
+    state = next;
+  }
+  // The streak mechanics temper the raw 60/40 draw — runs of the majority
+  // mode are cut at the cap more often — so the realized share over this
+  // fixed sequence lands near 55%, inside this honest band around 60%.
+  const share = fun / total;
+  assert.ok(share >= 0.5 && share <= 0.62, `FUN share ${share} outside the expected band`);
+});
+
+test("mode assignment restarts the run on a switch and extends it on a repeat draw", () => {
+  const message = { chat: { id: -100115 }, message_id: 500 };
+  // No state: a fresh run of length 1 with a cap drawn from the range.
+  const fresh = assignChannelCommentMode(null, message);
+  assert.equal(fresh.run, 1);
+  assert.ok(fresh.cap === 2 || fresh.cap === 3);
+  // At the cap, the switch is forced regardless of the draw.
+  const forced = assignChannelCommentMode({ mode: "analysis", run: 2, cap: 2 }, message);
+  assert.equal(forced.mode, "fun");
+  assert.equal(forced.run, 1);
+  assert.ok(forced.cap === 2 || forced.cap === 3);
+  // Below the cap: a same-mode draw extends the run and keeps the cap,
+  // an opposite draw restarts the run with a fresh cap.
+  const extended = assignChannelCommentMode({ mode: "fun", run: 1, cap: 3 }, message);
+  if (extended.mode === "fun") {
+    assert.equal(extended.run, 2);
+    assert.equal(extended.cap, 3);
+  } else {
+    assert.equal(extended.run, 1);
+    assert.ok(extended.cap === 2 || extended.cap === 3);
+  }
+});
+
+test("code-assigned comment mode reaches the prompt and persists only after a send", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
+    const channelPost = (updateId, messageId) => ({ update_id: updateId, message: { message_id: messageId, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: LONG_CHANNEL_POST } });
+    // Seed the streak at its cap in ANALYSIS: the next comment is forced
+    // to FUN no matter what the per-post draw says.
+    await env.IVAI_KV.put("comment_mode:-100115", JSON.stringify({ mode: "analysis", run: 2, cap: 2 }));
+    // A sampled-out post never reaches generation, so it must leave the
+    // streak state byte-identical.
+    assert.equal((await postGroupUpdate(env, channelPost(3040, 80))).status, 200);
+    assert.equal(aiCalls.length, 0);
+    assert.equal(await env.IVAI_KV.get("comment_mode:-100115"), JSON.stringify({ mode: "analysis", run: 2, cap: 2 }));
+
+    assert.equal((await postGroupUpdate(env, channelPost(3041, 77))).status, 200);
+    assert.equal(aiCalls.length, 1);
+    const funPrompt = aiCalls[0].payload.messages.at(-1).content;
+    assert.match(funPrompt, /This comment's mode is FUN/);
+    assert.doesNotMatch(funPrompt, /This comment's mode is ANALYSIS/);
+    assert.doesNotMatch(funPrompt, /Pick the mode/);
+    // The comment was sent, and only then did the streak state advance.
+    assert.ok(calls.some((call) => /sendMessage$/.test(call.url)));
+    const afterFun = JSON.parse(await env.IVAI_KV.get("comment_mode:-100115"));
+    assert.equal(afterFun.mode, "fun");
+    assert.equal(afterFun.run, 1);
+    assert.ok(afterFun.cap === 2 || afterFun.cap === 3);
+
+    // The mirror image: a capped FUN streak forces the ANALYSIS line,
+    // smart-friend definition included.
+    await env.IVAI_KV.put("comment_mode:-100115", JSON.stringify({ mode: "fun", run: 3, cap: 3 }));
+    assert.equal((await postGroupUpdate(env, channelPost(3042, 78))).status, 200);
+    assert.equal(aiCalls.length, 2);
+    const analysisPrompt = aiCalls[1].payload.messages.at(-1).content;
+    assert.match(analysisPrompt, /This comment's mode is ANALYSIS/);
+    assert.match(analysisPrompt, /the very smart friend/);
+    const afterAnalysis = JSON.parse(await env.IVAI_KV.get("comment_mode:-100115"));
+    assert.equal(afterAnalysis.mode, "analysis");
+    assert.equal(afterAnalysis.run, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("flattens Rich Message blocks to plain text without throwing on malformed input", () => {
   // Nested formatting wrappers resolve to their innermost text.
   assert.equal(richTextToPlain({ type: "bold", text: { type: "italic", text: "hello" } }), "hello");
@@ -3213,12 +3314,14 @@ test("channel-post comment prompt is a persona with worked examples and hard rul
     // (the three v3.7.0 examples, unchanged) and ANALYSIS (two new
     // examples: the smart friend naming what is good AND what else
     // matters — balanced, not a roast, not a verdict).
+    // v3.7.6: the model no longer picks the mode — the code assigns it
+    // (60/40 draw + streak cap) and the prompt states the assignment.
+    // This post draws FUN under the deterministic assignment; the
+    // ANALYSIS assignment line (and its smart-friend definition) is
+    // asserted in the v3.7.6 mode-balance integration test below.
     assert.match(prompt, /witty regular of this group/);
     assert.match(prompt, /embarrassing, funny, revealing, or absurd beat/);
-    assert.match(prompt, /You comment in ONE of two modes/);
-    assert.match(prompt, /the very smart friend/);
-    assert.match(prompt, /what is genuinely good or interesting here AND what else matters/);
-    assert.match(prompt, /not a roast, not a verdict/);
+    assert.match(prompt, /This comment's mode is FUN/);
     assert.match(prompt, /Never mix the two modes in one comment/);
     assert.match(prompt, /FUN examples:/);
     assert.match(prompt, /ANALYSIS examples:/);

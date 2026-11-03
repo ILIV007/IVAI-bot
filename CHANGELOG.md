@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.7.6] - 2026-11-03
+
+### Added
+
+- **Code-assigned channel-post comment modes (60% FUN / 40% ANALYSIS, random 2–3 streak cap):** since v3.7.2 the comment prompt let the model pick FUN or ANALYSIS per post, and live it over-picked ANALYSIS, so the balance the two modes exist for was lost. The mode is now assigned in code before generation: a deterministic per-post hash draw weighted 60% FUN / 40% ANALYSIS (independent of the sampling draw), tempered by a per-chat streak state in KV — when a run of one mode reaches its cap, drawn fresh per run from 2–3, the next comment is forced to the other mode. The prompt no longer asks the model to choose; it states the assigned mode and that mode's definition, with both worked-example groups and all hard rules unchanged. The streak state is written only after a comment is actually sent (skipped, incomplete, and failed comments never touch it), and every KV access is fail-soft, degrading to the plain weighted draw.
+
 ## [3.7.5] - 2026-11-03
 
 ### Fixed
