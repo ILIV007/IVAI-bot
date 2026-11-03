@@ -396,18 +396,79 @@ function channelThreadSeedKey(message) {
   });
 }
 
+// FNV-1a over the chat + message ids: stable per post, so every per-post
+// verdict below is deterministic — no stored state, no randomness.
+function fnv1a(text) {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash >>> 0;
+}
+
 // Channel-post comment sampling (v3.5.1): not every post earns a comment.
 // The verdict hashes the chat + message ids (FNV-1a), so it is stable per
 // post — no stored state, no randomness — and keeps roughly
 // GROUP_POLICY.channelPostReplyRate of eligible posts.
 export function channelPostSampled(message) {
-  const key = `chanpost:${message?.chat?.id}:${message?.message_id}`;
-  let hash = 0x811c9dc5;
-  for (let index = 0; index < key.length; index += 1) {
-    hash ^= key.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
+  return fnv1a(`chanpost:${message?.chat?.id}:${message?.message_id}`) % 100 < Math.round(GROUP_POLICY.channelPostReplyRate * 100);
+}
+
+// Comment mode assignment (v3.7.6): since v3.7.2 the prompt let the model
+// pick FUN or ANALYSIS per post, and live it picked ANALYSIS far too often —
+// the balance the two modes exist for was lost. The mode is now assigned
+// here, deterministically: a per-post hash draw weighted to
+// GROUP_POLICY.channelCommentFunShare, tempered by a per-chat streak cap —
+// once a run of one mode reaches its cap (drawn per run from the policy
+// range, 2–3), the next comment is forced to the other mode. The draws use
+// salts distinct from the sampling hash, so mode and sampling are
+// independent verdicts on the same post.
+const COMMENT_MODE_FUN = "fun";
+const COMMENT_MODE_ANALYSIS = "analysis";
+
+function commentModeCapDraw(message) {
+  const span = GROUP_POLICY.channelCommentStreakCapMax - GROUP_POLICY.channelCommentStreakCapMin + 1;
+  return GROUP_POLICY.channelCommentStreakCapMin + (fnv1a(`chanmodecap:${message?.chat?.id}:${message?.message_id}`) % span);
+}
+
+// Pure assignment: takes the validated streak state (or null) and returns
+// the state to persist once this comment is actually sent — its `mode` is
+// the mode assigned to this comment.
+export function assignChannelCommentMode(state, message) {
+  if (state && state.run >= state.cap) {
+    const mode = state.mode === COMMENT_MODE_FUN ? COMMENT_MODE_ANALYSIS : COMMENT_MODE_FUN;
+    return { mode, run: 1, cap: commentModeCapDraw(message) };
   }
-  return hash % 100 < Math.round(GROUP_POLICY.channelPostReplyRate * 100);
+  const mode = fnv1a(`chanmode:${message?.chat?.id}:${message?.message_id}`) % 100 < Math.round(GROUP_POLICY.channelCommentFunShare * 100)
+    ? COMMENT_MODE_FUN
+    : COMMENT_MODE_ANALYSIS;
+  if (state && mode === state.mode) return { mode, run: state.run + 1, cap: state.cap };
+  return { mode, run: 1, cap: commentModeCapDraw(message) };
+}
+
+function validCommentModeState(value) {
+  if (!value || (value.mode !== COMMENT_MODE_FUN && value.mode !== COMMENT_MODE_ANALYSIS)) return null;
+  if (!Number.isInteger(value.run) || value.run < 1) return null;
+  if (!Number.isInteger(value.cap) || value.cap < GROUP_POLICY.channelCommentStreakCapMin || value.cap > GROUP_POLICY.channelCommentStreakCapMax) return null;
+  return { mode: value.mode, run: value.run, cap: value.cap };
+}
+
+// The streak state is one small KV key per chat. Every access is fail-soft:
+// a KV failure degrades to no-state behavior and can never break commenting.
+async function loadChannelCommentMode(message, env) {
+  try {
+    const raw = await env.IVAI_KV?.get(`comment_mode:${message?.chat?.id}`);
+    return raw ? validCommentModeState(JSON.parse(raw)) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function saveChannelCommentMode(message, state, env) {
+  try {
+    await env.IVAI_KV?.put(`comment_mode:${message?.chat?.id}`, JSON.stringify(state));
+  } catch { /* Best-effort: losing the streak only re-rolls the balance. */ }
 }
 
 function logChannelCommentSkip(message, reason) {
@@ -472,22 +533,30 @@ async function handleChannelPost(message, env) {
     // fresh start (v3.7.0): a short persona plus worked examples and a few
     // hard rules, replacing the accreted rule list of v3.4.1–v3.6.4 —
     // and the comment carries no model/mode footer in the group.
-    // v3.7.2: the comment runs in ONE of two modes chosen per post — FUN
-    // (the v3.7.0 comedy behavior, examples unchanged) or ANALYSIS (the
-    // very smart friend: what is genuinely good here AND what else
-    // matters) — taught by grouping the worked examples by mode.
+    // v3.7.2: the comment runs in ONE of two modes — FUN (the v3.7.0
+    // comedy behavior, examples unchanged) or ANALYSIS (the very smart
+    // friend: what is genuinely good here AND what else matters) —
+    // taught by grouping the worked examples by mode.
+    // v3.7.6: the mode is no longer the model's choice — live, its
+    // self-selection skewed heavily to ANALYSIS and the balance was lost.
+    // assignChannelCommentMode assigns it in code (60% FUN / 40% ANALYSIS
+    // with a random 2–3 streak cap) and the prompt states the assignment.
     // v3.7.1: the prompt opens with Qwen3's "/no_think" soft switch — the
     // documented way to disable this hybrid model's reasoning — so reasoning
     // cannot eat the comment's token budget; the switch is a control token
     // in the instruction, not content, and is never echoed into the comment.
     const language = scriptLanguageFromMessage(message) || "en";
+    const modeAssignment = assignChannelCommentMode(await loadChannelCommentMode(message, env), message);
+    const modeLine = modeAssignment.mode === COMMENT_MODE_FUN
+      ? "This comment's mode is FUN: a witty, alive reaction like the examples below. Never mix the two modes in one comment."
+      : "This comment's mode is ANALYSIS: you are the very smart friend — say what is genuinely good or interesting here AND what else matters: the catch, the trade-off, the limit. Balanced and concrete; not a roast, not a verdict. Never mix the two modes in one comment.";
     const result = await generateReply({
       text: `/no_think
 A post from the IVAI channel was just shared in its discussion group. Write ONE comment on it, in the SAME language as the post, and output only the comment itself.
 
 You are a sharp, witty regular of this group with real taste: you read the post like a person, spot the one moment everyone will talk about — the embarrassing, funny, revealing, or absurd beat — and say what a smart friend would say. You never sound like a news summary or an analyst report.
 
-You comment in ONE of two modes. FUN: a witty, alive reaction like the examples below. ANALYSIS: you are the very smart friend — say what is genuinely good or interesting here AND what else matters: the catch, the trade-off, the limit. Balanced and concrete; not a roast, not a verdict. Pick the mode the post honestly deserves: tool/project announcements with real trade-offs usually deserve ANALYSIS; absurd, gossipy, or light posts usually deserve FUN. Never mix the two modes in one comment.
+${modeLine}
 
 FUN examples:
 Post: مایکروسافت به بعضی کاربرای کم‌مصرف ایکس‌باکس ایمیل داده و پیشنهاد داده کنسولشون رو از طریق Best Buy تا سقف ۳۷۵ دلار بفروشن؛ مبلغ نهایی به شرایط کنسول بستگی داره. → Comment: ایمیل از مایکروسافت یعنی انباره‌شون داره پر می‌شه 😄 ۳۷۵ دلار برای یه ایکس‌باکس که سال‌ها توی کمد خاک خورده — بدترین زمان برای فروش، بهترین زمان برای خرید.
@@ -529,6 +598,9 @@ ${postText}`,
       replyTo: message.message_id,
       ...messageSendContext(message)
     });
+    // The comment actually went out, so the mode streak advances (v3.7.6):
+    // skipped, incomplete, and failed comments never touch the state.
+    await saveChannelCommentMode(message, modeAssignment, env);
     // Seed the shared thread Session with the post + comment so a follow-up
     // anywhere in this thread still knows what the conversation is about.
     await saveConversationSession(channelThreadSeedKey(message), [
