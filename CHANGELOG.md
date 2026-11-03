@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.7.8] - 2026-11-03
+
+### Changed
+
+- **Edited messages are ignored in private chats too:** an `edited_message` update is now dropped in `handleUpdate` for every chat type, not just groups — previously a private-chat edit re-ran a full AI turn, sending a second reply and consuming quota. Edited channel posts stay dropped before the comment path, exactly as before (owner decision).
+
 ## [3.7.7] - 2026-11-03
 
 ### Fixed

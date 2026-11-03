@@ -240,8 +240,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.7.7 release version", () => {
-  assert.equal(APP.version, "3.7.7");
+test("declares the official v3.7.8 release version", () => {
+  assert.equal(APP.version, "3.7.8");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -4272,7 +4272,7 @@ test("ignores an edited group message entirely (pinned current behavior)", async
   }
 });
 
-test("treats an edited private message as a new turn (pinned current behavior)", async () => {
+test("ignores an edited private message entirely (owner decision, v3.7.8)", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   const aiCalls = [];
@@ -4282,8 +4282,8 @@ test("treats an edited private message as a new turn (pinned current behavior)",
     const update = { update_id: 4501, edited_message: { message_id: 6, chat: { id: 42, type: "private" }, from: { id: 42, first_name: "A" }, text: "Hello again, edited", edit_date: 1700000000 } };
     const response = await postGroupUpdate(env, update);
     assert.equal(response.status, 200);
-    assert.equal(aiCalls.length, 1);
-    assert.ok(calls.some((call) => /sendRichMessage$/.test(call.url)));
+    assert.equal(aiCalls.length, 0);
+    assert.equal(calls.length, 0);
   } finally {
     globalThis.fetch = originalFetch;
   }
