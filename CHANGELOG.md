@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.11.4] - 2026-11-14
+
+### Changed
+
+- **"Ready!" rides inside the indicator:** activation used to send three messages — the green-tick confirmation, a separate «Ready! 🚀», and the persistent BYOK indicator. The separate Ready message is gone: its line is now the first line of the indicator itself («Ready! 🚀» / «آماده! 🚀», then «🔑 Using your API — {name} · {model}» with the ⏹ Stop BYOK button), so activation ends with exactly two messages and the one that stays in the chat says it all. Re-sends on config/model change and the rename refresh carry the same combined text.
+
 ## [3.11.3] - 2026-11-14
 
 ### Fixed

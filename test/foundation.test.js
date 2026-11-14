@@ -254,8 +254,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.11.3 release version", () => {
-  assert.equal(APP.version, "3.11.3");});
+test("declares the official v3.11.4 release version", () => {
+  assert.equal(APP.version, "3.11.4");});
 
 test("richLineBreaks converts newlines to <br> for Rich sends (v3.11.1)", () => {
   assert.equal(richLineBreaks("<b>🎛 IVAI menu</b>\n\n<b>Your setup</b>\nResponse mode: <code>Auto</code>"), "<b>🎛 IVAI menu</b><br><br><b>Your setup</b><br>Response mode: <code>Auto</code>");
@@ -5158,14 +5158,18 @@ test("custom endpoint flow normalizes the URL, collects the model, and activates
     assert.deepEqual((await getUserApiConfigMeta(42, env)).customModels, ["my-custom-model-1"]);
     assert.equal(calls.some((call) => String(call.url).includes("api.example.com")), false);
     // The confirmation is one short message with a green tick — the manage
-    // screen is no longer concatenated into it — followed by a separate
-    // "Ready!" message below it (owner feedback 2026-11-14).
+    // screen is no longer concatenated into it — and the "Ready!" line is
+    // the first line of the persistent indicator, not a separate message
+    // (owner feedback 2026-11-14, v3.11.4).
     const sends = calls.filter((call) => /sendMessage$/.test(call.url));
     const confirmation = sends.find((call) => /My API is active/.test(call.body.text));
     assert.match(confirmation.body.text, /My API is active/);
     assert.doesNotMatch(confirmation.body.text, /start chatting/);
     assert.doesNotMatch(confirmation.body.text, /My API 1/);
-    assert.equal(sends.at(-1).body.text, "Ready! 🚀");
+    assert.equal(sends.some((call) => call.body.text === "Ready! 🚀"), false);
+    const indicators = calls.filter((call) => /sendRichMessage$/.test(call.url) && /Using your API/.test(call.body.rich_message.html));
+    assert.equal(indicators.length, 1);
+    assert.match(indicators[0].body.rich_message.html, /^Ready! 🚀<br>🔑 Using your API — .* · my-custom-model-1$/);
   } finally {
     globalThis.fetch = originalFetch;
     db.close();
@@ -5187,15 +5191,17 @@ test("activating a config makes no test call: a failing endpoint still activates
     const edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
     assert.match(edit.body.text, /My API is active/);
     assert.doesNotMatch(edit.body.text, /start chatting/);
-    const ready = calls.filter((call) => /sendMessage$/.test(call.url)).at(-1);
-    assert.equal(ready.body.text, "Ready! 🚀");
+    assert.equal(calls.filter((call) => /sendMessage$/.test(call.url)).some((call) => call.body.text === "Ready! 🚀"), false);
+    const indicators = calls.filter((call) => /sendRichMessage$/.test(call.url) && /Using your API/.test(call.body.rich_message.html));
+    assert.equal(indicators.length, 1);
+    assert.match(indicators[0].body.rich_message.html, /^Ready! 🚀<br>🔑 Using your API — .* · openai\/gpt-oss-20b$/);
   } finally {
     globalThis.fetch = originalFetch;
     db.close();
   }
 });
 
-test("activating a config sends the persistent BYOK indicator with a Stop button and stores its message id (v3.11.2)", async () => {
+test("activating a config sends the persistent BYOK indicator — Ready line plus Stop button — and stores its message id (v3.11.2, merged in v3.11.4)", async () => {
   const originalFetch = globalThis.fetch;
   const { db, env, calls, fetchMock } = byokWorkerEnv();
   globalThis.fetch = fetchMock;
@@ -5205,7 +5211,7 @@ test("activating a config sends the persistent BYOK indicator with a Stop button
     assert.equal(await getActiveUserApiConfigId(42, env), configId);
     const indicators = calls.filter((call) => /sendRichMessage$/.test(call.url) && /Using your API/.test(call.body.rich_message.html));
     assert.equal(indicators.length, 1);
-    assert.equal(indicators[0].body.rich_message.html, "🔑 Using your API — My API 1 · openai/gpt-oss-20b");
+    assert.equal(indicators[0].body.rich_message.html, "Ready! 🚀<br>🔑 Using your API — My API 1 · openai/gpt-oss-20b");
     const buttons = indicators[0].body.reply_markup.inline_keyboard.flat();
     assert.equal(buttons.length, 1);
     assert.equal(buttons[0].text, "⏹ Stop BYOK");
@@ -5297,7 +5303,7 @@ test("a manually deleted indicator is not re-sent by an ordinary chat turn (v3.1
   }
 });
 
-test("model menu lists the preset catalog plus added models, marks the active one, and picking one activates with a green tick and a separate Ready message", async () => {
+test("model menu lists the preset catalog plus added models, marks the active one, and picking one activates with a green tick and the Ready line inside the indicator", async () => {
   const originalFetch = globalThis.fetch;
   const { db, env, calls, fetchMock } = byokWorkerEnv();
   globalThis.fetch = fetchMock;
@@ -5315,16 +5321,18 @@ test("model menu lists the preset catalog plus added models, marks the active on
     assert.ok(buttons.some((button) => button.text === "my-groq-extra-1" && button.callback_data === `byok:model:${configId}:3`));
     assert.ok(buttons.some((button) => button.callback_data === `byok:model:${configId}:other`));
 
-    // Picking the added model activates it: a short green-tick confirmation
-    // plus a separate "Ready!" message below it.
+    // Picking the added model activates it: a short green-tick confirmation,
+    // and the "Ready!" line rides inside the persistent indicator (v3.11.4).
     await postGroupUpdate(env, privateCallbackUpdate(5622, `byok:model:${configId}:3`));
     assert.equal((await getUserApiConfigMeta(42, env)).model, "my-groq-extra-1");
     edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
     assert.match(edit.body.text, /My API is active/);
     assert.doesNotMatch(edit.body.text, /start chatting/);
     assert.match(edit.body.text, /● <b>Groq<\/b> · <code>my-groq-extra-1<\/code>/);
-    const ready = calls.filter((call) => /sendMessage$/.test(call.url)).at(-1);
-    assert.equal(ready.body.text, "Ready! 🚀");
+    assert.equal(calls.filter((call) => /sendMessage$/.test(call.url)).some((call) => call.body.text === "Ready! 🚀"), false);
+    const indicators = calls.filter((call) => /sendRichMessage$/.test(call.url) && /Using your API/.test(call.body.rich_message.html));
+    assert.equal(indicators.length, 1);
+    assert.equal(indicators[0].body.rich_message.html, "Ready! 🚀<br>🔑 Using your API — My API 1 · my-groq-extra-1");
 
     // Reopening the menu marks the active model.
     await postGroupUpdate(env, privateCallbackUpdate(5623, `byok:models:${configId}`));

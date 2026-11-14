@@ -814,19 +814,21 @@ function byokReadyText(language) {
 }
 
 // Activation confirmation (owner feedback 2026-11-14): one short message
-// with a green tick, so the result is obvious in the first second, followed
-// by a separate "Ready!" message below it. The manage screen is NOT
-// concatenated here anymore — it repeated the config line and the ready line
-// and turned the confirmation into a wall of text. The manage keyboard stays
-// attached, so Test / Change model / Rename / Remove remain one tap away;
-// the full manage screen still opens from the main menu.
+// with a green tick, so the result is obvious in the first second. The
+// manage screen is NOT concatenated here anymore — it repeated the config
+// line and the ready line and turned the confirmation into a wall of text.
+// The manage keyboard stays attached, so Test / Change model / Rename /
+// Remove remain one tap away; the full manage screen still opens from the
+// main menu. The "Ready!" line is NOT a separate message anymore (owner
+// feedback 2026-11-14, v3.11.4): it is the first line of the persistent
+// indicator below, so activation ends with exactly two messages.
 async function sendByokActivated(env, { chatId, messageId, userId, language, preset, model, name, keyboard }) {
   const text = byokActivatedText(language, preset, model);
   if (messageId) await editMessage(env, { chatId, messageId, text, keyboard });
   else await sendMessage(env, { chatId, text, keyboard });
-  await sendMessage(env, { chatId, text: byokReadyText(language) });
-  // Phase 2: the persistent indicator follows the activation confirmation.
-  await refreshByokIndicator(env, { userId, chatId, name: name || "My API", model });
+  // Phase 2: the persistent indicator follows the activation confirmation
+  // and carries the "Ready!" line itself.
+  await refreshByokIndicator(env, { userId, chatId, language, name: name || "My API", model });
 }
 
 // Phase 2 (v3.11.2): the persistent BYOK indicator — a plain notification
@@ -837,8 +839,12 @@ async function sendByokActivated(env, { chatId, messageId, userId, language, pre
 // TTL, for as long as BYOK is active.
 const byokIndicatorKey = (userId) => `byok:indicator:${userId}`;
 
-function byokIndicatorText(name, model) {
-  return `🔑 Using your API — ${escapeHtml(name)} · ${escapeHtml(model)}`;
+// Phase 2 (v3.11.2) + v3.11.4 merge: the indicator carries the "Ready!"
+// line as its first line, so activation is two messages, not three — the
+// confirmation, then this one message that stays in the chat. Re-sends on a
+// config/model change and the rename refresh carry the same combined text.
+function byokIndicatorText(language, name, model) {
+  return `${byokReadyText(language)}\n🔑 Using your API — ${escapeHtml(name)} · ${escapeHtml(model)}`;
 }
 
 function byokIndicatorKeyboard() {
@@ -847,17 +853,19 @@ function byokIndicatorKeyboard() {
 
 // Deletes the old indicator (best effort) and sends a fresh one, storing
 // its message_id. Fail-soft: a send/delete failure never breaks activation.
-async function refreshByokIndicator(env, { userId, chatId, name, model }) {
+async function refreshByokIndicator(env, { userId, chatId, language, name, model }) {
   if (!userId || !chatId) return;
   const key = byokIndicatorKey(userId);
   try {
     const old = await env.IVAI_KV?.get(key).catch(() => null);
     if (old) await deleteMessage(env, { chatId, messageId: Number(old) }).catch(() => {});
-    const text = byokIndicatorText(name, model);
+    const text = byokIndicatorText(language, name, model);
     const keyboard = byokIndicatorKeyboard();
     let sent = null;
     try {
-      sent = await sendRichMessage(env, { chatId, html: text, keyboard });
+      // Rich HTML collapses raw newlines (v3.11.1 lesson): convert them
+      // for the Rich send only; the plain fallback keeps the raw text.
+      sent = await sendRichMessage(env, { chatId, html: richLineBreaks(text), keyboard });
     } catch {
       sent = await sendMessage(env, { chatId, text, keyboard }).catch(() => null);
     }
@@ -1063,7 +1071,7 @@ async function handleByokPendingMessage(message, env) {
     // active config is renamed, so it never shows a stale name.
     if ((await getActiveUserApiConfigId(userId, env).catch(() => null)) === pending.configId) {
       const meta = await getUserApiConfigMeta(userId, env, pending.configId).catch(() => null);
-      if (meta) await refreshByokIndicator(env, { userId, chatId, name: meta.name, model: meta.model });
+      if (meta) await refreshByokIndicator(env, { userId, chatId, language, name: meta.name, model: meta.model });
     }
     return true;
   }
