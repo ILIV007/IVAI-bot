@@ -977,7 +977,7 @@ async function handleByokPendingMessage(message, env) {
     // never stays visible in the chat history.
     try { await deleteMessage(env, { chatId, messageId: message.message_id }); } catch { /* Best-effort. */ }
     if (pending.preset === "custom" && !pending.rekeyConfigId) {
-      await setByokPending(userId, { step: "model", preset: "custom", configId: pending.configId, testFirst: true }, env);
+      await setByokPending(userId, { step: "model", preset: "custom", configId: pending.configId }, env);
       await sendMessage(env, { chatId, text: `${byokKeySavedText(language, preset)}\n\n${byokAskModelText(language)}`, keyboard: byokCancelKeyboard(language) });
       return true;
     }
@@ -996,23 +996,12 @@ async function handleByokPendingMessage(message, env) {
     // offer it again next time.
     await addCustomByokModel(userId, text, env, pending.configId);
     await clearByokPending(userId, env);
-    if (pending.testFirst) {
-      // Setting the model is the last step: test right away and activate on
-      // success, so the user never lands on an "(inactive)" screen wondering
-      // what is left to do (owner decision 2026-11-14, superseding the v3.9.0
-      // tap-Test-then-activate flow for new custom endpoints).
-      const config = await getUserApiConfig(userId, env, { includeDisabled: true, configId: pending.configId }).catch(() => null);
-      const test = config ? await testByokConnection(config, env) : { ok: false, error: "no config" };
-      if (!test.ok) {
-        await sendMessage(env, { chatId, text: byokTestFailedText(language, test.error), keyboard: byokTestFailedKeyboard(language, pending.configId) });
-        return true;
-      }
-      await setUserApiConfigEnabled(userId, true, env, pending.configId);
-      await setActiveUserApiConfig(userId, pending.configId, env);
-      const view = await byokManageView(language, userId, env, pending.configId);
-      await sendMessage(env, { chatId, text: `${byokActivatedText(language, preset, text)}\n\n${view.text}`, keyboard: view.keyboard });
-      return true;
-    }
+    // Setting the model is the last step: activate right away, with no
+    // connection test — a test call would burn the user's own API tokens
+    // for nothing (owner decision 2026-11-14, superseding the v3.9.1
+    // test-then-activate flow). The manual "Test connection" button stays
+    // for anyone who wants it; a stale key is caught by the first real
+    // chat, which falls back to IVAI models with a one-line notice.
     await setUserApiConfigEnabled(userId, true, env, pending.configId);
     await setActiveUserApiConfig(userId, pending.configId, env);
     const view = await byokManageView(language, userId, env, pending.configId);
@@ -1951,7 +1940,7 @@ async function processCallback(query, env) {
       return;
     }
     if (!config.model) {
-      await setByokPending(userId, { step: "model", preset: config.preset, configId, testFirst: true }, env);
+      await setByokPending(userId, { step: "model", preset: config.preset, configId }, env);
       await editMessage(env, { chatId, messageId, text: byokAskModelText(language), keyboard: byokCancelKeyboard(language) });
       return;
     }
@@ -1989,7 +1978,7 @@ async function processCallback(query, env) {
     const token = sep === -1 ? rest : rest.slice(sep + 1);
     if (token === "other") {
       const meta = await getUserApiConfigMeta(userId, env, configId);
-      await setByokPending(userId, { step: "model", preset: meta?.preset || "custom", configId, testFirst: false }, env);
+      await setByokPending(userId, { step: "model", preset: meta?.preset || "custom", configId }, env);
       await editMessage(env, { chatId, messageId, text: byokAskModelText(language), keyboard: byokCancelKeyboard(language) });
       return;
     }
@@ -2017,14 +2006,11 @@ async function processCallback(query, env) {
       await editMessage(env, { chatId, messageId, text: view.text, keyboard: view.keyboard });
       return;
     }
-    // Activation re-tests the key first: a stale key must not become the
-    // active config, and the probe keeps the inactive screen to one row.
-    const config = await getUserApiConfig(userId, env, { includeDisabled: true, configId }).catch(() => null);
-    const test = config ? await testByokConnection(config, env) : { ok: false, error: "no config" };
-    if (!test.ok) {
-      await editMessage(env, { chatId, messageId, text: byokTestFailedText(language, test.error), keyboard: byokTestFailedKeyboard(language, configId) });
-      return;
-    }
+    // Activation does NOT test the connection: a test call would burn the
+    // user's own API tokens for nothing (owner decision 2026-11-14). The
+    // manual "Test connection" button stays for anyone who wants it; a
+    // stale key is caught by the first real chat, which falls back to
+    // IVAI models with a one-line notice.
     await setUserApiConfigEnabled(userId, true, env, configId);
     await setActiveUserApiConfig(userId, configId, env);
     const view = await byokManageView(language, userId, env, configId);

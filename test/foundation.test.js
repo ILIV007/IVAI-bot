@@ -241,8 +241,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.9.1 release version", () => {
-  assert.equal(APP.version, "3.9.1");
+test("declares the official v3.9.2 release version", () => {
+  assert.equal(APP.version, "3.9.2");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -5001,19 +5001,21 @@ test("custom endpoint flow normalizes the URL, collects the model, and activates
     assert.equal(customMeta.baseUrl, "https://api.example.com/v1");
     assert.equal(customMeta.model, "");
     pending = JSON.parse(await env.IVAI_KV.get("byok:pending:42"));
-    assert.deepEqual(pending, { step: "model", preset: "custom", configId: customId, testFirst: true });
+    assert.deepEqual(pending, { step: "model", preset: "custom", configId: customId });
 
     await postGroupUpdate(env, privateTextUpdate(5604, 12, "my-custom-model-1"));
     [customMeta] = await listUserApiConfigs(42, env);
     assert.equal(customMeta.model, "my-custom-model-1");
     assert.equal(await env.IVAI_KV.get("byok:pending:42"), null);
     // Typing the model is the last step now (owner decision 2026-11-14,
-    // superseding the v3.9.0 tap-Test-then-activate flow): the test runs
-    // right away and a working test activates the config directly, with the
-    // typed model remembered on the config for the model menu.
+    // superseding the v3.9.0 tap-Test-then-activate flow and the v3.9.1
+    // test-then-activate flow): the config activates right away with NO
+    // test call, so none of the user's own API tokens are burned — with
+    // the typed model remembered on the config for the model menu.
     assert.equal((await getUserApiConfigMeta(42, env)).enabled, true);
     assert.equal(await getActiveUserApiConfigId(42, env), customId);
     assert.deepEqual((await getUserApiConfigMeta(42, env)).customModels, ["my-custom-model-1"]);
+    assert.equal(calls.some((call) => String(call.url).includes("api.example.com")), false);
     const sent = calls.filter((call) => /sendMessage$/.test(call.url)).at(-1);
     assert.match(sent.body.text, /My API is active/);
     assert.match(sent.body.text, /start chatting/);
@@ -5023,26 +5025,21 @@ test("custom endpoint flow normalizes the URL, collects the model, and activates
   }
 });
 
-test("custom endpoint model entry with a failing test shows the failure view and stays inactive", async () => {
+test("activating a config makes no test call: a failing endpoint still activates, and only a real chat can fall back", async () => {
   const originalFetch = globalThis.fetch;
-  const { db, env, calls, fetchMock } = byokWorkerEnv();
-  globalThis.fetch = async (url, init) => String(url).includes("api.example.com")
-    ? new Response(JSON.stringify({ error: { message: "Incorrect API key" } }), { status: 401 })
-    : fetchMock(url, init);
+  // The provider would fail every call — activation must not care, because
+  // no test is run (owner decision 2026-11-14: tests burn the user's tokens).
+  const { db, env, calls, fetchMock } = byokWorkerEnv({ groqStatus: 500 });
+  globalThis.fetch = fetchMock;
   try {
-    await postGroupUpdate(env, privateCallbackUpdate(5611, "byok:preset:custom"));
-    await postGroupUpdate(env, privateTextUpdate(5612, 10, "https://api.example.com/v1"));
-    await postGroupUpdate(env, privateTextUpdate(5613, 11, "sk-custom-key-123456"));
-    const [customMeta] = await listUserApiConfigs(42, env);
-    await postGroupUpdate(env, privateTextUpdate(5614, 12, "my-custom-model-1"));
-    // The model is saved and remembered, but the config stays inactive.
-    const failedMeta = await getUserApiConfigMeta(42, env, customMeta.configId);
-    assert.equal(failedMeta.enabled, false);
-    assert.equal(await getActiveUserApiConfigId(42, env), null);
-    assert.deepEqual(failedMeta.customModels, ["my-custom-model-1"]);
-    const sent = calls.filter((call) => /sendMessage$/.test(call.url)).at(-1);
-    assert.match(sent.body.text, /Connection failed/);
-    assert.ok(sent.body.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === `byok:test:${customMeta.configId}`));
+    const configId = await saveUserApiConfig({ userId: 42, preset: "groq", baseUrl: "https://api.groq.com/openai/v1", apiKey: "gsk_test-key-abc", model: "openai/gpt-oss-20b" }, env);
+    await postGroupUpdate(env, privateCallbackUpdate(5611, `byok:enable:${configId}`));
+    assert.equal((await getUserApiConfigMeta(42, env)).enabled, true);
+    assert.equal(await getActiveUserApiConfigId(42, env), configId);
+    assert.equal(calls.some((call) => String(call.url).includes("api.groq.com")), false);
+    const edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
+    assert.match(edit.body.text, /My API is active/);
+    assert.match(edit.body.text, /start chatting/);
   } finally {
     globalThis.fetch = originalFetch;
     db.close();
