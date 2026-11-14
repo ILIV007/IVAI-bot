@@ -820,11 +820,60 @@ function byokReadyText(language) {
 // and turned the confirmation into a wall of text. The manage keyboard stays
 // attached, so Test / Change model / Rename / Remove remain one tap away;
 // the full manage screen still opens from the main menu.
-async function sendByokActivated(env, { chatId, messageId, language, preset, model, keyboard }) {
+async function sendByokActivated(env, { chatId, messageId, userId, language, preset, model, name, keyboard }) {
   const text = byokActivatedText(language, preset, model);
   if (messageId) await editMessage(env, { chatId, messageId, text, keyboard });
   else await sendMessage(env, { chatId, text, keyboard });
   await sendMessage(env, { chatId, text: byokReadyText(language) });
+  // Phase 2: the persistent indicator follows the activation confirmation.
+  await refreshByokIndicator(env, { userId, chatId, name: name || "My API", model });
+}
+
+// Phase 2 (v3.11.2): the persistent BYOK indicator — a plain notification
+// message, sent on activation, that stays in the chat. On a config/model
+// change the old one is deleted and a fresh one is sent; it is deleted only
+// when the user taps Stop. No pin, no self-heal, no in-place edit (owner
+// rule). Its message_id lives in KV under byok:indicator:<userId> with no
+// TTL, for as long as BYOK is active.
+const byokIndicatorKey = (userId) => `byok:indicator:${userId}`;
+
+function byokIndicatorText(name, model) {
+  return `🔑 Using your API — ${escapeHtml(name)} · ${escapeHtml(model)}`;
+}
+
+function byokIndicatorKeyboard() {
+  return { inline_keyboard: [[{ text: "⏹ Stop BYOK", callback_data: "byok:stop" }]] };
+}
+
+// Deletes the old indicator (best effort) and sends a fresh one, storing
+// its message_id. Fail-soft: a send/delete failure never breaks activation.
+async function refreshByokIndicator(env, { userId, chatId, name, model }) {
+  if (!userId || !chatId) return;
+  const key = byokIndicatorKey(userId);
+  try {
+    const old = await env.IVAI_KV?.get(key).catch(() => null);
+    if (old) await deleteMessage(env, { chatId, messageId: Number(old) }).catch(() => {});
+    const text = byokIndicatorText(name, model);
+    const keyboard = byokIndicatorKeyboard();
+    let sent = null;
+    try {
+      sent = await sendRichMessage(env, { chatId, html: text, keyboard });
+    } catch {
+      sent = await sendMessage(env, { chatId, text, keyboard }).catch(() => null);
+    }
+    if (sent?.message_id) await env.IVAI_KV?.put(key, String(sent.message_id)).catch(() => {});
+  } catch { /* Best-effort. */ }
+}
+
+// Deletes the stored indicator message (best effort) and its KV key.
+async function clearByokIndicator(env, { userId, chatId }) {
+  if (!userId || !chatId) return;
+  const key = byokIndicatorKey(userId);
+  try {
+    const old = await env.IVAI_KV?.get(key).catch(() => null);
+    if (old) await deleteMessage(env, { chatId, messageId: Number(old) }).catch(() => {});
+  } catch { /* Best-effort. */ }
+  await env.IVAI_KV?.delete(key).catch(() => {});
 }
 
 function byokTestFailedText(language, error) {
@@ -1010,6 +1059,12 @@ async function handleByokPendingMessage(message, env) {
     const view = await byokManageView(language, userId, env, pending.configId);
     const lead = language === "fa" ? `✓ نام به «${escapeHtml(text.trim())}» تغییر کرد.` : `✓ Renamed to “${escapeHtml(text.trim())}”.`;
     await sendEntryMessage(env, message, { html: `${lead}\n\n${view.text}`, keyboard: view.keyboard, language });
+    // Phase 2: the indicator shows the config name — refresh it when the
+    // active config is renamed, so it never shows a stale name.
+    if ((await getActiveUserApiConfigId(userId, env).catch(() => null)) === pending.configId) {
+      const meta = await getUserApiConfigMeta(userId, env, pending.configId).catch(() => null);
+      if (meta) await refreshByokIndicator(env, { userId, chatId, name: meta.name, model: meta.model });
+    }
     return true;
   }
   if (pending.step === "endpoint") {
@@ -1086,7 +1141,8 @@ async function handleByokPendingMessage(message, env) {
     await setUserApiConfigEnabled(userId, true, env, pending.configId);
     await setActiveUserApiConfig(userId, pending.configId, env);
     const view = await byokManageView(language, userId, env, pending.configId);
-    await sendByokActivated(env, { chatId, language, preset, model: text, keyboard: view.keyboard });
+    const meta = await getUserApiConfigMeta(userId, env, pending.configId).catch(() => null);
+    await sendByokActivated(env, { chatId, userId, language, preset, model: text, name: meta?.name, keyboard: view.keyboard });
     return true;
   }
   return false;
@@ -2077,7 +2133,7 @@ async function processCallback(query, env) {
       await setUserApiConfigEnabled(userId, true, env, configId);
       await setActiveUserApiConfig(userId, configId, env);
       const view = await byokManageView(language, userId, env, configId);
-      await sendByokActivated(env, { chatId, messageId, language, preset: byokPreset(meta.preset), model: meta.model, keyboard: view.keyboard });
+      await sendByokActivated(env, { chatId, messageId, userId, language, preset: byokPreset(meta.preset), model: meta.model, name: meta.name, keyboard: view.keyboard });
       return;
     }
     const view = byokModelView(language, meta);
@@ -2118,7 +2174,7 @@ async function processCallback(query, env) {
     await setUserApiConfigEnabled(userId, true, env, configId);
     await setActiveUserApiConfig(userId, configId, env);
     const view = await byokManageView(language, userId, env, configId);
-    await sendByokActivated(env, { chatId, messageId, language, preset, model, keyboard: view.keyboard });
+    await sendByokActivated(env, { chatId, messageId, userId, language, preset, model, name: meta.name, keyboard: view.keyboard });
     return;
   }
   if (data.startsWith("byok:enable:")) {
@@ -2137,11 +2193,21 @@ async function processCallback(query, env) {
     await setUserApiConfigEnabled(userId, true, env, configId);
     await setActiveUserApiConfig(userId, configId, env);
     const view = await byokManageView(language, userId, env, configId);
-    await sendByokActivated(env, { chatId, messageId, language, preset: byokPreset(meta.preset), model: meta.model, keyboard: view.keyboard });
+    await sendByokActivated(env, { chatId, messageId, userId, language, preset: byokPreset(meta.preset), model: meta.model, name: meta.name, keyboard: view.keyboard });
+    return;
+  }
+  if (data === "byok:stop") {
+    // Phase 2: Stop deactivates BYOK, deletes the indicator, and says so
+    // in one short line. No pin/self-heal/edit anywhere in this flow.
+    await setActiveUserApiConfig(userId, null, env);
+    await clearByokIndicator(env, { userId, chatId });
+    const text = language === "fa" ? "برگشتیم به مدل‌های IVAI." : "Back to IVAI models.";
+    await sendMessage(env, { chatId, text });
     return;
   }
   if (data === "byok:disable") {
     await setActiveUserApiConfig(userId, null, env);
+    await clearByokIndicator(env, { userId, chatId });
     const view = await byokListView(language, userId, env);
     const lead = language === "fa" ? "✓ برگشتیم به مدل‌های IVAI — چت خصوصی دوباره با مدل‌های IVAI جواب می‌دهد." : "✓ Back to IVAI models — private chats answer with IVAI models again.";
     await editRichScreen(env, query.message, { html: `${lead}\n\n${view.text}`, keyboard: view.keyboard, language });
@@ -2149,7 +2215,9 @@ async function processCallback(query, env) {
   }
   if (data.startsWith("byok:remove:yes:")) {
     const configId = data.slice("byok:remove:yes:".length);
+    const wasActive = (await getActiveUserApiConfigId(userId, env).catch(() => null)) === configId;
     await deleteUserApiConfig(userId, env, configId);
+    if (wasActive) await clearByokIndicator(env, { userId, chatId });
     await clearByokPending(userId, env);
     const view = await byokListView(language, userId, env);
     const lead = language === "fa" ? "✓ API من حذف شد. چت خصوصی دوباره با مدل‌های IVAI جواب می‌دهد." : "✓ My API removed. Private chats answer with IVAI models again.";

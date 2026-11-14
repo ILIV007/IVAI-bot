@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.11.2] - 2026-11-14
+
+### Added
+
+- **Persistent BYOK indicator (Phase 2):** while My API is active, a notification message stays in the private chat — «🔑 Using your API — {name} · {model}» with a ⏹ Stop BYOK button. Switching the active config or model deletes the old indicator and sends a fresh one (exactly one at a time); Stop deactivates BYOK, deletes the indicator, and confirms with one short line («Back to IVAI models.»). No pin, no self-heal, no in-place edit — if the user deletes the message by hand, nothing re-sends it. Disabling or removing the active config clears the indicator too.
+
 ## [3.11.1] - 2026-11-14
 
 ### Fixed

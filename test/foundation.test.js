@@ -254,8 +254,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.11.1 release version", () => {
-  assert.equal(APP.version, "3.11.1");
+test("declares the official v3.11.2 release version", () => {
+  assert.equal(APP.version, "3.11.2");
 });
 
 test("richLineBreaks converts newlines to <br> for Rich sends (v3.11.1)", () => {
@@ -5183,6 +5183,108 @@ test("activating a config makes no test call: a failing endpoint still activates
     assert.doesNotMatch(edit.body.text, /start chatting/);
     const ready = calls.filter((call) => /sendMessage$/.test(call.url)).at(-1);
     assert.equal(ready.body.text, "Ready! 🚀");
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.close();
+  }
+});
+
+test("activating a config sends the persistent BYOK indicator with a Stop button and stores its message id (v3.11.2)", async () => {
+  const originalFetch = globalThis.fetch;
+  const { db, env, calls, fetchMock } = byokWorkerEnv();
+  globalThis.fetch = fetchMock;
+  try {
+    const configId = await saveUserApiConfig({ userId: 42, preset: "groq", baseUrl: "https://api.groq.com/openai/v1", apiKey: "gsk_test-key-abc", model: "openai/gpt-oss-20b" }, env);
+    assert.equal((await postGroupUpdate(env, privateCallbackUpdate(5701, `byok:enable:${configId}`))).status, 200);
+    assert.equal(await getActiveUserApiConfigId(42, env), configId);
+    const indicators = calls.filter((call) => /sendRichMessage$/.test(call.url) && /Using your API/.test(call.body.rich_message.html));
+    assert.equal(indicators.length, 1);
+    assert.equal(indicators[0].body.rich_message.html, "🔑 Using your API — My API 1 · openai/gpt-oss-20b");
+    const buttons = indicators[0].body.reply_markup.inline_keyboard.flat();
+    assert.equal(buttons.length, 1);
+    assert.equal(buttons[0].text, "⏹ Stop BYOK");
+    assert.equal(buttons[0].callback_data, "byok:stop");
+    assert.equal(await env.IVAI_KV.get("byok:indicator:42"), "900");
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.close();
+  }
+});
+
+test("Stop BYOK deactivates, deletes the indicator, and confirms in one short line (v3.11.2)", async () => {
+  const originalFetch = globalThis.fetch;
+  const { db, env, calls, fetchMock } = byokWorkerEnv();
+  globalThis.fetch = fetchMock;
+  try {
+    const configId = await saveUserApiConfig({ userId: 42, preset: "groq", baseUrl: "https://api.groq.com/openai/v1", apiKey: "gsk_test-key-abc", model: "openai/gpt-oss-20b" }, env);
+    await postGroupUpdate(env, privateCallbackUpdate(5711, `byok:enable:${configId}`));
+    assert.equal(await env.IVAI_KV.get("byok:indicator:42"), "900");
+    assert.equal((await postGroupUpdate(env, privateCallbackUpdate(5712, "byok:stop"))).status, 200);
+    assert.equal(await getActiveUserApiConfigId(42, env), null);
+    assert.ok(calls.some((call) => /deleteMessage$/.test(call.url) && call.body.message_id === 900));
+    assert.equal(await env.IVAI_KV.get("byok:indicator:42"), null);
+    const confirmation = calls.filter((call) => /sendMessage$/.test(call.url)).at(-1);
+    assert.equal(confirmation.body.text, "Back to IVAI models.");
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.close();
+  }
+});
+
+test("Stop BYOK confirms in Persian when the stored language is fa (v3.11.2)", async () => {
+  const originalFetch = globalThis.fetch;
+  const { db, env, calls, fetchMock } = byokWorkerEnv();
+  globalThis.fetch = fetchMock;
+  try {
+    const configId = await saveUserApiConfig({ userId: 42, preset: "groq", baseUrl: "https://api.groq.com/openai/v1", apiKey: "gsk_test-key-abc", model: "openai/gpt-oss-20b" }, env);
+    await postGroupUpdate(env, privateCallbackUpdate(5721, `byok:enable:${configId}`));
+    await setUserLanguage(42, "fa", env);
+    assert.equal((await postGroupUpdate(env, privateCallbackUpdate(5722, "byok:stop"))).status, 200);
+    assert.equal(await getActiveUserApiConfigId(42, env), null);
+    const confirmation = calls.filter((call) => /sendMessage$/.test(call.url)).at(-1);
+    assert.match(confirmation.body.text, /برگشتیم به مدل‌های IVAI\./);
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.close();
+  }
+});
+
+test("switching the active config replaces the indicator instead of stacking a second one (v3.11.2)", async () => {
+  const originalFetch = globalThis.fetch;
+  const { db, env, calls, fetchMock } = byokWorkerEnv();
+  globalThis.fetch = fetchMock;
+  try {
+    const configA = await saveUserApiConfig({ userId: 42, preset: "groq", baseUrl: "https://api.groq.com/openai/v1", apiKey: "gsk_test-key-abc", model: "openai/gpt-oss-20b" }, env);
+    const configB = await saveUserApiConfig({ userId: 42, preset: "groq", baseUrl: "https://api.groq.com/openai/v1", apiKey: "gsk_test-key-def", model: "llama-3.3-70b-versatile" }, env);
+    await postGroupUpdate(env, privateCallbackUpdate(5731, `byok:enable:${configA}`));
+    await postGroupUpdate(env, privateCallbackUpdate(5732, `byok:enable:${configB}`));
+    const indicators = calls.filter((call) => /sendRichMessage$/.test(call.url) && /Using your API/.test(call.body.rich_message.html));
+    assert.equal(indicators.length, 2);
+    assert.match(indicators[0].body.rich_message.html, /My API 1 · openai\/gpt-oss-20b/);
+    assert.match(indicators[1].body.rich_message.html, /My API 2 · llama-3.3-70b-versatile/);
+    assert.equal(calls.filter((call) => /deleteMessage$/.test(call.url) && call.body.message_id === 900).length, 1);
+    assert.equal(await env.IVAI_KV.get("byok:indicator:42"), "900");
+    assert.equal(await getActiveUserApiConfigId(42, env), configB);
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.close();
+  }
+});
+
+test("a manually deleted indicator is not re-sent by an ordinary chat turn (v3.11.2)", async () => {
+  const originalFetch = globalThis.fetch;
+  const { db, env, calls, fetchMock } = byokWorkerEnv();
+  globalThis.fetch = fetchMock;
+  try {
+    const configId = await saveUserApiConfig({ userId: 42, preset: "groq", baseUrl: "https://api.groq.com/openai/v1", apiKey: "gsk_test-key-abc", model: "openai/gpt-oss-20b" }, env);
+    await postGroupUpdate(env, privateCallbackUpdate(5741, `byok:enable:${configId}`));
+    const countIndicators = () => calls.filter((call) => /sendRichMessage$/.test(call.url) && /Using your API/.test(call.body.rich_message.html)).length;
+    assert.equal(countIndicators(), 1);
+    // The user deletes the indicator message by hand; the bot cannot know,
+    // and an ordinary text turn must not send a fresh one (no self-heal).
+    assert.equal((await postGroupUpdate(env, privateTextUpdate(5742, 5, "Hello"))).status, 200);
+    assert.equal(countIndicators(), 1);
+    assert.equal(await env.IVAI_KV.get("byok:indicator:42"), "900");
   } finally {
     globalThis.fetch = originalFetch;
     db.close();
