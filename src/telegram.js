@@ -718,15 +718,16 @@ export function shortModelLabel(model = "") {
 
 export function responseMeta({ model, mode, language = "en", rtl = null }) {
   const detail = mode ? ` · ${escapeHtml(modeLabel(mode, language))}` : "";
-  // The footer follows the ANSWER's direction, not the UI language: an
-  // English footer inside a Persian answer otherwise renders left-aligned
-  // with its IVAI/model/mode sequence possibly reversed. RLM (U+200F) makes
-  // the paragraph RTL (right-aligned) and the LRI/PDI isolate keeps the
-  // compact Latin run in its own order. Callers pass rtl from the answer
-  // language; without it the UI language decides, as before.
-  const isRtl = rtl ?? (language === "fa" || language === "ar");
-  const prefix = isRtl ? "\u200f\u2066" : ""; // Right-to-left mark + left-to-right isolate
-  const suffix = isRtl ? "\u2069" : ""; // Pop directional isolate
+  // The footer is a Latin signature ("IVAI · model · mode"), so it is always
+  // pinned LTR and left-aligned — in every answer language (owner decision
+  // 2026-11-14, v3.14.1). v3.11.3 pinned it RTL for RTL answers, but the
+  // owner wants it on the left. LRM (U+200E) makes the paragraph LTR
+  // (left-aligned) and the LRI/PDI isolate keeps the compact Latin run in
+  // its own order, so a Persian mode word (e.g. «سریع») still renders as
+  // one unit at the end. The rtl parameter is kept so call sites don't
+  // churn; the footer no longer follows it.
+  const prefix = "\u200e\u2066"; // Left-to-right mark + left-to-right isolate
+  const suffix = "\u2069"; // Pop directional isolate
   return `<blockquote>${prefix}🪐 <a href="https://t.me/IVAI_Llm_bot">IVAI</a> · ${escapeHtml(shortModelLabel(model))}${detail}${suffix}</blockquote>`;
 }
 

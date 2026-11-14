@@ -309,8 +309,11 @@ const CHANNEL_COMMENT_MODEL = "@cf/qwen/qwen3.8-27b";
 // Comments get their own output budget (v3.7.1): Qwen3.8 27B is a reasoning
 // model whose internal reasoning shares the profile budget, and on some
 // generations it ate so much of the Fast profile's 900 tokens that the
-// comment itself was cut off mid-sentence. 1600 leaves room for both.
-const CHANNEL_COMMENT_MAX_TOKENS = 1600;
+// comment itself was cut off mid-sentence. v3.14.1 cuts the budget to 800:
+// the length cap below now enforces brevity in code, so the token budget
+// only needs room for the comment plus reasoning leakage if /no_think
+// slips — and a smaller budget bounds generation time and cost.
+const CHANNEL_COMMENT_MAX_TOKENS = 800;
 // Group model context is capped at the last 5 chain messages (seed + injected
 // reply + Session), which is also what keeps group token spend minimal.
 const GROUP_CONTEXT_LIMIT = 5;
@@ -574,6 +577,38 @@ export function completeChannelComment(comment) {
   return kept;
 }
 
+// Length cap (v3.14.1): the contract is 1–3 SHORT lines, but the old
+// 5-line cap counted lines, not sentences — a 3-paragraph essay is 3
+// "lines" and sailed through (live 2026-11-14: a ~230-word ANALYSIS
+// comment on a mining-card post). Models ignore length instructions, so
+// the cap is enforced here: at most 3 sentences and 60 words. The first
+// segment is always kept whole (a single long sentence is still a take);
+// the completeness guard then applies its bare-question rule.
+// The cap counts SENTENCES, not COMMENT_SEGMENT_END boundaries: a colon
+// continues a sentence, and counting it as a boundary would cut a comment
+// mid-thought (e.g. keeping "…سقفش را هم تعیین می‌کند:" as the tail).
+const COMMENT_SENTENCE_END = /[.!?؟…]+(?=\s|$)|(?:\p{Extended_Pictographic}(?:[\u{1F3FB}-\u{1F3FF}]|\uFE0F|\u200D\p{Extended_Pictographic})*)(?=\s|$)/gu;
+const COMMENT_MAX_WORDS = 60;
+const COMMENT_MAX_SEGMENTS = 3;
+
+export function shortenChannelComment(comment) {
+  const text = String(comment || "").trim();
+  if (!text) return "";
+  let keptEnd = 0;
+  let segments = 0;
+  let words = 0;
+  for (const match of text.matchAll(COMMENT_SENTENCE_END)) {
+    const end = match.index + match[0].length;
+    const segmentWords = text.slice(keptEnd, end).split(/\s+/).filter(Boolean).length;
+    if (segments > 0 && (segments + 1 > COMMENT_MAX_SEGMENTS || words + segmentWords > COMMENT_MAX_WORDS)) break;
+    keptEnd = end;
+    segments += 1;
+    words += segmentWords;
+  }
+  if (!keptEnd) return completeChannelComment(text);
+  return completeChannelComment(text.slice(0, keptEnd));
+}
+
 async function handleChannelPost(message, env) {
   // A channel post's text is its text or, for a media post, its caption —
   // the caption IS the post text, whatever media it carries (v3.5.4). A post
@@ -642,7 +677,7 @@ Post: توسعه‌دهنده‌ی NTDEV ویندوز ۱۱ نسخه 26H2 رو ب
 Post: Nota یه دستیار مطالعه‌ی محلیه که مقاله و PDF رو با مدل‌های Ollama کاملاً آفلاین می‌خونه؛ لازم نیست بین PDFخوان و مترجم و چت‌بات جابه‌جا شی، یادداشت و هایلایت کنار خود متن می‌مونه و همه‌ی داده‌ها توی مرورگر خودت ذخیره می‌شه. → Comment: قوی‌ترین بخشش همون محلی بودنه: PDFهات از دستگاهت بیرون نمی‌رن و برای مطالعه‌ی فارسی هم طراحی شده. سمت دیگه‌ش هم مهمه: کیفیت جواب یه مدل محلی کوچیک با مدل‌های ابری یکی نیست، و ذخیره‌سازی مرورگر برای یه آرشیو بزرگ مقاله‌ها زود سقف می‌خوره.
 
 Hard rules:
-- Same language as the post; one comment, typically 1–3 short lines.
+- Same language as the post; one comment, at most 3 short sentences (roughly 40–60 words) — never a multi-paragraph essay.
 - Always land something real: in FUN mode a take — a prediction, or one line of cause-and-effect; in ANALYSIS mode a balanced point — what is genuinely good here and what else matters. Never end on a bare question, "how interesting!", or empty amazement.
 - One mode per comment — do not blend a joke into an analysis.
 - No summaries, no report-speak ("this shows that…"), no generic lines that could fit any post.
@@ -659,9 +694,11 @@ ${postText}`,
     }, env);
     // Models ignore length instructions, so the 5-line cap is enforced here too.
     const generated = String(result.text || "").split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 5).join("\n");
-    // Completeness guard (v3.7.1): never send a comment that stops
-    // mid-sentence — trim it to its last complete segment, or skip the post.
-    const comment = completeChannelComment(generated);
+    // Length cap (v3.14.1): the 5-line cap counts paragraphs, not sentences,
+    // so a 3-paragraph essay passed it. shortenChannelComment enforces the
+    // real contract — at most 3 sentences / 60 words — then the completeness
+    // guard trims to the last complete segment, or skips the post.
+    const comment = shortenChannelComment(generated);
     if (!comment) {
       if (generated) logChannelCommentSkip(message, "incomplete_comment");
       return;
@@ -1632,7 +1669,12 @@ async function processText(message, env) {
     context = [...context, repliedEntry];
   }
   if (isGroup) context = context.slice(-GROUP_CONTEXT_LIMIT);
-  await sendTyping(env, chatId, delivery).catch(() => {});
+  // The typing indicator is fire-and-forget here (v3.14.1): awaiting one
+  // Telegram round-trip before the thinking draft delays the first visible
+  // feedback by ~0.2-0.5s. The indicator still goes out; we just don't
+  // block on it. Invocation order is unchanged, so typing still precedes
+  // the AI call.
+  sendTyping(env, chatId, delivery).catch(() => {});
   const richEligible = message.chat?.type === "private" && !delivery.businessConnectionId;
   let richDraftActive = false;
   if (richEligible) {
@@ -1688,12 +1730,11 @@ async function processText(message, env) {
     await typing?.stop();
     await saveConversationSession(key, [...context, { role: "user", content: text }, { role: "assistant", content: result.text }], env, { session, language: responseLanguage });
       // Groups never carry the model/mode footer (v3.5.0); private chats do.
-      // The footer follows the ANSWER's direction, not the UI language: an
-      // English footer inside a Persian answer otherwise renders
-      // left-aligned with its sequence possibly reversed (v3.11.3).
+      // The footer is a Latin signature, always pinned LTR and left-aligned
+      // (owner decision 2026-11-14, v3.14.1 — v3.11.3's RTL pin is reverted).
       const answerRtl = ["fa", "ar"].includes(responseLanguage);
       const footer = isGroup ? "" : `\n\n${responseMeta({ model: result.model, mode: result.mode, language: uiLanguage, rtl: answerRtl })}`;
-      const byokNotice = result.fellBackFromByok ? `\n\n${answerRtl ? "\u200f" : ""}${responseText(uiLanguage, "byokFallback")}` : "";
+      const byokNotice = result.fellBackFromByok ? `\n\n${answerRtl ? "\u200e" : ""}${responseText(uiLanguage, "byokFallback")}` : "";
       const finalText = `${renderStandardAiText(result.text)}${byokNotice}${footer}`;
       // Keep the existing metadata block as-is: nesting a blockquote inside a Rich HTML
       // footer is not needed and can reduce parser compatibility across Telegram clients.
@@ -1815,7 +1856,7 @@ async function processMedia(message, env) {
     }
     if (result.provider === "byok" && byokConfig?.authFailures > 0) resetUserApiAuthFailures(userId, env, byokConfig.configId).catch(() => {});
     if (result.byokAuthFailed) markUserApiConfigInvalid(userId, env, {}, byokConfig?.configId).catch(() => {});
-    const byokNotice = result.fellBackFromByok ? `\n\n${["fa", "ar"].includes(language) ? "\u200f" : ""}${responseText(language, "byokFallback")}` : "";
+    const byokNotice = result.fellBackFromByok ? `\n\n${["fa", "ar"].includes(language) ? "\u200e" : ""}${responseText(language, "byokFallback")}` : "";
     await typing?.stop();
     await sendMessage(env, {
       chatId,
