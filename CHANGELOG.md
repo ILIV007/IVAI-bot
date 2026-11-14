@@ -2,6 +2,17 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.9.0] - 2026-11-14
+
+### Added
+
+- **BYOK multi-config — \"My API\" moves to the main menu (owner decision, BYOK v2 Phase 1):** the main menu gains its own `🔑 My API` row and Settings no longer carries one, so there is exactly one entry point. A user can now save several APIs (each with its own name, key, preset, and chat/vision/transcription models), see them in one list with a single ● Active marker, and switch between them with one tap; keys are never re-asked. The migrated v3.8.0 single config becomes the first entry (\"My API 1\") with its key untouched, and stays active if it was enabled (migration `db/0008_byok_multi_config.sql`, applied directly with the D1 query API as a batch; 0006 still never runs).
+- **Per-config management:** each config has its own manage screen — change model, rename, re-enter a fresh key, test the connection, remove. Activation re-tests the key first so a stale key cannot become the active config. Deleting the active config falls back to IVAI models. BYOK callbacks in groups get a short \"private chat only\" notice, since the shared main menu now carries the entry button.
+
+### Changed
+
+- **Storage:** `user_api_configs` goes from a single row per user to a composite primary key (`telegram_user_id`, `config_id`); the active config is a pointer in `user_preferences.active_api_config_id` (NULL = IVAI models). Storage helpers take an optional config id and default to the active config, so turn-time code (`getUserApiConfig`) is unchanged. The Settings screen no longer shows a My API section or a ● Active marker — that marker lives only on the My API list screen.
+
 ## [3.8.0] - 2026-11-14
 
 ### Added

@@ -98,22 +98,71 @@ export async function setUserMode(userId, mode, env) {
     .run();
 }
 
-// --- BYOK ("My API", v3.8.0) -------------------------------------------------
-// One custom-provider config per user. The key is stored AES-256-GCM
-// encrypted and is only ever decrypted here, once per turn, for the provider
-// call itself. Display code uses getUserApiConfigMeta, which never touches
-// the key column at all.
+// --- BYOK ("My API", v3.8.0; multi-config since v3.9.0) ---------------------
+// Several custom-provider configs per user, one active at a time. The key is
+// stored AES-256-GCM encrypted and is only ever decrypted here, once per
+// turn, for the provider call itself. Display code uses the *Meta helpers,
+// which never touch the key column at all. The active config id lives in
+// user_preferences.active_api_config_id (NULL = IVAI models); helpers that
+// take no configId operate on the active config.
+
+function byokConfigId() {
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export async function getActiveUserApiConfigId(userId, env) {
+  if (!env.IVAI_DB || !userId) return null;
+  const row = await env.IVAI_DB.prepare("SELECT active_api_config_id AS activeConfigId FROM user_preferences WHERE telegram_user_id=? LIMIT 1").bind(String(userId)).first();
+  return row?.activeConfigId || null;
+}
+
+export async function setActiveUserApiConfig(userId, configId, env) {
+  if (!env.IVAI_DB || !userId) return;
+  await ensureUserPreferences(userId, env);
+  await env.IVAI_DB.prepare(`UPDATE user_preferences
+    SET active_api_config_id=?, updated_at=CURRENT_TIMESTAMP WHERE telegram_user_id=?`)
+    .bind(configId || null, String(userId)).run();
+}
+
+// All of a user's configs, oldest first, without keys. Safe for list screens.
+export async function listUserApiConfigs(userId, env) {
+  if (!env.IVAI_DB || !userId) return [];
+  const result = await env.IVAI_DB.prepare(`SELECT config_id AS configId, name, preset,
+      base_url AS baseUrl, active_model AS model, vision_model AS visionModel,
+      transcription_model AS transcriptionModel, enabled, status,
+      auth_failures AS authFailures
+    FROM user_api_configs WHERE telegram_user_id=? ORDER BY rowid`).bind(String(userId)).all();
+  return (result?.results || []).map((row) => ({
+    configId: row.configId,
+    name: row.name,
+    preset: row.preset,
+    baseUrl: row.baseUrl,
+    model: row.model,
+    visionModel: row.visionModel || null,
+    transcriptionModel: row.transcriptionModel || null,
+    enabled: Boolean(row.enabled),
+    status: row.status,
+    authFailures: Number(row.authFailures || 0)
+  }));
+}
 
 // Row metadata without the key: safe for settings screens and status lines.
-export async function getUserApiConfigMeta(userId, env) {
+// With no configId this returns the ACTIVE config's metadata.
+export async function getUserApiConfigMeta(userId, env, configId = null) {
   if (!env.IVAI_DB || !userId) return null;
-  const row = await env.IVAI_DB.prepare(`SELECT preset, base_url AS baseUrl,
+  const id = configId || await getActiveUserApiConfigId(userId, env);
+  if (!id) return null;
+  const row = await env.IVAI_DB.prepare(`SELECT config_id AS configId, name, preset, base_url AS baseUrl,
       active_model AS model, vision_model AS visionModel,
       transcription_model AS transcriptionModel, enabled, status,
       auth_failures AS authFailures
-    FROM user_api_configs WHERE telegram_user_id=? LIMIT 1`).bind(String(userId)).first();
+    FROM user_api_configs WHERE telegram_user_id=? AND config_id=? LIMIT 1`).bind(String(userId), id).first();
   if (!row) return null;
   return {
+    configId: row.configId,
+    name: row.name,
     preset: row.preset,
     baseUrl: row.baseUrl,
     model: row.model,
@@ -130,76 +179,118 @@ export async function getUserApiConfigMeta(userId, env) {
 // missing encryption secret) marks the config invalid best-effort and falls
 // back to the free chain instead of failing the turn. `includeDisabled` is
 // for the connection test only — a just-saved config is still disabled.
-export async function getUserApiConfig(userId, env, { includeDisabled = false } = {}) {
-  const meta = await getUserApiConfigMeta(userId, env);
+// With no configId this loads the ACTIVE config.
+export async function getUserApiConfig(userId, env, { includeDisabled = false, configId = null } = {}) {
+  const meta = await getUserApiConfigMeta(userId, env, configId);
   if (!meta || (!includeDisabled && !meta.enabled) || meta.status !== "valid") return null;
   try {
-    const row = await env.IVAI_DB.prepare("SELECT api_key_encrypted FROM user_api_configs WHERE telegram_user_id=? LIMIT 1").bind(String(userId)).first();
+    const row = await env.IVAI_DB.prepare("SELECT api_key_encrypted FROM user_api_configs WHERE telegram_user_id=? AND config_id=? LIMIT 1").bind(String(userId), meta.configId).first();
     const apiKey = await decryptApiKey(row?.api_key_encrypted, env);
     if (!apiKey) return null;
     return { ...meta, apiKey, userId: String(userId) };
   } catch (error) {
     console.error(JSON.stringify({ event: "byok_decrypt_failed", error: String(error?.message || "unknown") }));
-    try { await markUserApiConfigInvalid(userId, env, { force: true }); } catch { /* Best-effort. */ }
+    try { await markUserApiConfigInvalid(userId, env, { force: true }, meta.configId); } catch { /* Best-effort. */ }
     return null;
   }
 }
 
 // A fresh setup always starts disabled; only a successful connection test
-// flips it on (see setUserApiConfigEnabled). Re-saving overwrites the old
-// key and resets the failure state.
-export async function saveUserApiConfig({ userId, preset, baseUrl, apiKey, model, visionModel = null, transcriptionModel = null }, env) {
+// flips it on (see setUserApiConfigEnabled). Saving with a configId re-keys
+// that config (model and companions come from the caller, so a re-key keeps
+// the config's model); without one, a new config is created with the next
+// "My API N" display name. Returns the config id.
+export async function saveUserApiConfig({ userId, configId = null, name = null, preset, baseUrl, apiKey, model, visionModel = null, transcriptionModel = null }, env) {
   if (!env.IVAI_DB || !userId) throw new Error("BYOK storage is unavailable");
   const apiKeyEncrypted = await encryptApiKey(apiKey, env);
+  const id = configId || byokConfigId();
+  if (!configId) {
+    const count = await env.IVAI_DB.prepare("SELECT COUNT(*) AS count FROM user_api_configs WHERE telegram_user_id=?").bind(String(userId)).first();
+    const displayName = name || `My API ${Number(count?.count || 0) + 1}`;
+    await env.IVAI_DB.prepare(`INSERT INTO user_api_configs
+      (telegram_user_id, config_id, name, preset, base_url, api_key_encrypted, active_model, vision_model, transcription_model, enabled, status, auth_failures, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'valid', 0, CURRENT_TIMESTAMP)`)
+      .bind(String(userId), id, displayName, preset, baseUrl, apiKeyEncrypted, model, visionModel, transcriptionModel).run();
+    return id;
+  }
   await env.IVAI_DB.prepare(`INSERT INTO user_api_configs
-      (telegram_user_id, preset, base_url, api_key_encrypted, active_model, vision_model, transcription_model, enabled, status, auth_failures, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'valid', 0, CURRENT_TIMESTAMP)
-      ON CONFLICT(telegram_user_id) DO UPDATE SET preset=excluded.preset, base_url=excluded.base_url,
+      (telegram_user_id, config_id, name, preset, base_url, api_key_encrypted, active_model, vision_model, transcription_model, enabled, status, auth_failures, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 'valid', 0, CURRENT_TIMESTAMP)
+      ON CONFLICT(telegram_user_id, config_id) DO UPDATE SET preset=excluded.preset, base_url=excluded.base_url,
         api_key_encrypted=excluded.api_key_encrypted, active_model=excluded.active_model,
         vision_model=excluded.vision_model, transcription_model=excluded.transcription_model,
         enabled=0, status='valid', auth_failures=0, updated_at=CURRENT_TIMESTAMP`)
-    .bind(String(userId), preset, baseUrl, apiKeyEncrypted, model, visionModel, transcriptionModel).run();
+    .bind(String(userId), id, name || `My API 1`, preset, baseUrl, apiKeyEncrypted, model, visionModel, transcriptionModel).run();
+  return id;
 }
 
-export async function setUserApiConfigEnabled(userId, enabled, env) {
-  if (!env.IVAI_DB || !userId) return;
+export async function renameUserApiConfig(userId, configId, name, env) {
+  if (!env.IVAI_DB || !userId || !configId || !name) return;
   await env.IVAI_DB.prepare(`UPDATE user_api_configs
-    SET enabled=?, updated_at=CURRENT_TIMESTAMP WHERE telegram_user_id=?`)
-    .bind(enabled ? 1 : 0, String(userId)).run();
+    SET name=?, updated_at=CURRENT_TIMESTAMP WHERE telegram_user_id=? AND config_id=?`)
+    .bind(String(name).slice(0, 64), String(userId), configId).run();
 }
 
-export async function updateUserApiConfigModel(userId, { model, visionModel = null, transcriptionModel = null }, env) {
+async function resolveByokConfigId(userId, env, configId) {
+  if (configId) return configId;
+  return getActiveUserApiConfigId(userId, env);
+}
+
+export async function setUserApiConfigEnabled(userId, enabled, env, configId = null) {
+  if (!env.IVAI_DB || !userId) return;
+  const id = await resolveByokConfigId(userId, env, configId);
+  if (!id) return;
+  await env.IVAI_DB.prepare(`UPDATE user_api_configs
+    SET enabled=?, updated_at=CURRENT_TIMESTAMP WHERE telegram_user_id=? AND config_id=?`)
+    .bind(enabled ? 1 : 0, String(userId), id).run();
+}
+
+export async function updateUserApiConfigModel(userId, { model, visionModel = null, transcriptionModel = null }, env, configId = null) {
   if (!env.IVAI_DB || !userId || !model) return;
+  const id = await resolveByokConfigId(userId, env, configId);
+  if (!id) return;
   await env.IVAI_DB.prepare(`UPDATE user_api_configs
     SET active_model=?, vision_model=?, transcription_model=?, updated_at=CURRENT_TIMESTAMP
-    WHERE telegram_user_id=?`).bind(model, visionModel, transcriptionModel, String(userId)).run();
+    WHERE telegram_user_id=? AND config_id=?`).bind(model, visionModel, transcriptionModel, String(userId), id).run();
 }
 
 // Counts consecutive 401s; the third one marks the config invalid so the bot
 // stops retrying a dead key and asks for a fresh one instead. `force` is for
 // decrypt failures (rotated/missing encryption secret), which invalidate at once.
-export async function markUserApiConfigInvalid(userId, env, { force = false } = {}) {
+export async function markUserApiConfigInvalid(userId, env, { force = false } = {}, configId = null) {
   if (!env.IVAI_DB || !userId) return;
+  const id = await resolveByokConfigId(userId, env, configId);
+  if (!id) return;
   if (force) {
     await env.IVAI_DB.prepare(`UPDATE user_api_configs
-      SET status='invalid', updated_at=CURRENT_TIMESTAMP WHERE telegram_user_id=?`).bind(String(userId)).run();
+      SET status='invalid', updated_at=CURRENT_TIMESTAMP WHERE telegram_user_id=? AND config_id=?`).bind(String(userId), id).run();
     return;
   }
   await env.IVAI_DB.prepare(`UPDATE user_api_configs
     SET auth_failures=auth_failures+1,
       status=CASE WHEN auth_failures+1>=3 THEN 'invalid' ELSE status END,
-      updated_at=CURRENT_TIMESTAMP WHERE telegram_user_id=?`).bind(String(userId)).run();
+      updated_at=CURRENT_TIMESTAMP WHERE telegram_user_id=? AND config_id=?`).bind(String(userId), id).run();
 }
 
-export async function resetUserApiAuthFailures(userId, env) {
+export async function resetUserApiAuthFailures(userId, env, configId = null) {
   if (!env.IVAI_DB || !userId) return;
+  const id = await resolveByokConfigId(userId, env, configId);
+  if (!id) return;
   await env.IVAI_DB.prepare(`UPDATE user_api_configs
-    SET auth_failures=0, status='valid', updated_at=CURRENT_TIMESTAMP WHERE telegram_user_id=?`).bind(String(userId)).run();
+    SET auth_failures=0, status='valid', updated_at=CURRENT_TIMESTAMP WHERE telegram_user_id=? AND config_id=?`).bind(String(userId), id).run();
 }
 
-export async function deleteUserApiConfig(userId, env) {
+export async function deleteUserApiConfig(userId, env, configId = null) {
   if (!env.IVAI_DB || !userId) return;
-  await env.IVAI_DB.prepare("DELETE FROM user_api_configs WHERE telegram_user_id=?").bind(String(userId)).run();
+  const id = await resolveByokConfigId(userId, env, configId);
+  if (!id) return;
+  await env.IVAI_DB.prepare("DELETE FROM user_api_configs WHERE telegram_user_id=? AND config_id=?").bind(String(userId), id).run();
+  // Deleting the active config falls back to IVAI models: the pointer must
+  // go with the row, or the next turn would resolve a config that no longer
+  // exists.
+  await env.IVAI_DB.prepare(`UPDATE user_preferences
+    SET active_api_config_id=NULL, updated_at=CURRENT_TIMESTAMP
+    WHERE telegram_user_id=? AND active_api_config_id=?`).bind(String(userId), id).run();
 }
 
 // A fresh chat must restore agent behavior to the free-only defaults in one D1
