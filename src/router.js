@@ -1331,7 +1331,7 @@ async function handleCommand(message, env, language) {
       await sendMessage(env, { chatId, text: language === "fa" ? "IVAI Terminal فقط در چت خصوصی با من باز می‌شود — در چت‌هایتان من را باز کنید و آنجا <code>/terminal</code> را بفرستید." : "IVAI Terminal opens only in a private chat with me — tap me in your chats and send <code>/terminal</code> there.", replyTo: message.message_id });
       return true;
     }
-    const text = language === "fa" ? "<b>⌘ IVAI Terminal</b>\nمحیط گفتگوی سبک شما آماده است — همان مسیرهای رایگان IVAI و همان گفتگو، همین‌جا." : "<b>⌘ IVAI Terminal</b>\nYour lightweight chat workspace is ready — same free IVAI routes, same conversation, right here.";
+    const text = language === "fa" ? "<b>⌘ IVAI Terminal</b>\nمحیط گفتگوی سبک شما آماده است — با مدل‌های IVAI یا API خودتان گفتگو کنید و حالت، مدل، حافظه و زبان را از وب تنظیم کنید." : "<b>⌘ IVAI Terminal</b>\nYour lightweight chat workspace is ready — chat with IVAI models or your own API, and tune mode, model, memory and language from the web.";
     await sendEntryMessage(env, message, { html: text, keyboard: terminalKeyboard(language), language });
     return true;
   }

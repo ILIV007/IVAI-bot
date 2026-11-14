@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.12.0] - 2026-11-14
+
+### Added
+
+- **IVAI Terminal catches up with the bot (Website Phase A):** My API works on the web — add a provider/key/model (stored AES-256-GCM encrypted, never tested on add), activate, and Stop; the active config answers web chats first, with the free chain as fallback and the same one-line notice. Settings are editable from the web (mode, model, memory, language) and the Engine chip shows the active BYOK config or IVAI models. Answers render fully (headings, lists, small tables, fenced code blocks) with the same safe DOM-based rendering, the session history loads on open, the pending bubble says "IVAI is thinking…", and the busy message names the reset window.
+
 ## [3.11.4] - 2026-11-14
 
 ### Changed
