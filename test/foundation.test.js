@@ -207,7 +207,9 @@ test("keeps Worker AI below the published free allocation and keeps automatic ro
   const automaticRoutes = {
     "workers-ai": "@cf/zai-org/glm-4.7-flash",
     groq: "openai/gpt-oss-20b",
-    google: "gemini-3.6-flash",
+    // Owner decision (v3.14.0): the Google default moves to 3.8 Flash now
+    // that gemini-4-hydrogen heads the list at google[0].
+    google: "gemini-3.8-flash",
     openrouter: "openrouter/free"
   };
   for (const [provider, model] of Object.entries(automaticRoutes)) {
@@ -255,8 +257,30 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.13.2 release version", () => {
-  assert.equal(APP.version, "3.13.2");});
+test("free model catalog refresh (v3.14.0): dead Gemini removed, new free models added", () => {
+  // Owner decisions (v3.14.0), verified against the providers' official
+  // catalogs 2026-11-14: gemini-2.5-flash is deprecated (Google auto-routes
+  // it to 3.5-flash-lite from 2026-12-01); Nemotron 3 120B and Qwen3.8 27B
+  // join Workers AI; Gemini 4 Hydrogen (the only Gemini 4 with a Free Tier)
+  // and Gemini 3.1 Flash-Lite join Google. Group replies keep the GLM pin.
+  assert.ok(!FREE_MODEL_POLICY.google.includes("gemini-2.5-flash"));
+  assert.deepEqual(FREE_MODEL_POLICY.google, [
+    "gemini-4-hydrogen",
+    "gemini-3.8-flash",
+    "gemini-3.6-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-2.5-flash-lite"
+  ]);
+  assert.ok(FREE_MODEL_POLICY.workersAi.text.includes("@cf/nvidia/nemotron-3-120b-a12b"));
+  assert.ok(FREE_MODEL_POLICY.workersAi.text.includes("@cf/qwen/qwen3.8-27b"));
+  assert.ok(FREE_MODEL_POLICY.workersAi.vision.includes("@cf/qwen/qwen3.8-27b"));
+  assert.ok(BYOK_PRESETS.gemini.chatModels.includes("gemini-4-hydrogen"));
+  assert.equal(defaultFreeModelFor("google"), "gemini-3.8-flash");
+});
+
+test("declares the official v3.14.0 release version", () => {
+  assert.equal(APP.version, "3.14.0");});
 
 test("richLineBreaks converts newlines to <br> for Rich sends (v3.11.1)", () => {
   assert.equal(richLineBreaks("<b>🎛 IVAI menu</b>\n\n<b>Your setup</b>\nResponse mode: <code>Auto</code>"), "<b>🎛 IVAI menu</b><br><br><b>Your setup</b><br>Response mode: <code>Auto</code>");
@@ -3825,10 +3849,10 @@ test("channel-post comment prompt is a persona with worked examples and hard rul
     assert.match(prompt, /comparison only when it maps exactly/);
     assert.match(prompt, /most comments need none/);
     // 9A/9B: the comment call itself is Fast — but since v3.6.3 it is the
-    // one group exception to the GLM pin, running on Qwen3 30B for
-    // stronger multilingual quality (group replies keep the GLM pin,
-    // asserted in the next test).
-    assert.equal(aiCalls[0].model, "@cf/qwen/qwen3-30b-a3b-fp8");
+    // one group exception to the GLM pin, running on Qwen3.8 27B for
+    // stronger multilingual quality (v3.14.0; was Qwen3 30B — group replies
+    // keep the GLM pin, asserted in the next test).
+    assert.equal(aiCalls[0].model, "@cf/qwen/qwen3.8-27b");
     // v3.7.1: the prompt opens with Qwen3's /no_think soft switch so the
     // reasoning model spends no budget thinking, and the comment call
     // carries its own 1600-token budget instead of the Fast profile's 900.

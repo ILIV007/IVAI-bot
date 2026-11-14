@@ -693,15 +693,19 @@ export function shortModelLabel(model = "") {
   if (value.includes("gemma-4")) return "Gemma 4";
   if (value.includes("gpt-oss-120b")) return "GPT-OSS 120B";
   if (value.includes("gpt-oss-20b")) return "GPT-OSS 20B";
+  if (value.includes("nemotron-3-120b")) return "Nemotron 3 120B";
   if (value.includes("granite-4.0-h-micro")) return "Granite 4 Micro";
   if (value.includes("llama-4-scout")) return "Llama 4 Scout";
   if (value.includes("llama-3.2-3b")) return "Llama 3.2 3B";
   if (value.includes("llama-3.2-1b")) return "Llama 3.2 1B";
   if (value.includes("llama-3.1-8b")) return "Llama 3.1 8B";
   if (value.includes("qwen3-30b")) return "Qwen3 30B";
+  if (value.includes("qwen3.8-27b")) return "Qwen3.8 27B";
+  if (value.includes("gemini-4-hydrogen")) return "Gemini 4 Hydrogen";
   if (value.includes("gemini-3.8-flash")) return "Gemini 3.8 Flash";
   if (value.includes("gemini-3.6-flash")) return "Gemini 3.6 Flash";
   if (value.includes("gemini-3.5-flash-lite")) return "Gemini 3.5 Flash Lite";
+  if (value.includes("gemini-3.1-flash-lite")) return "Gemini 3.1 Flash Lite";
   if (value.includes("gemini-2.5-flash-lite")) return "Gemini 2.5 Flash Lite";
   const compact = String(model || "IVAI")
     .replace(/^@cf\//, "")
