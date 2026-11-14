@@ -255,8 +255,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.13.0 release version", () => {
-  assert.equal(APP.version, "3.13.0");});
+test("declares the official v3.13.1 release version", () => {
+  assert.equal(APP.version, "3.13.1");});
 
 test("richLineBreaks converts newlines to <br> for Rich sends (v3.11.1)", () => {
   assert.equal(richLineBreaks("<b>🎛 IVAI menu</b>\n\n<b>Your setup</b>\nResponse mode: <code>Auto</code>"), "<b>🎛 IVAI menu</b><br><br><b>Your setup</b><br>Response mode: <code>Auto</code>");
@@ -5523,7 +5523,7 @@ test("activating a config sends the persistent BYOK indicator — Ready line plu
   }
 });
 
-test("Stop BYOK deactivates, deletes the indicator, and confirms in one short line (v3.11.2)", async () => {
+test("Stop BYOK deactivates, deletes the indicator, and ends with a Ready message (v3.13.1)", async () => {
   const originalFetch = globalThis.fetch;
   const { db, env, calls, fetchMock } = byokWorkerEnv();
   globalThis.fetch = fetchMock;
@@ -5536,14 +5536,16 @@ test("Stop BYOK deactivates, deletes the indicator, and confirms in one short li
     assert.ok(calls.some((call) => /deleteMessage$/.test(call.url) && call.body.message_id === 900));
     assert.equal(await env.IVAI_KV.get("byok:indicator:42"), null);
     const confirmation = calls.filter((call) => /sendMessage$/.test(call.url)).at(-1);
-    assert.equal(confirmation.body.text, "Back to IVAI models.");
+    // Owner decision (v3.13.1): Stop ends with a Ready message, not the old
+    // «Back to IVAI models.» one-liner.
+    assert.equal(confirmation.body.text, "✅ IVAI is ready! 🚀\nSend a message — you're chatting with IVAI models now.");
   } finally {
     globalThis.fetch = originalFetch;
     db.close();
   }
 });
 
-test("Stop BYOK confirms in Persian when the stored language is fa (v3.11.2)", async () => {
+test("Stop BYOK ends with a Ready message in Persian when the stored language is fa (v3.13.1)", async () => {
   const originalFetch = globalThis.fetch;
   const { db, env, calls, fetchMock } = byokWorkerEnv();
   globalThis.fetch = fetchMock;
@@ -5554,7 +5556,7 @@ test("Stop BYOK confirms in Persian when the stored language is fa (v3.11.2)", a
     assert.equal((await postGroupUpdate(env, privateCallbackUpdate(5722, "byok:stop"))).status, 200);
     assert.equal(await getActiveUserApiConfigId(42, env), null);
     const confirmation = calls.filter((call) => /sendMessage$/.test(call.url)).at(-1);
-    assert.match(confirmation.body.text, /برگشتیم به مدل‌های IVAI\./);
+    assert.match(confirmation.body.text, /✅ IVAI آماده‌ست! 🚀/);
   } finally {
     globalThis.fetch = originalFetch;
     db.close();
