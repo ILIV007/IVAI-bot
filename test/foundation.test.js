@@ -8,10 +8,11 @@ import { generateReply, getDetectedMode } from "../src/ai.js";
 import { processSecretaryReminderBatch } from "../src/secretary.js";
 import { processReengagementBatch } from "../src/reengagement.js";
 import { analyzePhoto, downloadTelegramFile, transcribeVoice } from "../src/media.js";
-import { APP, defaultFreeModelFor, FREE_MODEL_POLICY, GROUP_POLICY, LANGUAGE_OPTIONS, MODES, modeOutputLimit } from "../src/config.js";
+import { APP, BYOK_PRESETS, defaultFreeModelFor, FREE_MODEL_POLICY, GROUP_POLICY, LANGUAGE_OPTIONS, MODES, modeOutputLimit } from "../src/config.js";
 import { assignChannelCommentMode, channelPostSampled, completeChannelComment, messagePlainText, richBlockToPlain, richTextToPlain } from "../src/router.js";
 import { defaultFreeModels, refreshFreeModelCatalog } from "../src/catalog.js";
-import { conversationKey, ensureConversationSession, getAdminOperationalStats, getConversationSession, getUserSettings, saveConversationSession, setMemoryEnabled, setSelectedModel, setUserLanguage, setUserMode, startNewConversationSession, upsertUser } from "../src/storage.js";
+import { conversationKey, deleteUserApiConfig, ensureConversationSession, getAdminOperationalStats, getConversationSession, getUserApiConfig, getUserApiConfigMeta, getUserSettings, markUserApiConfigInvalid, resetUserApiAuthFailures, saveConversationSession, saveUserApiConfig, setMemoryEnabled, setSelectedModel, setUserApiConfigEnabled, setUserLanguage, setUserMode, startNewConversationSession, updateUserApiConfigModel, upsertUser } from "../src/storage.js";
+import { decryptApiKey, encryptApiKey } from "../src/byok-crypto.js";
 import { getRequiredChannelMembership } from "../src/membership.js";
 import { renderRichAiText, renderStandardAiText } from "../src/rich-renderer.js";
 import { renderAppPage } from "../src/app-page.js";
@@ -240,8 +241,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.7.9 release version", () => {
-  assert.equal(APP.version, "3.7.9");
+test("declares the official v3.8.0 release version", () => {
+  assert.equal(APP.version, "3.8.0");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -4108,7 +4109,7 @@ test("runtime-guard cleanup deletes rows whose ISO expiry is earlier the same UT
 test("stores language with real SQL semantics: an explicit choice survives later upserts", async () => {
   const db = new DatabaseSync(":memory:");
   try {
-    for (const file of ["0001_initial_schema.sql", "0002_runtime_guards.sql", "0003_secretary_reminders.sql", "0004_reengagement.sql", "0005_broadcast_claims.sql", "0006_reset_language_to_english.sql"]) {
+    for (const file of ["0001_initial_schema.sql", "0002_runtime_guards.sql", "0003_secretary_reminders.sql", "0004_reengagement.sql", "0005_broadcast_claims.sql", "0006_reset_language_to_english.sql", "0007_user_api_configs.sql"]) {
       db.exec(readFileSync(new URL(`../db/${file}`, import.meta.url), "utf8"));
     }
     const env = { IVAI_DB: sqliteD1(db) };
@@ -4140,9 +4141,13 @@ test("the Memory settings button applies its named target idempotently; the lega
     return new Response(JSON.stringify({ ok: true, result: { message_id: 505 } }), { status: 200 });
   };
   try {
-    // The keyboard names the state it switches TO.
-    assert.equal(settingsKeyboard("en", true).inline_keyboard[0][0].callback_data, "settings:memory:off");
-    assert.equal(settingsKeyboard("en", false).inline_keyboard[0][0].callback_data, "settings:memory:on");
+    // The keyboard names the state it switches TO. The memory button is
+    // found by its callback, not its row — v3.8.0 adds a My API button
+    // above it (owner-approved BYOK design).
+    const memoryButton = (keyboard) => keyboard.inline_keyboard.flat().find((button) => button.callback_data?.startsWith("settings:memory:"));
+    assert.equal(memoryButton(settingsKeyboard("en", true)).callback_data, "settings:memory:off");
+    assert.equal(memoryButton(settingsKeyboard("en", false)).callback_data, "settings:memory:on");
+    assert.equal(settingsKeyboard("en", true).inline_keyboard[0][0].callback_data, "byok:open");
 
     const env = { ...baseEnv(), IVAI_DB: new PreferenceD1() };
     await setMemoryEnabled(42, true, env);
@@ -4158,7 +4163,7 @@ test("the Memory settings button applies its named target idempotently; the lega
     assert.equal(env.IVAI_DB.preferences.get("42").memoryEnabled, 0);
     // The edited keyboard now offers the on-target.
     const edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
-    assert.equal(edit.body.reply_markup.inline_keyboard[0][0].callback_data, "settings:memory:on");
+    assert.equal(edit.body.reply_markup.inline_keyboard.flat().find((button) => button.callback_data?.startsWith("settings:memory:")).callback_data, "settings:memory:on");
     // Legacy button on an already-sent message still toggles.
     await sendCallback("settings:memory", 4103);
     assert.equal(env.IVAI_DB.preferences.get("42").memoryEnabled, 1);
@@ -4309,5 +4314,638 @@ test("ignores an edited private message entirely (owner decision, v3.7.8)", asyn
     assert.equal(calls.length, 0);
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+// --- BYOK ("My API", v3.8.0) -------------------------------------------------
+// Phase 1: AES-256-GCM key storage + D1 helpers. The encryption secret is a
+// deterministic 32-byte test value; production uses a random Worker secret.
+
+function byokTestKey(seed = 1) {
+  return Buffer.from(Array.from({ length: 32 }, (_, index) => (seed + index) % 256)).toString("base64");
+}
+
+function byokSqliteEnv({ encryptionKey = byokTestKey(1) } = {}) {
+  const db = new DatabaseSync(":memory:");
+  for (const file of ["0001_initial_schema.sql", "0002_runtime_guards.sql", "0007_user_api_configs.sql"]) {
+    db.exec(readFileSync(new URL(`../db/${file}`, import.meta.url), "utf8"));
+  }
+  // user_api_configs references users: the production flow upserts the user
+  // before any BYOK save, so the test DB seeds the same row.
+  db.exec("INSERT INTO users (telegram_user_id) VALUES ('42')");
+  return { db, env: { ...baseEnv(), IVAI_DB: sqliteD1(db), BYOK_ENCRYPTION_KEY: encryptionKey } };
+}
+
+test("migration 0007 creates the user_api_configs table with the BYOK columns", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(readFileSync(new URL("../db/0001_initial_schema.sql", import.meta.url), "utf8"));
+    db.exec(readFileSync(new URL("../db/0007_user_api_configs.sql", import.meta.url), "utf8"));
+    const columns = db.prepare("SELECT name FROM pragma_table_info('user_api_configs')").all().map((row) => row.name);
+    for (const column of ["telegram_user_id", "preset", "base_url", "api_key_encrypted", "active_model", "vision_model", "transcription_model", "enabled", "status", "auth_failures", "updated_at"]) {
+      assert.ok(columns.includes(column), `missing column ${column}`);
+    }
+    const row = db.prepare("SELECT sql FROM sqlite_master WHERE name='user_api_configs'").get();
+    assert.match(row.sql, /enabled INTEGER NOT NULL DEFAULT 0/);
+  } finally {
+    db.close();
+  }
+});
+
+test("encrypts a BYOK key with AES-256-GCM and decrypts it back, never storing plaintext", async () => {
+  const env = { BYOK_ENCRYPTION_KEY: byokTestKey(1) };
+  const stored = await encryptApiKey("gsk_test-secret-key-123", env);
+  assert.match(stored, /^[0-9a-f]{24}:[0-9a-f]{32,}$/);
+  assert.doesNotMatch(stored, /gsk_test-secret-key-123/);
+  assert.equal(await decryptApiKey(stored, env), "gsk_test-secret-key-123");
+  // A fresh IV per encryption: the same key encrypts differently twice.
+  assert.notEqual(await encryptApiKey("gsk_test-secret-key-123", env), stored);
+});
+
+test("refuses to decrypt a BYOK key with the wrong encryption secret or a malformed value", async () => {
+  const stored = await encryptApiKey("sk-test-key", { BYOK_ENCRYPTION_KEY: byokTestKey(1) });
+  await assert.rejects(decryptApiKey(stored, { BYOK_ENCRYPTION_KEY: byokTestKey(2) }));
+  await assert.rejects(decryptApiKey("not-a-stored-value", { BYOK_ENCRYPTION_KEY: byokTestKey(1) }));
+  await assert.rejects(decryptApiKey("", { BYOK_ENCRYPTION_KEY: byokTestKey(1) }));
+  await assert.rejects(encryptApiKey("sk-test-key", {}), /not configured/);
+  await assert.rejects(decryptApiKey(stored, {}), /not configured/);
+});
+
+test("BYOK storage: save starts disabled, enable flips it on, three 401s invalidate, delete removes", async () => {
+  const { db, env } = byokSqliteEnv();
+  try {
+    await saveUserApiConfig({ userId: 42, preset: "groq", baseUrl: "https://api.groq.com/openai/v1", apiKey: "gsk_test-key-abc", model: "openai/gpt-oss-20b", visionModel: "qwen/qwen3.8-27b", transcriptionModel: "whisper-large-v3-turbo" }, env);
+    // Saved disabled: the turn-time getter returns nothing, the metadata does.
+    assert.equal(await getUserApiConfig(42, env), null);
+    const meta = await getUserApiConfigMeta(42, env);
+    assert.equal(meta.enabled, false);
+    assert.equal(meta.status, "valid");
+    assert.equal(meta.preset, "groq");
+    assert.equal(meta.model, "openai/gpt-oss-20b");
+    assert.equal(meta.visionModel, "qwen/qwen3.8-27b");
+    assert.equal(meta.transcriptionModel, "whisper-large-v3-turbo");
+    // The stored column holds ciphertext, never the key.
+    const stored = db.prepare("SELECT api_key_encrypted FROM user_api_configs WHERE telegram_user_id='42'").get().api_key_encrypted;
+    assert.doesNotMatch(stored, /gsk_test-key-abc/);
+
+    await setUserApiConfigEnabled(42, true, env);
+    const config = await getUserApiConfig(42, env);
+    assert.equal(config.apiKey, "gsk_test-key-abc");
+    assert.equal(config.baseUrl, "https://api.groq.com/openai/v1");
+
+    // Two auth failures: still valid. The third invalidates.
+    await markUserApiConfigInvalid(42, env);
+    await markUserApiConfigInvalid(42, env);
+    assert.equal((await getUserApiConfigMeta(42, env)).status, "valid");
+    assert.equal((await getUserApiConfigMeta(42, env)).authFailures, 2);
+    await markUserApiConfigInvalid(42, env);
+    assert.equal((await getUserApiConfigMeta(42, env)).status, "invalid");
+    assert.equal(await getUserApiConfig(42, env), null);
+
+    // A success resets the counter and restores validity.
+    await resetUserApiAuthFailures(42, env);
+    assert.equal((await getUserApiConfigMeta(42, env)).status, "valid");
+    assert.equal((await getUserApiConfigMeta(42, env)).authFailures, 0);
+    assert.equal((await getUserApiConfig(42, env)).apiKey, "gsk_test-key-abc");
+
+    // Model selection persists with its per-preset companions.
+    await updateUserApiConfigModel(42, { model: "qwen/qwen3.8-27b", visionModel: "qwen/qwen3.8-27b", transcriptionModel: "whisper-large-v3-turbo" }, env);
+    assert.equal((await getUserApiConfigMeta(42, env)).model, "qwen/qwen3.8-27b");
+
+    await deleteUserApiConfig(42, env);
+    assert.equal(await getUserApiConfigMeta(42, env), null);
+    assert.equal(await getUserApiConfig(42, env), null);
+  } finally {
+    db.close();
+  }
+});
+
+test("a BYOK decrypt failure marks the config invalid and never logs the key", async () => {
+  const { db, env } = byokSqliteEnv({ encryptionKey: byokTestKey(1) });
+  const originalError = console.error;
+  const lines = [];
+  console.error = (...args) => lines.push(args.join(" "));
+  try {
+    await saveUserApiConfig({ userId: 42, preset: "groq", baseUrl: "https://api.groq.com/openai/v1", apiKey: "gsk_never-log-this-key", model: "openai/gpt-oss-20b" }, env);
+    await setUserApiConfigEnabled(42, true, env);
+    // Same row, rotated encryption secret: decryption fails.
+    const rotated = { ...env, BYOK_ENCRYPTION_KEY: byokTestKey(9) };
+    assert.equal(await getUserApiConfig(42, rotated), null);
+    assert.equal((await getUserApiConfigMeta(42, env)).status, "invalid");
+    assert.ok(lines.some((line) => line.includes("byok_decrypt_failed")));
+    assert.equal(lines.some((line) => line.includes("gsk_never-log-this-key")), false);
+  } finally {
+    console.error = originalError;
+    db.close();
+  }
+});
+
+test("BYOK presets pin only currently available models (re-verified 2026-11-14)", () => {
+  assert.equal(BYOK_PRESETS.groq.baseUrl, "https://api.groq.com/openai/v1");
+  assert.equal(BYOK_PRESETS.together.baseUrl, "https://api.together.ai/v1");
+  assert.equal(BYOK_PRESETS.gemini.baseUrl, "https://generativelanguage.googleapis.com/v1beta/openai/");
+  // Retired IDs must never appear: Groq's llama-3.3-70b-versatile (retired
+  // 2026-08-16) and DeepSeek's legacy chat/reasoner aliases (retired 2026-07-24).
+  for (const preset of Object.values(BYOK_PRESETS)) {
+    assert.equal(preset.chatModels.includes("llama-3.3-70b-versatile"), false);
+    assert.equal(preset.chatModels.includes("deepseek-chat"), false);
+    assert.equal(preset.chatModels.includes("deepseek-reasoner"), false);
+    assert.equal(preset.chatModels.includes("grok-4"), false);
+  }
+  assert.deepEqual(BYOK_PRESETS.deepseek.chatModels, ["deepseek-flash", "deepseek-v4-pro"]);
+  assert.deepEqual(BYOK_PRESETS.xai.chatModels, ["grok-4.7", "grok-4.3"]);
+  assert.equal(BYOK_PRESETS.deepseek.transcriptionModel, null);
+  assert.equal(BYOK_PRESETS.xai.transcriptionModel, null);
+  assert.equal(BYOK_PRESETS.gemini.transcriptionModel, null);
+  assert.ok(BYOK_PRESETS.groq.keyPattern.test("gsk_abc12345"));
+  assert.ok(BYOK_PRESETS.openrouter.keyPattern.test("sk-or-v1-abc12345"));
+  assert.equal(BYOK_PRESETS.groq.keyPattern.test("sk-abc12345"), false);
+});
+
+// Phase 2: BYOK runner + fallback inside generateReply.
+
+const BYOK_CONFIG = Object.freeze({ userId: "42", preset: "groq", baseUrl: "https://api.groq.com/openai/v1", apiKey: "gsk_test-byok-key", model: "openai/gpt-oss-20b", visionModel: "qwen/qwen3.8-27b", transcriptionModel: "whisper-large-v3-turbo", enabled: true, status: "valid", authFailures: 0 });
+
+function byokFetchMock({ status = 200, content = "BYOK answer.", reasoning = null } = {}) {
+  const calls = [];
+  const fetchMock = async (url, init) => {
+    calls.push({ url: String(url), init });
+    const message = reasoning ? { reasoning_content: reasoning } : { content };
+    return new Response(JSON.stringify({ choices: [{ message }], model: "openai/gpt-oss-20b" }), { status });
+  };
+  return { calls, fetchMock };
+}
+
+test("BYOK answers through the user's API first and never touches the free chain", async () => {
+  const originalFetch = globalThis.fetch;
+  const { calls, fetchMock } = byokFetchMock();
+  const aiCalls = [];
+  globalThis.fetch = fetchMock;
+  try {
+    const env = { ...baseEnv(), AI: { async run() { aiCalls.push(1); return { response: "Free answer." }; } } };
+    const result = await generateReply({ text: "Hello", selectedMode: MODES.AUTO, selectedModel: null, language: "en", context: [], byokConfig: BYOK_CONFIG }, env);
+    assert.equal(result.text, "BYOK answer.");
+    assert.equal(result.provider, "byok");
+    assert.equal(result.fellBackFromByok, false);
+    assert.equal(result.byokAuthFailed, false);
+    assert.equal(aiCalls.length, 0);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, "https://api.groq.com/openai/v1/chat/completions");
+    assert.equal(calls[0].init.headers.authorization, "Bearer gsk_test-byok-key");
+    assert.equal(JSON.parse(calls[0].init.body).model, "openai/gpt-oss-20b");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a BYOK 401 falls back to the free chain and is flagged for invalidation", async () => {
+  const originalFetch = globalThis.fetch;
+  const { fetchMock } = byokFetchMock({ status: 401 });
+  globalThis.fetch = fetchMock;
+  try {
+    const env = { ...baseEnv(), AI: { async run() { return { response: "Free answer." }; } } };
+    const result = await generateReply({ text: "Hello", selectedMode: MODES.AUTO, selectedModel: null, language: "en", context: [], byokConfig: BYOK_CONFIG }, env);
+    assert.equal(result.text, "Free answer.");
+    assert.equal(result.provider, "workers-ai");
+    assert.equal(result.fellBackFromByok, true);
+    assert.equal(result.byokAuthFailed, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a BYOK 500 falls back to the free chain without the auth-failure flag", async () => {
+  const originalFetch = globalThis.fetch;
+  const { fetchMock } = byokFetchMock({ status: 500 });
+  globalThis.fetch = fetchMock;
+  try {
+    const env = { ...baseEnv(), AI: { async run() { return { response: "Free answer." }; } } };
+    const result = await generateReply({ text: "Hello", selectedMode: MODES.AUTO, selectedModel: null, language: "en", context: [], byokConfig: BYOK_CONFIG }, env);
+    assert.equal(result.fellBackFromByok, true);
+    assert.equal(result.byokAuthFailed, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a thinking BYOK model may answer in reasoning_content", async () => {
+  const originalFetch = globalThis.fetch;
+  const { fetchMock } = byokFetchMock({ content: null, reasoning: "Reasoned answer." });
+  globalThis.fetch = fetchMock;
+  try {
+    const env = { ...baseEnv(), AI: { async run() { return { response: "Free answer." }; } } };
+    const result = await generateReply({ text: "Hello", selectedMode: MODES.AUTO, selectedModel: null, language: "en", context: [], byokConfig: BYOK_CONFIG }, env);
+    assert.equal(result.text, "Reasoned answer.");
+    assert.equal(result.provider, "byok");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Guard mode never uses BYOK, even with an active config", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url) => { calls.push(String(url)); throw new Error("must not call BYOK"); };
+  try {
+    const env = { ...baseEnv(), AI: { async run() { return { response: "safe" }; } } };
+    const result = await generateReply({ text: "Classify this message", selectedMode: MODES.GUARD, language: "en", context: [], byokConfig: BYOK_CONFIG }, env);
+    assert.equal(result.provider, "workers-ai");
+    assert.equal(calls.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a disabled or invalid BYOK config is ignored by the text chain", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url) => { calls.push(String(url)); throw new Error("must not call BYOK"); };
+  try {
+    const env = { ...baseEnv(), AI: { async run() { return { response: "Free answer." }; } } };
+    for (const config of [{ ...BYOK_CONFIG, enabled: false }, { ...BYOK_CONFIG, status: "invalid" }, { ...BYOK_CONFIG, apiKey: "" }]) {
+      const result = await generateReply({ text: "Hello", selectedMode: MODES.AUTO, selectedModel: null, language: "en", context: [], byokConfig: config }, env);
+      assert.equal(result.provider, "workers-ai");
+      assert.equal(result.fellBackFromByok, false);
+    }
+    assert.equal(calls.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// Phase 3: BYOK media — vision + transcription with fallback.
+
+const BYOK_GROQ = Object.freeze({ ...BYOK_CONFIG, preset: "groq" });
+const BYOK_DEEPSEEK = Object.freeze({ ...BYOK_CONFIG, preset: "deepseek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-flash", visionModel: "deepseek-flash", transcriptionModel: null });
+
+function byokMediaFetch({ visionStatus = 200, visionText = "BYOK photo description.", transcriptionStatus = 200, transcriptionText = "BYOK transcript." } = {}) {
+  const binary = new Uint8Array([1, 2, 3, 4]);
+  const calls = [];
+  const fetchMock = async (url, init) => {
+    const endpoint = String(url);
+    calls.push(endpoint);
+    if (endpoint.includes("getFile")) return new Response(JSON.stringify({ ok: true, result: { file_path: "asset.bin", file_size: binary.byteLength } }), { status: 200 });
+    if (endpoint.includes("/chat/completions")) {
+      return new Response(JSON.stringify({ choices: [{ message: { content: visionText } }] }), { status: visionStatus });
+    }
+    if (endpoint.includes("/audio/transcriptions")) {
+      return new Response(JSON.stringify({ text: transcriptionText }), { status: transcriptionStatus });
+    }
+    return new Response(binary, { status: 200, headers: { "content-type": "image/jpeg" } });
+  };
+  return { calls, fetchMock };
+}
+
+test("BYOK vision answers through the user's API and never calls Workers AI", async () => {
+  const originalFetch = globalThis.fetch;
+  const { calls, fetchMock } = byokMediaFetch();
+  const aiCalls = [];
+  globalThis.fetch = fetchMock;
+  try {
+    const env = { ...baseEnv(), AI: { async run() { aiCalls.push(1); return { response: "Free description." }; } } };
+    const photo = await analyzePhoto({ fileId: "photo", caption: "Describe", language: "en", byokConfig: BYOK_GROQ }, env);
+    assert.equal(photo.text, "BYOK photo description.");
+    assert.equal(photo.provider, "byok");
+    assert.equal(photo.fellBackFromByok, false);
+    assert.equal(aiCalls.length, 0);
+    assert.ok(calls.some((url) => url === "https://api.groq.com/openai/v1/chat/completions"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a BYOK vision failure or refusal falls back to Workers AI vision with the notice flag", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const { visionStatus, visionText } of [
+      { visionStatus: 400, visionText: "ignored" },
+      { visionStatus: 200, visionText: "I can't see images, sorry." }
+    ]) {
+      const { fetchMock } = byokMediaFetch({ visionStatus, visionText });
+      globalThis.fetch = fetchMock;
+      const env = { ...baseEnv(), AI: { async run() { return { response: "Free description." }; } } };
+      const photo = await analyzePhoto({ fileId: "photo", caption: "Describe", language: "en", byokConfig: BYOK_GROQ }, env);
+      assert.equal(photo.text, "Free description.");
+      assert.equal(photo.provider, "workers-ai");
+      assert.equal(photo.fellBackFromByok, true);
+    }
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("BYOK transcription answers through the user's API and never calls Whisper", async () => {
+  const originalFetch = globalThis.fetch;
+  const { calls, fetchMock } = byokMediaFetch();
+  const aiCalls = [];
+  globalThis.fetch = fetchMock;
+  try {
+    const env = { ...baseEnv(), AI: { async run() { aiCalls.push(1); return { text: "Whisper transcript." }; } } };
+    const voice = await transcribeVoice({ fileId: "voice", languageHint: "en", byokConfig: BYOK_GROQ }, env);
+    assert.equal(voice.text, "BYOK transcript.");
+    assert.equal(voice.provider, "byok");
+    assert.equal(voice.fellBackFromByok, false);
+    assert.equal(aiCalls.length, 0);
+    assert.ok(calls.some((url) => url === "https://api.groq.com/openai/v1/audio/transcriptions"));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a preset without a transcription endpoint always uses Whisper and flags the fallback", async () => {
+  const originalFetch = globalThis.fetch;
+  const { fetchMock } = byokMediaFetch();
+  globalThis.fetch = fetchMock;
+  try {
+    const env = { ...baseEnv(), AI: { async run() { return { text: "Whisper transcript." }; } } };
+    const voice = await transcribeVoice({ fileId: "voice", languageHint: "en", byokConfig: BYOK_DEEPSEEK }, env);
+    assert.equal(voice.text, "Whisper transcript.");
+    assert.equal(voice.provider, "workers-ai");
+    assert.equal(voice.fellBackFromByok, true);
+    assert.equal(voice.byokAuthFailed, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a BYOK transcription 401 falls back to Whisper and flags the auth failure", async () => {
+  const originalFetch = globalThis.fetch;
+  const { fetchMock } = byokMediaFetch({ transcriptionStatus: 401 });
+  globalThis.fetch = fetchMock;
+  try {
+    const env = { ...baseEnv(), AI: { async run() { return { text: "Whisper transcript." }; } } };
+    const voice = await transcribeVoice({ fileId: "voice", languageHint: "en", byokConfig: BYOK_GROQ }, env);
+    assert.equal(voice.text, "Whisper transcript.");
+    assert.equal(voice.fellBackFromByok, true);
+    assert.equal(voice.byokAuthFailed, true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+// Phase 4: full BYOK setup flow through the worker (pending state machine,
+// key-message deletion, fallback notice, group isolation, settings view).
+
+function byokWorkerEnv({ groqStatus = 200, groqText = "BYOK answer." } = {}) {
+  const { db, env } = byokSqliteEnv();
+  const calls = [];
+  const aiCalls = [];
+  const fetchMock = async (url, init) => {
+    const endpoint = String(url);
+    calls.push({ url: endpoint, body: init?.body ? JSON.parse(init.body) : null });
+    if (endpoint.includes("api.groq.com")) {
+      return new Response(JSON.stringify({ choices: [{ message: { content: groqText } }] }), { status: groqStatus });
+    }
+    if (endpoint.includes("api.example.com")) {
+      return new Response(JSON.stringify({ choices: [{ message: { content: "Custom answer." } }] }), { status: 200 });
+    }
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 900 } }), { status: 200 });
+  };
+  const workerEnv = { ...env, IVAI_KV: new KV(), AI: { async run() { aiCalls.push(1); return { response: "Free answer." }; } } };
+  return { db, env: workerEnv, calls, aiCalls, fetchMock };
+}
+
+function privateTextUpdate(updateId, messageId, text, userId = 42) {
+  return { update_id: updateId, message: { message_id: messageId, chat: { id: userId, type: "private" }, from: { id: userId, first_name: "A" }, text } };
+}
+
+function privateCallbackUpdate(updateId, data, userId = 42) {
+  return { update_id: updateId, callback_query: { id: `cb${updateId}`, from: { id: userId, first_name: "A" }, data, message: { message_id: 31, chat: { id: userId, type: "private" }, from: { id: 424242, is_bot: true, username: "IVAI_Llm_bot" } } } };
+}
+
+test("BYOK setup flow: preset → key → test → model → active, key message deleted, then answers via BYOK", async () => {
+  const originalFetch = globalThis.fetch;
+  const { db, env, calls, aiCalls, fetchMock } = byokWorkerEnv();
+  globalThis.fetch = fetchMock;
+  try {
+    // Open My API: preset list.
+    assert.equal((await postGroupUpdate(env, privateCallbackUpdate(5001, "byok:open"))).status, 200);
+    let edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
+    assert.match(edit.body.text, /Choose your provider/);
+    assert.ok(edit.body.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === "byok:preset:groq"));
+
+    // Pick Groq: ask for the key; pending state recorded with a TTL.
+    assert.equal((await postGroupUpdate(env, privateCallbackUpdate(5002, "byok:preset:groq"))).status, 200);
+    edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
+    assert.match(edit.body.text, /Send your API key/);
+    const pending = JSON.parse(await env.IVAI_KV.get("byok:pending:42"));
+    assert.deepEqual(pending, { step: "key", preset: "groq" });
+
+    // Paste the key: no AI call, row saved disabled, key message deleted,
+    // confirmation carries the trust line.
+    assert.equal((await postGroupUpdate(env, privateTextUpdate(5003, 3, "gsk_test-key-abc"))).status, 200);
+    assert.equal(aiCalls.length, 0);
+    const meta = await getUserApiConfigMeta(42, env);
+    assert.equal(meta.enabled, false);
+    assert.equal(meta.preset, "groq");
+    assert.ok(calls.some((call) => /deleteMessage$/.test(call.url) && call.body.message_id === 3));
+    const saved = calls.filter((call) => /sendMessage$/.test(call.url)).at(-1);
+    assert.match(saved.body.text, /key saved/);
+    assert.match(saved.body.text, /stored encrypted \(AES-256-GCM\)/);
+    assert.equal(await env.IVAI_KV.get("byok:pending:42"), null);
+
+    // Test the connection: the probe hits Groq, then the model picker opens.
+    assert.equal((await postGroupUpdate(env, privateCallbackUpdate(5004, "byok:test"))).status, 200);
+    assert.ok(calls.some((call) => call.url === "https://api.groq.com/openai/v1/chat/completions"));
+    edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
+    assert.match(edit.body.text, /Connection works/);
+    assert.ok(edit.body.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === "byok:model:0"));
+
+    // Pick a model: enabled, active screen shown.
+    assert.equal((await postGroupUpdate(env, privateCallbackUpdate(5005, "byok:model:1"))).status, 200);
+    const active = await getUserApiConfigMeta(42, env);
+    assert.equal(active.enabled, true);
+    assert.equal(active.model, "openai/gpt-oss-20b");
+    edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
+    assert.match(edit.body.text, /My API is active/);
+
+    // A text turn now answers through BYOK with no fallback notice.
+    assert.equal((await postGroupUpdate(env, privateTextUpdate(5006, 4, "Hello"))).status, 200);
+    const rich = calls.filter((call) => /sendRichMessage$/.test(call.url)).at(-1);
+    assert.match(rich.body.rich_message.html, /BYOK answer\./);
+    assert.doesNotMatch(rich.body.rich_message.html, /didn't respond/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.close();
+  }
+});
+
+test("a pasted key with no pending setup never reaches the AI turn or storage", async () => {
+  const originalFetch = globalThis.fetch;
+  const { db, env, calls, aiCalls, fetchMock } = byokWorkerEnv();
+  globalThis.fetch = fetchMock;
+  try {
+    assert.equal((await postGroupUpdate(env, privateTextUpdate(5101, 5, "gsk_test-key-abc"))).status, 200);
+    assert.equal(aiCalls.length, 1);
+    assert.equal(await getUserApiConfigMeta(42, env), null);
+    assert.equal(calls.some((call) => call.url.includes("api.groq.com")), false);
+    assert.equal(calls.some((call) => /deleteMessage$/.test(call.url)), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.close();
+  }
+});
+
+test("a BYOK 401 in a text turn falls back with the notice before the footer and counts the failure", async () => {
+  const originalFetch = globalThis.fetch;
+  const { db, env, calls, aiCalls, fetchMock } = byokWorkerEnv({ groqStatus: 401 });
+  globalThis.fetch = fetchMock;
+  try {
+    await saveUserApiConfig({ userId: 42, preset: "groq", baseUrl: "https://api.groq.com/openai/v1", apiKey: "gsk_test-key-abc", model: "openai/gpt-oss-20b", visionModel: "qwen/qwen3.8-27b", transcriptionModel: "whisper-large-v3-turbo" }, env);
+    await setUserApiConfigEnabled(42, true, env);
+    assert.equal((await postGroupUpdate(env, privateTextUpdate(5201, 6, "Hello"))).status, 200);
+    assert.equal(aiCalls.length, 1);
+    const rich = calls.filter((call) => /sendRichMessage$/.test(call.url)).at(-1);
+    assert.match(rich.body.rich_message.html, /Free answer\./);
+    assert.match(rich.body.rich_message.html, /Your API didn't respond, so I answered with IVAI models\./);
+    assert.ok(rich.body.rich_message.html.indexOf("didn't respond") < rich.body.rich_message.html.lastIndexOf("IVAI"));
+    assert.equal((await getUserApiConfigMeta(42, env)).authFailures, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.close();
+  }
+});
+
+test("a group turn never loads or decrypts the BYOK config", async () => {
+  const originalFetch = globalThis.fetch;
+  const { db, env } = byokSqliteEnv();
+  const sqlLog = [];
+  const inner = sqliteD1(db);
+  const recordingEnv = { ...env, IVAI_DB: { prepare: (sql) => { sqlLog.push(sql); return inner.prepare(sql); } } };
+  const calls = [];
+  const aiCalls = [];
+  globalThis.fetch = mockGroupFetch(calls);
+  try {
+    await saveUserApiConfig({ userId: 42, preset: "groq", baseUrl: "https://api.groq.com/openai/v1", apiKey: "gsk_test-key-abc", model: "openai/gpt-oss-20b" }, env);
+    await setUserApiConfigEnabled(42, true, env);
+    sqlLog.length = 0;
+    const groupEnv = { ...groupTestEnv(calls, aiCalls), IVAI_DB: recordingEnv.IVAI_DB, BYOK_ENCRYPTION_KEY: env.BYOK_ENCRYPTION_KEY };
+    const mention = { update_id: 5301, message: { message_id: 10, chat: { id: -100130, type: "supergroup" }, from: { id: 42, first_name: "A" }, text: "@IVAI_Llm_bot one question", entities: [{ type: "mention", offset: 0, length: 13 }] } };
+    assert.equal((await postGroupUpdate(groupEnv, mention)).status, 200);
+    assert.equal(aiCalls.length, 1);
+    assert.equal(sqlLog.some((sql) => sql.includes("user_api_configs")), false);
+    assert.equal(calls.some((call) => String(call.url).includes("api.groq.com")), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.close();
+  }
+});
+
+test("pending setup: a wrong-format key is rejected, /cancel cancels, another command clears the state", async () => {
+  const originalFetch = globalThis.fetch;
+  const { db, env, calls, fetchMock } = byokWorkerEnv();
+  globalThis.fetch = fetchMock;
+  try {
+    await postGroupUpdate(env, privateCallbackUpdate(5401, "byok:preset:groq"));
+    // Wrong format: guidance, pending kept, nothing saved.
+    assert.equal((await postGroupUpdate(env, privateTextUpdate(5402, 7, "not-a-key"))).status, 200);
+    assert.match(calls.filter((call) => /sendMessage$/.test(call.url)).at(-1).body.text, /doesn't look right/);
+    assert.equal(JSON.parse(await env.IVAI_KV.get("byok:pending:42")).step, "key");
+    assert.equal(await getUserApiConfigMeta(42, env), null);
+
+    // Bare /cancel: setup cancelled, pending cleared.
+    assert.equal((await postGroupUpdate(env, privateTextUpdate(5403, 8, "/cancel"))).status, 200);
+    assert.match(calls.filter((call) => /sendMessage$/.test(call.url)).at(-1).body.text, /setup cancelled/);
+    assert.equal(await env.IVAI_KV.get("byok:pending:42"), null);
+
+    // Another command clears the state and runs as its own command.
+    await postGroupUpdate(env, privateCallbackUpdate(5404, "byok:preset:groq"));
+    assert.equal((await postGroupUpdate(env, privateTextUpdate(5405, 9, "/start"))).status, 200);
+    assert.equal(await env.IVAI_KV.get("byok:pending:42"), null);
+    assert.ok(calls.some((call) => /sendRichMessage$/.test(call.url) && /a free AI assistant/.test(call.body.rich_message.html)));
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.close();
+  }
+});
+
+test("settings shows IVAI models and My API as separate sections with a single Active marker", async () => {
+  const originalFetch = globalThis.fetch;
+  const { db, env, calls, fetchMock } = byokWorkerEnv();
+  globalThis.fetch = fetchMock;
+  try {
+    // No config: IVAI models carry the marker, My API is "Not set up yet".
+    await postGroupUpdate(env, privateCallbackUpdate(5501, "menu:settings"));
+    let edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
+    assert.match(edit.body.text, /IVAI models/);
+    assert.match(edit.body.text, /My API/);
+    assert.match(edit.body.text, /Not set up yet/);
+    assert.equal((edit.body.text.match(/●/g) || []).length, 1);
+
+    // Active BYOK: the marker moves to My API, the free route is kept.
+    await saveUserApiConfig({ userId: 42, preset: "groq", baseUrl: "https://api.groq.com/openai/v1", apiKey: "gsk_test-key-abc", model: "openai/gpt-oss-20b" }, env);
+    await setUserApiConfigEnabled(42, true, env);
+    await postGroupUpdate(env, privateCallbackUpdate(5502, "menu:settings"));
+    edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
+    assert.equal((edit.body.text.match(/●/g) || []).length, 1);
+    assert.match(edit.body.text, /● <b>Groq<\/b> · <code>openai\/gpt-oss-20b<\/code>/);
+    assert.match(edit.body.text, /kept for switch-back/);
+    assert.match(edit.body.text, /stored encrypted \(AES-256-GCM\)/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.close();
+  }
+});
+
+test("custom endpoint flow normalizes the URL, collects the model, and activates on a working test", async () => {
+  const originalFetch = globalThis.fetch;
+  const { db, env, calls, fetchMock } = byokWorkerEnv();
+  globalThis.fetch = fetchMock;
+  try {
+    await postGroupUpdate(env, privateCallbackUpdate(5601, "byok:preset:custom"));
+    assert.match(calls.filter((call) => /editMessageText$/.test(call.url)).at(-1).body.text, /Custom endpoint/);
+
+    // Endpoint with a path suffix and trailing slash is normalized.
+    await postGroupUpdate(env, privateTextUpdate(5602, 10, "https://api.example.com/v1/chat/completions/"));
+    let pending = JSON.parse(await env.IVAI_KV.get("byok:pending:42"));
+    assert.deepEqual(pending, { step: "key", preset: "custom", baseUrl: "https://api.example.com/v1" });
+
+    // Key saved (model empty until typed), then the model is collected.
+    await postGroupUpdate(env, privateTextUpdate(5603, 11, "sk-custom-key-123456"));
+    assert.equal((await getUserApiConfigMeta(42, env)).baseUrl, "https://api.example.com/v1");
+    assert.equal((await getUserApiConfigMeta(42, env)).model, "");
+    pending = JSON.parse(await env.IVAI_KV.get("byok:pending:42"));
+    assert.deepEqual(pending, { step: "model", preset: "custom", testFirst: true });
+
+    await postGroupUpdate(env, privateTextUpdate(5604, 12, "my-custom-model-1"));
+    assert.equal((await getUserApiConfigMeta(42, env)).model, "my-custom-model-1");
+    assert.equal(await env.IVAI_KV.get("byok:pending:42"), null);
+    assert.ok(calls.filter((call) => /sendMessage$/.test(call.url)).at(-1).body.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === "byok:test"));
+
+    // A working test activates the custom config directly (no model list).
+    await postGroupUpdate(env, privateCallbackUpdate(5605, "byok:test"));
+    assert.equal((await getUserApiConfigMeta(42, env)).enabled, true);
+    const edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
+    assert.match(edit.body.text, /My API is active/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.close();
+  }
+});
+
+test("removing My API deletes the config and private chats answer with IVAI models again", async () => {
+  const originalFetch = globalThis.fetch;
+  const { db, env, calls, aiCalls, fetchMock } = byokWorkerEnv();
+  globalThis.fetch = fetchMock;
+  try {
+    await saveUserApiConfig({ userId: 42, preset: "groq", baseUrl: "https://api.groq.com/openai/v1", apiKey: "gsk_test-key-abc", model: "openai/gpt-oss-20b" }, env);
+    await setUserApiConfigEnabled(42, true, env);
+    await postGroupUpdate(env, privateCallbackUpdate(5701, "byok:open"));
+    await postGroupUpdate(env, privateCallbackUpdate(5702, "byok:remove"));
+    let edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
+    assert.match(edit.body.text, /Remove My API\?/);
+    assert.ok(edit.body.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === "byok:remove:yes"));
+    await postGroupUpdate(env, privateCallbackUpdate(5703, "byok:remove:yes"));
+    assert.equal(await getUserApiConfigMeta(42, env), null);
+    edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
+    assert.match(edit.body.text, /My API removed/);
+
+    // Next text turn: no BYOK call at all.
+    assert.equal((await postGroupUpdate(env, privateTextUpdate(5704, 13, "Hello"))).status, 200);
+    assert.equal(aiCalls.length, 1);
+    assert.equal(calls.some((call) => call.url.includes("api.groq.com")), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.close();
   }
 });

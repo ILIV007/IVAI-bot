@@ -165,10 +165,49 @@ async function runGoogle({ messages, profile, selectedModel }, env) {
   return { text: String(text).trim(), provider: "google", model };
 }
 
-export async function generateReply({ text, selectedMode, selectedModel, language, context, maxTokens }, env) {
+// BYOK ("My API", v3.8.0): one OpenAI-compatible runner for every preset and
+// Custom endpoint — the same chat-completion shape as runGroq, pointed at the
+// user's base URL with their key. Thinking models may answer in
+// reasoning_content, so that counts as content. The key never appears in an
+// error message or a log line.
+export async function runCustomApi({ messages, profile, byokConfig, maxTokens }, env) {
+  const baseUrl = String(byokConfig?.baseUrl || "").replace(/\/+$/, "");
+  const model = byokConfig?.model;
+  if (!baseUrl || !model || !byokConfig?.apiKey) throw new Error("Custom API is not configured");
+  const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${byokConfig.apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({ model, messages, max_tokens: maxTokens ?? profile.maxOutputTokens, temperature: profile.temperature })
+  });
+  if (!response.ok) throw new Error(`Custom API failed: ${response.status}`);
+  const payload = await response.json();
+  const message = payload?.choices?.[0]?.message;
+  const text = message?.content || message?.reasoning_content;
+  if (!String(text || "").trim()) throw new Error("Custom API returned an empty response");
+  return { text: String(text).trim(), provider: "byok", model: payload.model || model };
+}
+
+export async function generateReply({ text, selectedMode, selectedModel, language, context, maxTokens, byokConfig }, env) {
   const profile = responseProfile(selectedMode);
   if (profile.mode === MODES.GUARD) return { ...(await runGuard({ text, language }, env)), mode: profile.mode };
   const messages = normalizeMessages({ text, context, profile, language });
+  // BYOK first (private chats only — the caller never passes a config for
+  // group turns, and Guard never reaches this branch): the user's own API
+  // answers; on any failure the free chain takes over and the caller adds a
+  // one-line notice (fellBackFromByok). A 401 is flagged so the caller can
+  // count it toward invalidating a dead key.
+  let byokAttempted = false;
+  let byokAuthFailed = false;
+  if (byokConfig?.enabled && byokConfig?.status === "valid" && byokConfig?.apiKey && byokConfig?.baseUrl && byokConfig?.model) {
+    byokAttempted = true;
+    try {
+      return { ...(await runCustomApi({ messages, profile, byokConfig, maxTokens }, env)), mode: profile.mode, fellBackFromByok: false, byokAuthFailed: false };
+    } catch (error) {
+      const message = String(error.message || error);
+      byokAuthFailed = /401/.test(message);
+      console.error(JSON.stringify({ event: "provider_attempt_failed", provider: "byok", error: message.slice(0, 120) }));
+    }
+  }
   const preferred = selectedModel?.startsWith("@cf/") ? runWorkersAi
     : isOpenRouterFreeModel(selectedModel) ? runOpenRouter
       : FREE_MODEL_POLICY.groq.includes(selectedModel) ? runGroq
@@ -184,7 +223,7 @@ export async function generateReply({ text, selectedMode, selectedModel, languag
     if (index > 0 && Date.now() - startedAt > CHAIN_DEADLINE_MS) break;
     const attemptStartedAt = Date.now();
     try {
-      return { ...(await attempt({ messages, profile, selectedModel, maxTokens }, env)), mode: profile.mode };
+      return { ...(await attempt({ messages, profile, selectedModel, maxTokens }, env)), mode: profile.mode, fellBackFromByok: byokAttempted, byokAuthFailed };
     } catch (error) {
       const message = String(error.message || error);
       failures.push(message.slice(0, 100));

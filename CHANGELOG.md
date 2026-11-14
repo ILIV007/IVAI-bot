@@ -2,6 +2,26 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.8.0] - 2026-11-14
+
+### Added
+
+- **BYOK — "My API" (owner decision, design approved 2026-11-14):** in private chats, a user can add their own API key + models and the bot answers through their own OpenAI-compatible provider — text, photo vision, and voice transcription. Groups keep the free models; Guard mode never uses BYOK.
+- **Presets (Approach A — one OpenAI-compatible runner for all):** OpenRouter, Groq, DeepSeek, Together, Mistral, xAI, Gemini + Custom endpoint, with per-preset chat/vision/transcription models in `BYOK_PRESETS` (`src/config.js`). Model IDs were re-verified against the providers' own catalogs on 2026-11-14: Groq's retired `llama-3.3-70b-versatile` and `llama-4-scout` are replaced by `qwen/qwen3.8-27b`; Together's removed Llama 3.3 70B Turbo by `meta-models/Muse-Glimmer-30B` and its vision model by `moonshotai/Kimi-K3.1-Pro`; xAI's retired `grok-4` by `grok-4.3`. Presets without a compatible transcription endpoint (DeepSeek, xAI, Gemini) always fall back to our Whisper.
+- **Encrypted key storage:** keys are stored AES-256-GCM encrypted (`iv_hex:ciphertext_hex`, tag appended) in the new `user_api_configs` table (migration `db/0007_user_api_configs.sql`), with the encryption key from the new `BYOK_ENCRYPTION_KEY` Worker secret. If the secret is unset or a stored value cannot decrypt, the turn fails soft to the free chain. The key message is auto-deleted right after a successful save.
+- **Setup flow:** preset → key → connection test (16-token probe) → model pick → active. A config is created disabled (`enabled=0`) and flips on only after a successful test. A pending-input state machine in KV (`byok:pending:<userId>`, 10-minute TTL) is intercepted before `processText`, so a pasted key never reaches the AI or the session; `/cancel` cancels it. The Settings screen shows IVAI models and My API as separate sections with a single ● Active marker, English copy first, one job per screen.
+- **Fallback:** a BYOK failure falls back to the free chain with a one-line notice before the footer (standard and Rich paths, text and media); if the free chain fails too, the failure message notes that the user's API also didn't respond. Three consecutive 401s mark the config invalid; a BYOK success resets the counter. A vision refusal ("I can't see images") falls back to our vision.
+
+### Changed
+
+- The Memory settings toggle now re-renders the full settings view (instead of only the Memory line) so the My API section does not vanish when the toggle is tapped.
+- The Memory settings test now finds the memory button by its callback instead of its row, because v3.8.0 adds a My API button above it.
+
+### Deployment notes
+
+- Set the `BYOK_ENCRYPTION_KEY` Worker secret (32 random bytes, base64) before deploying; rotating it invalidates saved keys.
+- **Migration 0006 must never run (owner decision 2026-11-03).** The live database has no `d1_migrations` table (verified 2026-11-14), so there is no runner row to record — apply 0007 directly with the D1 query API and never execute the 0006 language reset. See `docs/DEPLOYMENT_CHECKLIST.md`.
+
 ## [3.7.9] - 2026-11-03
 
 ### Changed

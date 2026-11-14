@@ -1,4 +1,4 @@
-import { APP, getLanguageOption, LANGUAGE_OPTIONS, MODES } from "./config.js";
+import { APP, BYOK_PRESETS, getLanguageOption, LANGUAGE_OPTIONS, MODES } from "./config.js";
 
 const API = "https://api.telegram.org";
 // A stuck Telegram API call must not hang the handler either.
@@ -248,12 +248,86 @@ export function languageMenuText(language = "en") {
 export function settingsKeyboard(language = "en", memoryEnabled = false) {
   const fa = language === "fa";
   return { inline_keyboard: [
+    [button(fa ? "🔑 API من" : "🔑 My API", "byok:open")],
     // The button names the state it switches TO, so a redelivered callback
     // (Telegram retry, double tap) re-applies the same target instead of
     // toggling twice and looking dead.
     [button(memoryEnabled ? (fa ? "✓ حافظه روشن" : "✓ Memory on") : (fa ? "حافظه خاموش" : "Memory off"), memoryEnabled ? "settings:memory:off" : "settings:memory:on", memoryEnabled ? "success" : undefined)],
     [button(fa ? "↺ بازنشانی تنظیمات" : "↺ Reset settings", "settings:reset", "danger")],
     [button(fa ? "← منو" : "← Menu", "menu:main")]
+  ] };
+}
+
+// BYOK ("My API", v3.8.0) keyboards. One job per screen: pick a provider,
+// pick a model, or manage the one saved config.
+export function byokPresetKeyboard(language = "en", presetIds = []) {
+  const fa = language === "fa";
+  const rows = [];
+  for (let index = 0; index < presetIds.length; index += 2) {
+    rows.push(presetIds.slice(index, index + 2).map((id) => button(BYOK_PRESETS[id]?.label || id, `byok:preset:${id}`)));
+  }
+  rows.push([button(fa ? "✕ لغو" : "✕ Cancel", "byok:cancel")]);
+  rows.push([button(fa ? "← تنظیمات" : "← Settings", "byok:back")]);
+  return { inline_keyboard: rows };
+}
+
+export function byokModelKeyboard(language = "en", models = []) {
+  const fa = language === "fa";
+  const rows = models.map((model, index) => [button(model, `byok:model:${index}`)]);
+  rows.push([button(fa ? "✏️ مدل دیگر…" : "✏️ Other model…", "byok:model:other")]);
+  rows.push([button(fa ? "← API من" : "← My API", "byok:open")]);
+  return { inline_keyboard: rows };
+}
+
+export function byokManageKeyboard(language = "en", state = "inactive") {
+  const fa = language === "fa";
+  if (state === "saved") {
+    return { inline_keyboard: [
+      [button(fa ? "🧪 آزمایش اتصال" : "🧪 Test connection", "byok:test", "primary")],
+      [button(fa ? "✕ لغو" : "✕ Cancel", "byok:cancel")]
+    ] };
+  }
+  if (state === "active") {
+    return { inline_keyboard: [
+      [button(fa ? "⏸ استفاده از مدل‌های IVAI" : "⏸ Use IVAI models instead", "byok:disable")],
+      [button(fa ? "🗑 حذف API من" : "🗑 Remove my API", "byok:remove", "danger")],
+      [button(fa ? "← تنظیمات" : "← Settings", "byok:back")]
+    ] };
+  }
+  if (state === "invalid") {
+    return { inline_keyboard: [
+      [button(fa ? "🔑 ورود کلید تازه" : "🔑 Enter a new key", "byok:presets", "primary")],
+      [button(fa ? "🗑 حذف API من" : "🗑 Remove my API", "byok:remove", "danger")],
+      [button(fa ? "← تنظیمات" : "← Settings", "byok:back")]
+    ] };
+  }
+  return { inline_keyboard: [
+    [button(fa ? "▶ استفاده از API من" : "▶ Use my API", "byok:enable", "primary")],
+    [button(fa ? "🧪 آزمایش اتصال" : "🧪 Test connection", "byok:test")],
+    [button(fa ? "🗑 حذف API من" : "🗑 Remove my API", "byok:remove", "danger")],
+    [button(fa ? "← تنظیمات" : "← Settings", "byok:back")]
+  ] };
+}
+
+export function byokTestFailedKeyboard(language = "en") {
+  const fa = language === "fa";
+  return { inline_keyboard: [
+    [button(fa ? "🧪 آزمایش دوباره" : "🧪 Retry test", "byok:test", "primary")],
+    [button(fa ? "🔑 تغییر کلید" : "🔑 Change key", "byok:presets")],
+    [button(fa ? "← API من" : "← My API", "byok:open")]
+  ] };
+}
+
+export function byokCancelKeyboard(language = "en") {
+  const fa = language === "fa";
+  return { inline_keyboard: [[button(fa ? "✕ لغو" : "✕ Cancel", "byok:cancel")]] };
+}
+
+export function byokRemoveConfirmKeyboard(language = "en") {
+  const fa = language === "fa";
+  return { inline_keyboard: [
+    [button(fa ? "✓ بله، حذف کن" : "✓ Yes, remove it", "byok:remove:yes", "danger")],
+    [button(fa ? "← بازگشت" : "← Back", "byok:open")]
   ] };
 }
 
@@ -350,6 +424,10 @@ export async function telegram(env, method, body) {
   const json = await response.json().catch(() => ({}));
   if (!response.ok || !json.ok) throw new Error(`Telegram ${method} failed: ${json.description || response.status}`);
   return json.result;
+}
+
+export async function deleteMessage(env, { chatId, messageId }) {
+  return telegram(env, "deleteMessage", { chat_id: chatId, message_id: messageId });
 }
 
 export async function sendTyping(env, chatId, { threadId, businessConnectionId, directMessagesTopicId } = {}) {

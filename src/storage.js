@@ -1,4 +1,5 @@
 import { APP, MODES } from "./config.js";
+import { decryptApiKey, encryptApiKey } from "./byok-crypto.js";
 
 export function conversationKey({ chatId, userId, threadId, replyTo }) {
   return [chatId, userId, threadId || "main", replyTo || "root"].join(":");
@@ -95,6 +96,110 @@ export async function setUserMode(userId, mode, env) {
       WHERE telegram_user_id=?`)
     .bind(mode, resetSelectedModel ? 1 : 0, String(userId))
     .run();
+}
+
+// --- BYOK ("My API", v3.8.0) -------------------------------------------------
+// One custom-provider config per user. The key is stored AES-256-GCM
+// encrypted and is only ever decrypted here, once per turn, for the provider
+// call itself. Display code uses getUserApiConfigMeta, which never touches
+// the key column at all.
+
+// Row metadata without the key: safe for settings screens and status lines.
+export async function getUserApiConfigMeta(userId, env) {
+  if (!env.IVAI_DB || !userId) return null;
+  const row = await env.IVAI_DB.prepare(`SELECT preset, base_url AS baseUrl,
+      active_model AS model, vision_model AS visionModel,
+      transcription_model AS transcriptionModel, enabled, status,
+      auth_failures AS authFailures
+    FROM user_api_configs WHERE telegram_user_id=? LIMIT 1`).bind(String(userId)).first();
+  if (!row) return null;
+  return {
+    preset: row.preset,
+    baseUrl: row.baseUrl,
+    model: row.model,
+    visionModel: row.visionModel || null,
+    transcriptionModel: row.transcriptionModel || null,
+    enabled: Boolean(row.enabled),
+    status: row.status,
+    authFailures: Number(row.authFailures || 0)
+  };
+}
+
+// Decrypted config for a turn, or null when there is nothing usable. Only
+// enabled + valid configs are returned; a decrypt failure (rotated or
+// missing encryption secret) marks the config invalid best-effort and falls
+// back to the free chain instead of failing the turn. `includeDisabled` is
+// for the connection test only — a just-saved config is still disabled.
+export async function getUserApiConfig(userId, env, { includeDisabled = false } = {}) {
+  const meta = await getUserApiConfigMeta(userId, env);
+  if (!meta || (!includeDisabled && !meta.enabled) || meta.status !== "valid") return null;
+  try {
+    const row = await env.IVAI_DB.prepare("SELECT api_key_encrypted FROM user_api_configs WHERE telegram_user_id=? LIMIT 1").bind(String(userId)).first();
+    const apiKey = await decryptApiKey(row?.api_key_encrypted, env);
+    if (!apiKey) return null;
+    return { ...meta, apiKey, userId: String(userId) };
+  } catch (error) {
+    console.error(JSON.stringify({ event: "byok_decrypt_failed", error: String(error?.message || "unknown") }));
+    try { await markUserApiConfigInvalid(userId, env, { force: true }); } catch { /* Best-effort. */ }
+    return null;
+  }
+}
+
+// A fresh setup always starts disabled; only a successful connection test
+// flips it on (see setUserApiConfigEnabled). Re-saving overwrites the old
+// key and resets the failure state.
+export async function saveUserApiConfig({ userId, preset, baseUrl, apiKey, model, visionModel = null, transcriptionModel = null }, env) {
+  if (!env.IVAI_DB || !userId) throw new Error("BYOK storage is unavailable");
+  const apiKeyEncrypted = await encryptApiKey(apiKey, env);
+  await env.IVAI_DB.prepare(`INSERT INTO user_api_configs
+      (telegram_user_id, preset, base_url, api_key_encrypted, active_model, vision_model, transcription_model, enabled, status, auth_failures, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'valid', 0, CURRENT_TIMESTAMP)
+      ON CONFLICT(telegram_user_id) DO UPDATE SET preset=excluded.preset, base_url=excluded.base_url,
+        api_key_encrypted=excluded.api_key_encrypted, active_model=excluded.active_model,
+        vision_model=excluded.vision_model, transcription_model=excluded.transcription_model,
+        enabled=0, status='valid', auth_failures=0, updated_at=CURRENT_TIMESTAMP`)
+    .bind(String(userId), preset, baseUrl, apiKeyEncrypted, model, visionModel, transcriptionModel).run();
+}
+
+export async function setUserApiConfigEnabled(userId, enabled, env) {
+  if (!env.IVAI_DB || !userId) return;
+  await env.IVAI_DB.prepare(`UPDATE user_api_configs
+    SET enabled=?, updated_at=CURRENT_TIMESTAMP WHERE telegram_user_id=?`)
+    .bind(enabled ? 1 : 0, String(userId)).run();
+}
+
+export async function updateUserApiConfigModel(userId, { model, visionModel = null, transcriptionModel = null }, env) {
+  if (!env.IVAI_DB || !userId || !model) return;
+  await env.IVAI_DB.prepare(`UPDATE user_api_configs
+    SET active_model=?, vision_model=?, transcription_model=?, updated_at=CURRENT_TIMESTAMP
+    WHERE telegram_user_id=?`).bind(model, visionModel, transcriptionModel, String(userId)).run();
+}
+
+// Counts consecutive 401s; the third one marks the config invalid so the bot
+// stops retrying a dead key and asks for a fresh one instead. `force` is for
+// decrypt failures (rotated/missing encryption secret), which invalidate at once.
+export async function markUserApiConfigInvalid(userId, env, { force = false } = {}) {
+  if (!env.IVAI_DB || !userId) return;
+  if (force) {
+    await env.IVAI_DB.prepare(`UPDATE user_api_configs
+      SET status='invalid', updated_at=CURRENT_TIMESTAMP WHERE telegram_user_id=?`).bind(String(userId)).run();
+    return;
+  }
+  await env.IVAI_DB.prepare(`UPDATE user_api_configs
+    SET auth_failures=auth_failures+1,
+      status=CASE WHEN auth_failures+1>=3 THEN 'invalid' ELSE status END,
+      updated_at=CURRENT_TIMESTAMP WHERE telegram_user_id=?`).bind(String(userId)).run();
+}
+
+export async function resetUserApiAuthFailures(userId, env) {
+  if (!env.IVAI_DB || !userId) return;
+  await env.IVAI_DB.prepare(`UPDATE user_api_configs
+    SET auth_failures=0, status='valid', updated_at=CURRENT_TIMESTAMP WHERE telegram_user_id=?`).bind(String(userId)).run();
+}
+
+export async function deleteUserApiConfig(userId, env) {
+  if (!env.IVAI_DB || !userId) return;
+  await env.IVAI_DB.prepare("DELETE FROM user_api_configs WHERE telegram_user_id=?").bind(String(userId)).run();
 }
 
 // A fresh chat must restore agent behavior to the free-only defaults in one D1
