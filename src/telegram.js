@@ -121,6 +121,7 @@ export function modeKeyboard(language = "en", { includeTerminal = false } = {}) 
   if (includeTerminal) rows.push(terminalKeyboard(language).inline_keyboard[0]);
   rows.push(
     [button(fa ? "🎛 انتخاب مدل" : ar ? "🎛 اختر النموذج" : "🎛 Pick model", "menu:models", "danger")],
+    [button(fa ? "🔑 API من" : "🔑 My API", "byok:open")],
     [
       button(fa ? "📖 راهنما" : ar ? "📖 مساعدة" : "📖 Help", "menu:help"),
       button(fa ? "⚙️ تنظیمات" : ar ? "⚙️ الإعدادات" : "⚙️ Settings", "menu:settings"),
@@ -247,8 +248,9 @@ export function languageMenuText(language = "en") {
 
 export function settingsKeyboard(language = "en", memoryEnabled = false) {
   const fa = language === "fa";
+  // My API lives in the main menu since v3.9.0, not here, so there is exactly
+  // one entry point to it.
   return { inline_keyboard: [
-    [button(fa ? "🔑 API من" : "🔑 My API", "byok:open")],
     // The button names the state it switches TO, so a redelivered callback
     // (Telegram retry, double tap) re-applies the same target instead of
     // toggling twice and looking dead.
@@ -258,8 +260,18 @@ export function settingsKeyboard(language = "en", memoryEnabled = false) {
   ] };
 }
 
-// BYOK ("My API", v3.8.0) keyboards. One job per screen: pick a provider,
-// pick a model, or manage the one saved config.
+// BYOK ("My API", v3.8.0; multi-config since v3.9.0) keyboards. One job per
+// screen: pick a provider, pick a model, or manage one saved config. Every
+// config-scoped callback carries the config id (`byok:<action>:<configId>`),
+// so the screens never depend on a single "the config".
+export function byokListKeyboard(language = "en", configs = [], activeConfigId = null) {
+  const fa = language === "fa";
+  const rows = configs.map((config) => [button(`${config.configId === activeConfigId ? "● " : ""}${config.name || config.preset}`, `byok:config:${config.configId}`)]);
+  rows.push([button(fa ? "➕ افزودن API" : "➕ Add API", "byok:presets", "primary")]);
+  rows.push([button(fa ? "← منو" : "← Menu", "menu:main")]);
+  return { inline_keyboard: rows };
+}
+
 export function byokPresetKeyboard(language = "en", presetIds = []) {
   const fa = language === "fa";
   const rows = [];
@@ -267,54 +279,63 @@ export function byokPresetKeyboard(language = "en", presetIds = []) {
     rows.push(presetIds.slice(index, index + 2).map((id) => button(BYOK_PRESETS[id]?.label || id, `byok:preset:${id}`)));
   }
   rows.push([button(fa ? "✕ لغو" : "✕ Cancel", "byok:cancel")]);
-  rows.push([button(fa ? "← تنظیمات" : "← Settings", "byok:back")]);
+  rows.push([button(fa ? "← API من" : "← My API", "byok:list")]);
   return { inline_keyboard: rows };
 }
 
-export function byokModelKeyboard(language = "en", models = []) {
+export function byokModelKeyboard(language = "en", models = [], configId = null) {
   const fa = language === "fa";
-  const rows = models.map((model, index) => [button(model, `byok:model:${index}`)]);
-  rows.push([button(fa ? "✏️ مدل دیگر…" : "✏️ Other model…", "byok:model:other")]);
-  rows.push([button(fa ? "← API من" : "← My API", "byok:open")]);
+  const rows = models.map((model, index) => [button(model, `byok:model:${configId}:${index}`)]);
+  rows.push([button(fa ? "✏️ مدل دیگر…" : "✏️ Other model…", `byok:model:${configId}:other`)]);
+  rows.push([button(fa ? "← API من" : "← My API", configId ? `byok:config:${configId}` : "byok:open")]);
   return { inline_keyboard: rows };
 }
 
-export function byokManageKeyboard(language = "en", state = "inactive") {
+export function byokManageKeyboard(language = "en", state = "inactive", configId = null) {
   const fa = language === "fa";
+  const id = configId || "";
   if (state === "saved") {
     return { inline_keyboard: [
-      [button(fa ? "🧪 آزمایش اتصال" : "🧪 Test connection", "byok:test", "primary")],
+      [button(fa ? "🧪 آزمایش اتصال" : "🧪 Test connection", `byok:test:${id}`, "primary")],
       [button(fa ? "✕ لغو" : "✕ Cancel", "byok:cancel")]
     ] };
   }
   if (state === "active") {
     return { inline_keyboard: [
       [button(fa ? "⏸ استفاده از مدل‌های IVAI" : "⏸ Use IVAI models instead", "byok:disable")],
-      [button(fa ? "🗑 حذف API من" : "🗑 Remove my API", "byok:remove", "danger")],
-      [button(fa ? "← تنظیمات" : "← Settings", "byok:back")]
+      [
+        button(fa ? "🎛 تغییر مدل" : "🎛 Change model", `byok:models:${id}`),
+        button(fa ? "✏️ تغییر نام" : "✏️ Rename", `byok:rename:${id}`)
+      ],
+      [button(fa ? "🗑 حذف API من" : "🗑 Remove my API", `byok:remove:${id}`, "danger")],
+      [button(fa ? "← API من" : "← My API", "byok:list")]
     ] };
   }
   if (state === "invalid") {
     return { inline_keyboard: [
-      [button(fa ? "🔑 ورود کلید تازه" : "🔑 Enter a new key", "byok:presets", "primary")],
-      [button(fa ? "🗑 حذف API من" : "🗑 Remove my API", "byok:remove", "danger")],
-      [button(fa ? "← تنظیمات" : "← Settings", "byok:back")]
+      [button(fa ? "🔑 ورود کلید تازه" : "🔑 Enter a new key", `byok:rekey:${id}`, "primary")],
+      [button(fa ? "🗑 حذف API من" : "🗑 Remove my API", `byok:remove:${id}`, "danger")],
+      [button(fa ? "← API من" : "← My API", "byok:list")]
     ] };
   }
   return { inline_keyboard: [
-    [button(fa ? "▶ استفاده از API من" : "▶ Use my API", "byok:enable", "primary")],
-    [button(fa ? "🧪 آزمایش اتصال" : "🧪 Test connection", "byok:test")],
-    [button(fa ? "🗑 حذف API من" : "🗑 Remove my API", "byok:remove", "danger")],
-    [button(fa ? "← تنظیمات" : "← Settings", "byok:back")]
+    [button(fa ? "▶ استفاده از API من" : "▶ Use my API", `byok:enable:${id}`, "primary")],
+    [
+      button(fa ? "🎛 تغییر مدل" : "🎛 Change model", `byok:models:${id}`),
+      button(fa ? "✏️ تغییر نام" : "✏️ Rename", `byok:rename:${id}`)
+    ],
+    [button(fa ? "🗑 حذف API من" : "🗑 Remove my API", `byok:remove:${id}`, "danger")],
+    [button(fa ? "← API من" : "← My API", "byok:list")]
   ] };
 }
 
-export function byokTestFailedKeyboard(language = "en") {
+export function byokTestFailedKeyboard(language = "en", configId = null) {
   const fa = language === "fa";
+  const id = configId || "";
   return { inline_keyboard: [
-    [button(fa ? "🧪 آزمایش دوباره" : "🧪 Retry test", "byok:test", "primary")],
-    [button(fa ? "🔑 تغییر کلید" : "🔑 Change key", "byok:presets")],
-    [button(fa ? "← API من" : "← My API", "byok:open")]
+    [button(fa ? "🧪 آزمایش دوباره" : "🧪 Retry test", `byok:test:${id}`, "primary")],
+    [button(fa ? "🔑 تغییر کلید" : "🔑 Change key", `byok:rekey:${id}`)],
+    [button(fa ? "← API من" : "← My API", id ? `byok:config:${id}` : "byok:open")]
   ] };
 }
 
@@ -323,11 +344,12 @@ export function byokCancelKeyboard(language = "en") {
   return { inline_keyboard: [[button(fa ? "✕ لغو" : "✕ Cancel", "byok:cancel")]] };
 }
 
-export function byokRemoveConfirmKeyboard(language = "en") {
+export function byokRemoveConfirmKeyboard(language = "en", configId = null) {
   const fa = language === "fa";
+  const id = configId || "";
   return { inline_keyboard: [
-    [button(fa ? "✓ بله، حذف کن" : "✓ Yes, remove it", "byok:remove:yes", "danger")],
-    [button(fa ? "← بازگشت" : "← Back", "byok:open")]
+    [button(fa ? "✓ بله، حذف کن" : "✓ Yes, remove it", `byok:remove:yes:${id}`, "danger")],
+    [button(fa ? "← بازگشت" : "← Back", id ? `byok:config:${id}` : "byok:open")]
   ] };
 }
 

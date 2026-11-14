@@ -26,11 +26,14 @@ Run every migration exactly once and in the listed order. Never edit an applied 
 | 5 | `db/0005_broadcast_claims.sql` | Atomic broadcast delivery lease and claim index. |
 | 6 | `db/0006_reset_language_to_english.sql` | One-time reset of all stored user languages to English (v3.4.0); afterwards language changes only via explicit `/lang`. **NEVER RUN — see note below.** |
 | 7 | `db/0007_user_api_configs.sql` | BYOK ("My API", v3.8.0): one encrypted custom-provider config per user; the key column stores AES-256-GCM ciphertext only. |
+| 8 | `db/0008_byok_multi_config.sql` | BYOK multi-config (v3.9.0): composite primary key (`telegram_user_id`, `config_id`) + display `name`; the active config is `user_preferences.active_api_config_id` (NULL = IVAI models). Existing single configs migrate as `config_id` `default` / name \"My API 1\" with keys untouched. **Apply once, as one D1 query API batch, in statement order — the table swap and ADD COLUMN are not safe to re-run.** |
 
 > **Migration 0006 must never run (owner decision 2026-11-03).** The live
 > database has no `d1_migrations` table (verified 2026-11-14), so there is no
 > runner row to record 0006 as applied-without-running — apply 0007 directly
 > with the D1 query API (`CREATE TABLE IF NOT EXISTS user_api_configs ...`)
+> and apply 0008 directly with the D1 query API as **one batch in statement
+> order** (the table swap and ADD COLUMN are not safe to re-run),
 > and never execute the 0006 `UPDATE users SET language = 'en'` under any
 > circumstance. Stored user languages stay as they are.
 
