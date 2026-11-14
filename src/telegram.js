@@ -120,8 +120,8 @@ export function modeKeyboard(language = "en", { includeTerminal = false } = {}) 
   ];
   if (includeTerminal) rows.push(terminalKeyboard(language).inline_keyboard[0]);
   rows.push(
-    [button(fa ? "🎛 انتخاب مدل" : ar ? "🎛 اختر النموذج" : "🎛 Pick model", "menu:models", "danger")],
-    [button(fa ? "🔑 API من" : "🔑 My API", "byok:open")],
+    [button(fa ? "🎛 انتخاب مدل" : ar ? "🎛 اختر النموذج" : "🎛 Pick model", "menu:models")],
+    [button(fa ? "🔑 API من" : "🔑 My API", "byok:open", "danger")],
     [
       button(fa ? "📖 راهنما" : ar ? "📖 مساعدة" : "📖 Help", "menu:help"),
       button(fa ? "⚙️ تنظیمات" : ar ? "⚙️ الإعدادات" : "⚙️ Settings", "menu:settings"),
@@ -283,10 +283,11 @@ export function byokPresetKeyboard(language = "en", presetIds = []) {
   return { inline_keyboard: rows };
 }
 
-export function byokModelKeyboard(language = "en", models = [], configId = null) {
+export function byokModelKeyboard(language = "en", models = [], configId = null, customModels = [], activeModel = null) {
   const fa = language === "fa";
-  const rows = models.map((model, index) => [button(model, `byok:model:${configId}:${index}`)]);
-  rows.push([button(fa ? "✏️ مدل دیگر…" : "✏️ Other model…", `byok:model:${configId}:other`)]);
+  const all = [...(models || []), ...(customModels || [])];
+  const rows = all.map((model, index) => [button(`${model === activeModel ? "● " : ""}${model}`, `byok:model:${configId}:${index}`)]);
+  rows.push([button(fa ? "➕ افزودن مدل…" : "➕ Add a model…", `byok:model:${configId}:other`)]);
   rows.push([button(fa ? "← API من" : "← My API", configId ? `byok:config:${configId}` : "byok:open")]);
   return { inline_keyboard: rows };
 }

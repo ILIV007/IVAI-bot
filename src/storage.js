@@ -157,7 +157,7 @@ export async function getUserApiConfigMeta(userId, env, configId = null) {
   const row = await env.IVAI_DB.prepare(`SELECT config_id AS configId, name, preset, base_url AS baseUrl,
       active_model AS model, vision_model AS visionModel,
       transcription_model AS transcriptionModel, enabled, status,
-      auth_failures AS authFailures
+      auth_failures AS authFailures, custom_models AS customModels
     FROM user_api_configs WHERE telegram_user_id=? AND config_id=? LIMIT 1`).bind(String(userId), id).first();
   if (!row) return null;
   return {
@@ -170,8 +170,39 @@ export async function getUserApiConfigMeta(userId, env, configId = null) {
     transcriptionModel: row.transcriptionModel || null,
     enabled: Boolean(row.enabled),
     status: row.status,
-    authFailures: Number(row.authFailures || 0)
+    authFailures: Number(row.authFailures || 0),
+    customModels: parseCustomByokModels(row.customModels)
   };
+}
+
+export function parseCustomByokModels(raw) {
+  try {
+    const parsed = JSON.parse(String(raw || "[]"));
+    return Array.isArray(parsed) ? parsed.filter((m) => typeof m === "string" && m.length > 0) : [];
+  } catch {
+    return [];
+  }
+}
+
+// A model the user typed for this config ("Add a model") is remembered on
+// the config, so the model menu can offer it again. Catalog models are
+// never added here — they already come from the preset. At most 20, oldest
+// dropped first.
+export async function addCustomByokModel(userId, model, env, configId = null) {
+  if (!env.IVAI_DB || !userId || !model) return [];
+  const id = await resolveByokConfigId(userId, env, configId);
+  if (!id) return [];
+  const meta = await getUserApiConfigMeta(userId, env, id);
+  if (!meta) return [];
+  const models = meta.customModels || [];
+  const clean = String(model).trim();
+  if (clean && !models.includes(clean)) {
+    models.push(clean);
+    while (models.length > 20) models.shift();
+    await env.IVAI_DB.prepare(`UPDATE user_api_configs SET custom_models=?, updated_at=CURRENT_TIMESTAMP
+      WHERE telegram_user_id=? AND config_id=?`).bind(JSON.stringify(models), String(userId), id).run();
+  }
+  return models;
 }
 
 // Decrypted config for a turn, or null when there is nothing usable. Only

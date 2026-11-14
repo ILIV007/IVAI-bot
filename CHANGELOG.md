@@ -2,6 +2,17 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.9.1] - 2026-11-14
+
+### Fixed
+
+- Setting a model is the last step now: for a new custom endpoint the connection test runs right away and a working test activates the config directly, so the user no longer lands on an "(inactive)" screen wondering what is left to do. The activation confirmation and the manage screen of an active config now say the API and model are ready and to start chatting; an inactive config names its next action ("Tap Use my API to activate").
+- In the main menu, the "My API" button is red and "Pick model" is plain (owner decision).
+
+### Added
+
+- Model menu per API: after selecting an API, the model menu lists that API's models plus the models the user added to it, with the active one marked; "Add a model" types a new model, remembers it on that API, and activates it with the ready message. Migration 0009 adds the `custom_models` column (applied directly via the D1 query API; 0006 never runs).
+
 ## [3.9.0] - 2026-11-14
 
 ### Added

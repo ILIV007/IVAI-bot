@@ -17,6 +17,7 @@ import {
   getAdminOperationalStats,
   getUserApiConfig,
   getUserApiConfigMeta,
+  addCustomByokModel,
   getUserDebugStats,
   getUserSettings,
   getReengagementPreference,
@@ -744,8 +745,8 @@ function byokCancelledText(language) {
 }
 
 function byokActivatedText(language, preset, model) {
-  if (language === "fa") return `<b>✓ API من فعال شد</b>\n\n● <b>${escapeHtml(preset.label)}</b> · <code>${escapeHtml(model)}</code>\n\nاز این به بعد در چت خصوصی با API شما جواب می‌دهم. اگر جواب نداد، خودکار با مدل‌های IVAI ادامه می‌دهم.`;
-  return `<b>✓ My API is active</b>\n\n● <b>${escapeHtml(preset.label)}</b> · <code>${escapeHtml(model)}</code>\n\nFrom now on, private chats answer through your API. If it doesn't respond, I automatically fall back to IVAI models.`;
+  if (language === "fa") return `<b>✓ API من فعال شد</b>\n\n● <b>${escapeHtml(preset.label)}</b> · <code>${escapeHtml(model)}</code>\n\nاز این به بعد در چت خصوصی با API شما جواب می‌دهم. اگر جواب نداد، خودکار با مدل‌های IVAI ادامه می‌دهم.\n\nAPI و مدل آماده‌اند — شروع به چت کنید!`;
+  return `<b>✓ My API is active</b>\n\n● <b>${escapeHtml(preset.label)}</b> · <code>${escapeHtml(model)}</code>\n\nFrom now on, private chats answer through your API. If it doesn't respond, I automatically fall back to IVAI models.\n\nYour API and model are ready — start chatting!`;
 }
 
 function byokTestFailedText(language, error) {
@@ -805,16 +806,18 @@ async function byokManageView(language, userId, env, configId) {
   }
   if (meta.enabled && meta.configId === activeConfigId) {
     const text = fa
-      ? `${header}● <b>${escapeHtml(byokPresetLabel(meta.preset))}</b> · <code>${escapeHtml(meta.model)}</code>\n\n${byokTrustLine(language)}`
-      : `${header}● <b>${escapeHtml(byokPresetLabel(meta.preset))}</b> · <code>${escapeHtml(meta.model)}</code>\n\n${byokTrustLine(language)}`;
+      ? `${header}● <b>${escapeHtml(byokPresetLabel(meta.preset))}</b> · <code>${escapeHtml(meta.model)}</code>\n\nAPI و مدل آماده‌اند — شروع به چت کنید!\n\n${byokTrustLine(language)}`
+      : `${header}● <b>${escapeHtml(byokPresetLabel(meta.preset))}</b> · <code>${escapeHtml(meta.model)}</code>\n\nYour API and model are ready — start chatting!\n\n${byokTrustLine(language)}`;
     return { text, keyboard: byokManageKeyboard(language, "active", meta.configId) };
   }
   // Saved-but-untested and tested-but-inactive read the same; only the
   // keyboard differs ("saved" offers the test, "inactive" offers activation).
+  // Either way the next action is named, so the screen never reads like a
+  // step is still missing.
   const state = meta.enabled ? "inactive" : "saved";
   const text = fa
-    ? `${header}○ <b>${escapeHtml(byokPresetLabel(meta.preset))}</b> · <code>${escapeHtml(meta.model)}</code> (غیرفعال)\n\n${byokTrustLine(language)}`
-    : `${header}○ <b>${escapeHtml(byokPresetLabel(meta.preset))}</b> · <code>${escapeHtml(meta.model)}</code> (inactive)\n\n${byokTrustLine(language)}`;
+    ? `${header}○ <b>${escapeHtml(byokPresetLabel(meta.preset))}</b> · <code>${escapeHtml(meta.model)}</code> (غیرفعال)\n\nبرای فعال کردن این API روی «▶ استفاده از API من» بزنید.\n\n${byokTrustLine(language)}`
+    : `${header}○ <b>${escapeHtml(byokPresetLabel(meta.preset))}</b> · <code>${escapeHtml(meta.model)}</code> (inactive)\n\nTap “▶ Use my API” to activate this config.\n\n${byokTrustLine(language)}`;
   return { text, keyboard: byokManageKeyboard(language, state, meta.configId) };
 }
 
@@ -822,9 +825,9 @@ function byokModelView(language, meta) {
   const preset = byokPreset(meta?.preset);
   const models = preset?.chatModels || [];
   const text = language === "fa"
-    ? `<b>🎛 مدل ${escapeHtml(preset?.label || "")}</b>\n\nکدام مدل پاسخ بدهد؟`
-    : `<b>🎛 ${escapeHtml(preset?.label || "")} model</b>\n\nWhich model should answer?`;
-  return { text, keyboard: byokModelKeyboard(language, models, meta?.configId || null) };
+    ? `<b>🎛 مدل ${escapeHtml(preset?.label || "")}</b>\n\nکدام مدل پاسخ بدهد؟ می‌توانید مدل تازه هم اضافه کنید.`
+    : `<b>🎛 ${escapeHtml(preset?.label || "")} model</b>\n\nWhich model should answer? You can add a new one too.`;
+  return { text, keyboard: byokModelKeyboard(language, models, meta?.configId || null, meta?.customModels || [], meta?.model || null) };
 }
 
 function byokRenameText(language, meta) {
@@ -989,9 +992,25 @@ async function handleByokPendingMessage(message, env) {
       return true;
     }
     await updateUserApiConfigModel(userId, { model: text, visionModel: preset.visionModel, transcriptionModel: preset.transcriptionModel }, env, pending.configId);
+    // A typed model is added to this config's list, so the model menu can
+    // offer it again next time.
+    await addCustomByokModel(userId, text, env, pending.configId);
     await clearByokPending(userId, env);
     if (pending.testFirst) {
-      await sendMessage(env, { chatId, text: byokKeySavedText(language, preset), keyboard: byokManageKeyboard(language, "saved", pending.configId) });
+      // Setting the model is the last step: test right away and activate on
+      // success, so the user never lands on an "(inactive)" screen wondering
+      // what is left to do (owner decision 2026-11-14, superseding the v3.9.0
+      // tap-Test-then-activate flow for new custom endpoints).
+      const config = await getUserApiConfig(userId, env, { includeDisabled: true, configId: pending.configId }).catch(() => null);
+      const test = config ? await testByokConnection(config, env) : { ok: false, error: "no config" };
+      if (!test.ok) {
+        await sendMessage(env, { chatId, text: byokTestFailedText(language, test.error), keyboard: byokTestFailedKeyboard(language, pending.configId) });
+        return true;
+      }
+      await setUserApiConfigEnabled(userId, true, env, pending.configId);
+      await setActiveUserApiConfig(userId, pending.configId, env);
+      const view = await byokManageView(language, userId, env, pending.configId);
+      await sendMessage(env, { chatId, text: `${byokActivatedText(language, preset, text)}\n\n${view.text}`, keyboard: view.keyboard });
       return true;
     }
     await setUserApiConfigEnabled(userId, true, env, pending.configId);
@@ -1976,7 +1995,8 @@ async function processCallback(query, env) {
     }
     const meta = await getUserApiConfigMeta(userId, env, configId);
     const preset = byokPreset(meta?.preset);
-    const model = preset?.chatModels?.[Number(token)];
+    const allModels = [...(preset?.chatModels || []), ...(meta?.customModels || [])];
+    const model = allModels[Number(token)];
     if (!meta || !model) {
       const view = byokModelView(language, meta);
       await editMessage(env, { chatId, messageId, text: view.text, keyboard: view.keyboard });
