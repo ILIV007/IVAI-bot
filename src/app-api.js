@@ -361,7 +361,10 @@ export async function handleAppRequest(request, env) {
     // A 401 counts toward invalidating a dead key, like the bot's 3×401 rule.
     if (result.byokAuthFailed && byokConfig) markUserApiConfigInvalid(actor.telegramUser.id, env, {}, byokConfig.configId).catch(() => {});
     await saveConversationSession(key, [...context, { role: "user", content: prompt }, { role: "assistant", content: result.text }], env, { session, language });
-    const activeSettings = { ...actor.settings, language };
+    // The chat response carries the ANSWER language in `language`, but the
+    // returned settings keep the stored UI language: a Persian prompt must
+    // answer in Persian without flipping the whole Terminal UI to Persian.
+    const activeSettings = { ...actor.settings };
     return json({
       ok: true,
       text: result.text,

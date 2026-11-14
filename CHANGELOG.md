@@ -2,6 +2,18 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.13.0] - 2026-11-14
+
+### Added
+
+- **Terminal button on the Admin panel:** the topbar gains a «⌘ Terminal» button next to the status pill that opens the Terminal web chat (`/app`) in the same WebView, so the admin jumps straight from the panel to the chat. It sits outside the verified dashboard, so it is visible as soon as the page loads.
+- **Terminal redesign (modern, Warp-like):** IVAI Terminal drops the gradient bubble look for a flat terminal — near-black surfaces, one jade accent, mono-first chrome (statusline segments, `❯` command blocks, mono composer and sheets), and full-width message blocks separated by hairlines instead of bubbles.
+
+### Fixed
+
+- **Terminal UI language lock:** a Persian prompt in IVAI Terminal answers in Persian but no longer flips the whole page to Persian — `/app/chat` returns the stored UI language in its settings (the answer language stays in the top-level `language` field), and the page no longer falls back to the answer language when rebuilding its settings.
+- **Admin panel language lock:** the Admin page no longer reads the Telegram client's `language_code` — it opens in English by default and switches to Persian only through the new topbar toggle, stored on the device.
+
 ## [3.12.0] - 2026-11-14
 
 ### Added

@@ -16,6 +16,7 @@ import { decryptApiKey, encryptApiKey } from "../src/byok-crypto.js";
 import { getRequiredChannelMembership } from "../src/membership.js";
 import { renderRichAiText, renderStandardAiText } from "../src/rich-renderer.js";
 import { renderAppPage } from "../src/app-page.js";
+import { renderAdminPage } from "../src/admin-page.js";
 import { allowUsage, claimUpdate, cleanupRuntimeGuards, hasValidWebhookSecret, parseAdminIds, releaseUpdateClaim, reserveWorkersAiBudget } from "../src/security.js";
 import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelPickToken, modelSelectionText, pickWelcomeSticker, secureRandomIndex, requiredMembershipKeyboard, responseMeta, richLineBreaks, settingsKeyboard, shortModelLabel, splitText, stabilizeRtlText, startKeyboard, startThinkingAnimation, startTypingRefresher, telegram, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
 
@@ -254,8 +255,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.12.0 release version", () => {
-  assert.equal(APP.version, "3.12.0");});
+test("declares the official v3.13.0 release version", () => {
+  assert.equal(APP.version, "3.13.0");});
 
 test("richLineBreaks converts newlines to <br> for Rich sends (v3.11.1)", () => {
   assert.equal(richLineBreaks("<b>🎛 IVAI menu</b>\n\n<b>Your setup</b>\nResponse mode: <code>Auto</code>"), "<b>🎛 IVAI menu</b><br><br><b>Your setup</b><br>Response mode: <code>Auto</code>");
@@ -826,8 +827,10 @@ test("serves a lightweight IVAI Terminal shell with strict same-origin security 
   const html = await response.text();
   assert.equal(response.status, 200);
   assert.match(html, /IVAI \/\/ TERMINAL/);
-  assert.match(html, /--navy:#07192f/);
-  assert.match(html, /--jade:#16b89b/);
+  // Warp-like redesign (v3.13.0, owner direction): flat near-black palette,
+  // one jade accent — the old navy palette is superseded.
+  assert.match(html, /--bg:#0b0e11/);
+  assert.match(html, /--jade:#2dd4a7/);
   assert.match(html, /function renderRich\(target,value\)/);
   assert.match(html, /languageChip/);
   assert.match(html, /document\.createElement\('blockquote'\)/);
@@ -890,6 +893,52 @@ test("renders Terminal Engine independently from Response Mode (v3.12.0)", () =>
   assert.match(page, /ivaiModels:'IVAI MODELS'/);
   assert.doesNotMatch(page, /ROUTE · AUTO/);
   assert.doesNotMatch(page, /MODEL · AUTO/);
+});
+
+test("Terminal renders as a modern terminal: statusline, prompt blocks, mono-first (v3.13.0)", () => {
+  const page = renderAppPage("test-nonce");
+  assert.match(page, /class="statusline"/);
+  assert.match(page, /<span class="prompt" aria-hidden="true">❯<\/span>/);
+  assert.match(page, /--mono:ui-monospace/);
+  assert.match(page, /kind==='user'\?'❯'/);
+  assert.match(page, /button\.textContent='❯ '\+value/);
+  assert.doesNotMatch(page, /linear-gradient/);
+  assert.doesNotMatch(page, /class="context"/);
+});
+
+test("admin panel links to IVAI Terminal (v3.12.1)", () => {
+  const page = renderAdminPage("test-nonce");
+  assert.match(page, /id="openTerminal"/);
+  assert.match(page, /window\.location\.href='\/app'/);
+  // The entry sits in the topbar next to the status pill — always visible,
+  // not buried in the Operations grid.
+  assert.match(page, /<header class="topbar">[\s\S]{0,600}id="openTerminal"/);
+  assert.doesNotMatch(page, /id="terminalSub"/);
+});
+
+test("admin panel never auto-detects language; Persian needs an explicit toggle (v3.13.0)", () => {
+  const page = renderAdminPage("test-nonce");
+  assert.doesNotMatch(page, /initDataUnsafe\?\.user\?\.language_code/);
+  assert.match(page, /id="langToggle"/);
+  assert.match(page, /ivai-admin-lang/);
+});
+
+test("a Persian Terminal prompt answers in Persian but keeps the UI English (v3.13.0)", async () => {
+  const calls = [];
+  const env = { ...baseEnv(), AI: { async run(model, payload) { calls.push({ model, payload }); return { response: "پاسخ فارسی." }; } } };
+  const response = await worker.fetch(new Request("https://worker.test/app/chat", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-telegram-init-data": signedWebAppInitData({ id: 42, first_name: "A", language_code: "fa" }) },
+    body: JSON.stringify({ text: "KV را به فارسی توضیح بده" })
+  }), env);
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  // The answer follows the prompt's script (the narrow exception), but the
+  // returned settings keep the stored UI language — the page must not flip.
+  assert.equal(body.language, "fa");
+  assert.deepEqual(body.settings, { language: "en", mode: MODES.AUTO, modelRoute: "auto", selectedModel: null, memoryEnabled: false });
+  assert.equal(calls.length, 1);
 });
 
 test("runs exactly one free AI path for an authenticated Terminal chat turn", async () => {
