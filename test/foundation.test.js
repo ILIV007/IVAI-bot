@@ -254,8 +254,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.11.4 release version", () => {
-  assert.equal(APP.version, "3.11.4");});
+test("declares the official v3.12.0 release version", () => {
+  assert.equal(APP.version, "3.12.0");});
 
 test("richLineBreaks converts newlines to <br> for Rich sends (v3.11.1)", () => {
   assert.equal(richLineBreaks("<b>🎛 IVAI menu</b>\n\n<b>Your setup</b>\nResponse mode: <code>Auto</code>"), "<b>🎛 IVAI menu</b><br><br><b>Your setup</b><br>Response mode: <code>Auto</code>");
@@ -848,7 +848,7 @@ test("emits parseable Terminal bootstrap JavaScript after template rendering", a
   assert.match(bootstrap, /function shortModel\(value\)/);
   assert.match(bootstrap, /function renderRich\(target,value\)/);
   assert.match(bootstrap, /settings=result\.data\.settings\|\|Object\.assign/);
-  assert.match(bootstrap, /settings=result\.data\.settings\|\|settings\|\|\{\};localize\(settings\);feed\.innerHTML/);
+  assert.match(bootstrap, /settings=result\.data\.settings\|\|settings\|\|\{\};engine=result\.data\.engine\|\|null;localize\(settings\);feed\.innerHTML/);
 });
 
 test("rejects unauthenticated Terminal API requests", async () => {
@@ -883,11 +883,12 @@ test("denies an authenticated Terminal session to a user outside the required ch
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test("renders Terminal Route independently from Response Mode", () => {
+test("renders Terminal Engine independently from Response Mode (v3.12.0)", () => {
   const page = renderAppPage("test-nonce");
-  assert.match(page, /ROUTE · AUTO/);
-  assert.match(page, /route:'ROUTE'/);
-  assert.match(page, /PINNED ·/);
+  assert.match(page, /ENGINE · IVAI MODELS/);
+  assert.match(page, /engine:'ENGINE'/);
+  assert.match(page, /ivaiModels:'IVAI MODELS'/);
+  assert.doesNotMatch(page, /ROUTE · AUTO/);
   assert.doesNotMatch(page, /MODEL · AUTO/);
 });
 
@@ -920,6 +921,256 @@ test("rejects invalid Terminal prompts before calling an AI provider", async () 
   assert.equal(response.status, 400);
   assert.equal((await response.json()).code, "INVALID_INPUT");
   assert.equal(calls, 0);
+});
+
+// Website Phase A (v3.12.0): My API, settings, history and full rendering on the web.
+
+function terminalHeaders(user = { id: 42, first_name: "A", language_code: "en" }) {
+  return { "content-type": "application/json", "x-telegram-init-data": signedWebAppInitData(user) };
+}
+
+test("Terminal chat answers through the active BYOK config and reports the engine (v3.12.0)", async () => {
+  const originalFetch = globalThis.fetch;
+  const { db, env, calls, aiCalls, fetchMock } = byokWorkerEnv();
+  globalThis.fetch = fetchMock;
+  try {
+    const configId = await saveUserApiConfig({ userId: 42, preset: "groq", baseUrl: "https://api.groq.com/openai/v1", apiKey: "gsk_test-key-abc", model: "openai/gpt-oss-20b" }, env);
+    await setUserApiConfigEnabled(42, true, env, configId);
+    await setActiveUserApiConfig(42, configId, env);
+    const response = await worker.fetch(new Request("https://worker.test/app/chat", {
+      method: "POST",
+      headers: terminalHeaders(),
+      body: JSON.stringify({ text: "Hello via BYOK" })
+    }), env);
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.text, "BYOK answer.");
+    assert.equal(body.notice, null);
+    assert.deepEqual(body.engine, { configId, name: "My API 1", model: "openai/gpt-oss-20b" });
+    assert.ok(calls.some((call) => call.url === "https://api.groq.com/openai/v1/chat/completions"));
+    assert.equal(aiCalls.length, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.close();
+  }
+});
+
+test("Terminal chat falls back to the free chain with the BYOK notice when the provider fails (v3.12.0)", async () => {
+  const originalFetch = globalThis.fetch;
+  const { db, env, aiCalls, fetchMock } = byokWorkerEnv({ groqStatus: 500 });
+  globalThis.fetch = fetchMock;
+  try {
+    const configId = await saveUserApiConfig({ userId: 42, preset: "groq", baseUrl: "https://api.groq.com/openai/v1", apiKey: "gsk_test-key-abc", model: "openai/gpt-oss-20b" }, env);
+    await setUserApiConfigEnabled(42, true, env, configId);
+    await setActiveUserApiConfig(42, configId, env);
+    const response = await worker.fetch(new Request("https://worker.test/app/chat", {
+      method: "POST",
+      headers: terminalHeaders(),
+      body: JSON.stringify({ text: "Hello via BYOK" })
+    }), env);
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.text, "Free answer.");
+    assert.equal(body.notice, "⚠️ Your API didn't answer, so I replied with IVAI models instead.");
+    assert.equal(aiCalls.length, 1);
+    assert.deepEqual(body.engine, { configId, name: "My API 1", model: "openai/gpt-oss-20b" });
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.close();
+  }
+});
+
+test("a 401 from the active BYOK config counts toward invalidating the key on a Terminal turn (v3.12.0)", async () => {
+  const originalFetch = globalThis.fetch;
+  const { db, env, fetchMock } = byokWorkerEnv({ groqStatus: 401 });
+  globalThis.fetch = fetchMock;
+  try {
+    const configId = await saveUserApiConfig({ userId: 42, preset: "groq", baseUrl: "https://api.groq.com/openai/v1", apiKey: "gsk_test-key-abc", model: "openai/gpt-oss-20b" }, env);
+    await setUserApiConfigEnabled(42, true, env, configId);
+    await setActiveUserApiConfig(42, configId, env);
+    const response = await worker.fetch(new Request("https://worker.test/app/chat", {
+      method: "POST",
+      headers: terminalHeaders(),
+      body: JSON.stringify({ text: "Hello via BYOK" })
+    }), env);
+    const body = await response.json();
+    assert.equal(body.text, "Free answer.");
+    assert.equal(body.notice, "⚠️ Your API didn't answer, so I replied with IVAI models instead.");
+    assert.equal((await getUserApiConfigMeta(42, env)).authFailures, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.close();
+  }
+});
+
+test("Terminal My API add stores an encrypted config without calling the provider (v3.12.0)", async () => {
+  const originalFetch = globalThis.fetch;
+  const { db, env, calls, fetchMock } = byokWorkerEnv();
+  globalThis.fetch = fetchMock;
+  try {
+    const add = await worker.fetch(new Request("https://worker.test/app/byok/add", {
+      method: "POST",
+      headers: terminalHeaders(),
+      body: JSON.stringify({ preset: "groq", apiKey: "gsk_test-key-abc", model: "openai/gpt-oss-20b" })
+    }), env);
+    const added = await add.json();
+    assert.equal(add.status, 200);
+    assert.equal(added.ok, true);
+    assert.ok(added.configId);
+    assert.equal(calls.filter((call) => call.url.includes("api.groq.com")).length, 0);
+    const [meta] = await listUserApiConfigs(42, env);
+    assert.equal(meta.enabled, false);
+    assert.equal(meta.preset, "groq");
+    assert.equal(meta.model, "openai/gpt-oss-20b");
+    // The key is stored encrypted, never as plaintext — and it decrypts back.
+    const row = db.prepare("SELECT api_key_encrypted FROM user_api_configs WHERE telegram_user_id='42'").get();
+    assert.notEqual(row.api_key_encrypted, "gsk_test-key-abc");
+    const decrypted = await getUserApiConfig(42, env, { includeDisabled: true, configId: added.configId });
+    assert.equal(decrypted.apiKey, "gsk_test-key-abc");
+    // Invalid inputs are rejected without storing anything.
+    const badKey = await worker.fetch(new Request("https://worker.test/app/byok/add", {
+      method: "POST",
+      headers: terminalHeaders(),
+      body: JSON.stringify({ preset: "groq", apiKey: "short", model: "openai/gpt-oss-20b" })
+    }), env);
+    assert.equal(badKey.status, 400);
+    assert.equal((await badKey.json()).code, "INVALID_KEY");
+    const badEndpoint = await worker.fetch(new Request("https://worker.test/app/byok/add", {
+      method: "POST",
+      headers: terminalHeaders(),
+      body: JSON.stringify({ preset: "custom", apiKey: "custom-key-12345678", model: "my-model" })
+    }), env);
+    assert.equal(badEndpoint.status, 400);
+    assert.equal((await badEndpoint.json()).code, "INVALID_ENDPOINT");
+    assert.equal((await listUserApiConfigs(42, env)).length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.close();
+  }
+});
+
+test("Terminal My API activate and Stop flip the active pointer (v3.12.0)", async () => {
+  const { db, env } = byokWorkerEnv();
+  try {
+    const configId = await saveUserApiConfig({ userId: 42, preset: "groq", baseUrl: "https://api.groq.com/openai/v1", apiKey: "gsk_test-key-abc", model: "openai/gpt-oss-20b" }, env);
+    assert.equal(await getActiveUserApiConfigId(42, env), null);
+    const activate = await worker.fetch(new Request("https://worker.test/app/byok/activate", {
+      method: "POST",
+      headers: terminalHeaders(),
+      body: JSON.stringify({ configId })
+    }), env);
+    const activated = await activate.json();
+    assert.equal(activate.status, 200);
+    assert.equal(await getActiveUserApiConfigId(42, env), configId);
+    assert.equal((await getUserApiConfigMeta(42, env)).enabled, true);
+    assert.deepEqual(activated.engine, { configId, name: "My API 1", model: "openai/gpt-oss-20b" });
+    const stop = await worker.fetch(new Request("https://worker.test/app/byok/stop", {
+      method: "POST",
+      headers: terminalHeaders(),
+      body: "{}"
+    }), env);
+    assert.equal(stop.status, 200);
+    assert.equal(await getActiveUserApiConfigId(42, env), null);
+    assert.equal((await stop.json()).engine, null);
+    const unknown = await worker.fetch(new Request("https://worker.test/app/byok/activate", {
+      method: "POST",
+      headers: terminalHeaders(),
+      body: JSON.stringify({ configId: "nope" })
+    }), env);
+    assert.equal(unknown.status, 404);
+  } finally {
+    db.close();
+  }
+});
+
+test("Terminal settings validate mode, model and language and persist the good ones (v3.12.0)", async () => {
+  const { db, env } = byokWorkerEnv();
+  try {
+    const post = (payload) => worker.fetch(new Request("https://worker.test/app/settings", {
+      method: "POST",
+      headers: terminalHeaders(),
+      body: JSON.stringify(payload)
+    }), env);
+    const got = await (await post({})).json();
+    assert.equal(got.ok, true);
+    assert.deepEqual(got.modes, ["auto", "fast", "deep", "code"]);
+    assert.equal(got.languages.length, 11);
+    assert.ok(got.freeModels.some((model) => model.id === "openai/gpt-oss-20b"));
+    assert.deepEqual(got.byokModels, []);
+    const badMode = await post({ mode: "bogus" });
+    assert.equal(badMode.status, 400);
+    assert.equal((await badMode.json()).code, "INVALID_MODE");
+    const badModel = await post({ selectedModel: "not-a-model" });
+    assert.equal(badModel.status, 400);
+    assert.equal((await badModel.json()).code, "INVALID_MODEL");
+    const badLanguage = await post({ language: "xx" });
+    assert.equal(badLanguage.status, 400);
+    assert.equal((await badLanguage.json()).code, "INVALID_LANGUAGE");
+    const saved = await post({ mode: "deep", selectedModel: "openai/gpt-oss-20b", memoryEnabled: true, language: "fa" });
+    assert.equal(saved.status, 200);
+    assert.equal((await saved.json()).ok, true);
+    const prefs = await getUserSettings(42, env);
+    assert.equal(prefs.mode, "deep");
+    assert.equal(prefs.selectedModel, "openai/gpt-oss-20b");
+    assert.equal(prefs.memoryEnabled, true);
+    assert.equal(prefs.language, "fa");
+    // Auto clears any pinned model, like the bot's setUserMode.
+    await post({ mode: "auto", selectedModel: "openai/gpt-oss-20b" });
+    assert.equal((await getUserSettings(42, env)).selectedModel, null);
+    // With an active BYOK config the model belongs to that config.
+    const configId = await saveUserApiConfig({ userId: 42, preset: "groq", baseUrl: "https://api.groq.com/openai/v1", apiKey: "gsk_test-key-abc", model: "openai/gpt-oss-20b" }, env);
+    await setUserApiConfigEnabled(42, true, env, configId);
+    await setActiveUserApiConfig(42, configId, env);
+    const byokSaved = await post({ selectedModel: "qwen/qwen3.8-27b" });
+    assert.equal(byokSaved.status, 200);
+    assert.equal((await getUserApiConfigMeta(42, env)).model, "qwen/qwen3.8-27b");
+    assert.equal((await getUserSettings(42, env)).selectedModel, null);
+  } finally {
+    db.close();
+  }
+});
+
+test("Terminal session returns the conversation history on open (v3.12.0)", async () => {
+  const originalFetch = globalThis.fetch;
+  const { db, env, fetchMock } = byokWorkerEnv();
+  globalThis.fetch = fetchMock;
+  try {
+    const chat = await worker.fetch(new Request("https://worker.test/app/chat", {
+      method: "POST",
+      headers: terminalHeaders(),
+      body: JSON.stringify({ text: "Explain KV briefly" })
+    }), env);
+    assert.equal((await chat.json()).text, "Free answer.");
+    const session = await worker.fetch(new Request("https://worker.test/app/session", {
+      method: "POST",
+      headers: terminalHeaders(),
+      body: "{}"
+    }), env);
+    const body = await session.json();
+    assert.equal(body.ok, true);
+    assert.deepEqual(body.history, [
+      { role: "user", content: "Explain KV briefly" },
+      { role: "assistant", content: "Free answer." }
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.close();
+  }
+});
+
+test("Terminal page carries the Engine chip, the settings and My API sheets, and the thinking copy (v3.12.0)", () => {
+  const page = renderAppPage("test-nonce");
+  assert.match(page, /ENGINE · IVAI MODELS/);
+  assert.match(page, /id="engineChip"/);
+  assert.match(page, /id="settingsSheet"/);
+  assert.match(page, /id="apiSheet"/);
+  assert.match(page, /IVAI is thinking/);
+  assert.match(page, /createElement\('table'\)/);
+  assert.match(page, /createElement\('pre'\)/);
+  assert.match(page, /createElement\('ul'\)/);
+  assert.match(page, /md-h/);
+  assert.doesNotMatch(page, /ROUTE · AUTO/);
 });
 
 test("shows a read-only operations summary to an authorized admin", async () => {
