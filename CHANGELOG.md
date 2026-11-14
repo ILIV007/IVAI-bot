@@ -2,6 +2,13 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.14.0] - 2026-11-14
+
+### Changed
+
+- **Free model catalog refresh (verified against the providers' official catalogs):** Gemini 2.5 Flash is removed (Google deprecated it; requests auto-route to Gemini 3.5 Flash-Lite from 2026-12-01). Workers AI gains Nemotron 3 120B and Qwen3.8 27B (text; Qwen3.8 also joins vision). Google gains Gemini 4 Hydrogen — the only Gemini 4 model with a Free Tier — and Gemini 3.1 Flash-Lite; the Google automatic default moves to Gemini 3.8 Flash.
+- **Channel-post comments move to Qwen3.8 27B** (was Qwen3 30B, owner pick): same Qwen family, so the `/no_think` switch and the tuned comment voice carry over unchanged. Group reply/mention turns keep the GLM 4.7 Flash pin (owner pick). The Gemini BYOK preset also gains Gemini 4 Hydrogen.
+
 ## [3.13.2] - 2026-11-14
 
 ### Changed

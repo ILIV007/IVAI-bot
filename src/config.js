@@ -1,6 +1,6 @@
 export const APP = Object.freeze({
   name: "IVAI",
-  version: "3.13.2",  botUsername: "IVAI_Llm_bot",
+  version: "3.14.0",  botUsername: "IVAI_Llm_bot",
   terminalAppUrl: "https://ivai-bot.ivai-bot.workers.dev/app",
   // Bot-owned file IDs from the IVAILlmBot pack; refresh deliberately when that pack changes.
   welcomeStickerFileIds: Object.freeze([
@@ -137,6 +137,8 @@ export const FREE_MODEL_POLICY = Object.freeze({
   workersAi: Object.freeze({
     text: Object.freeze([
       "@cf/zai-org/glm-4.7-flash",
+      "@cf/nvidia/nemotron-3-120b-a12b",
+      "@cf/qwen/qwen3.8-27b",
       "@cf/google/gemma-4-26b-a4b-it",
       "@cf/openai/gpt-oss-20b",
       "@cf/openai/gpt-oss-120b",
@@ -151,7 +153,8 @@ export const FREE_MODEL_POLICY = Object.freeze({
     // Gemma 4 remains a free-tier fallback, but its reasoning-first output can exhaust a short reply budget.
     vision: Object.freeze([
       "@cf/meta/llama-4-scout-17b-16e-instruct",
-      "@cf/google/gemma-4-26b-a4b-it"
+      "@cf/google/gemma-4-26b-a4b-it",
+      "@cf/qwen/qwen3.8-27b"
     ]),
     speech: Object.freeze([
       "@cf/openai/whisper-large-v3-turbo",
@@ -169,11 +172,14 @@ export const FREE_MODEL_POLICY = Object.freeze({
     "qwen/qwen3.8-27b"
   ]),
   // Text-only Gemini calls: no Search grounding, Maps, media generation, or paid-only model.
+  // gemini-2.5-flash was removed 2026-11-14: Google deprecated it and routes
+  // it to gemini-3.5-flash-lite automatically from 2026-12-01.
   google: Object.freeze([
+    "gemini-4-hydrogen",
     "gemini-3.8-flash",
     "gemini-3.6-flash",
     "gemini-3.5-flash-lite",
-    "gemini-2.5-flash",
+    "gemini-3.1-flash-lite",
     "gemini-2.5-flash-lite"
   ])
 });
@@ -240,7 +246,7 @@ export const BYOK_PRESETS = Object.freeze({
     // The trailing slash is load-bearing: without it the joined
     // `…/openai/chat/completions` path 404s.
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/",
-    chatModels: Object.freeze(["gemini-3.8-flash", "gemini-3.6-flash"]),
+    chatModels: Object.freeze(["gemini-4-hydrogen", "gemini-3.8-flash", "gemini-3.6-flash"]),
     visionModel: "gemini-3.8-flash",
     transcriptionModel: null,
     keyPattern: /^AIza[A-Za-z0-9_-]{8,}$/

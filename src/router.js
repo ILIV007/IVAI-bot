@@ -299,14 +299,14 @@ function activeConversationLanguage(message, settings, session) {
 // private chats keep the user's own settings, and provider fallback is unchanged.
 const GROUP_MODEL = "@cf/zai-org/glm-4.7-flash";
 // Channel-post comments (v3.6.3) are the one exception to that pin: they run
-// Fast on Qwen3 30B, whose multilingual quality (Persian included) is far
-// stronger than GLM Flash's — the GLM pin produced word-salad comments on
-// nuanced posts. Comments are capped at 10/hour in the linked group, so the
-// heavier free model stays affordable; group reply/mention turns keep
-// GROUP_MODEL, and the budget reserve is unaffected (it is a flat per-call
-// amount keyed to the Fast profile, not to the model).
-const CHANNEL_COMMENT_MODEL = "@cf/qwen/qwen3-30b-a3b-fp8";
-// Comments get their own output budget (v3.7.1): Qwen3 30B is a reasoning
+// Fast on Qwen3.8 27B (v3.14.0; was Qwen3 30B), whose multilingual quality
+// (Persian included) is far stronger than GLM Flash's — the GLM pin produced
+// word-salad comments on nuanced posts. Comments are capped at 10/hour in the
+// linked group, so the heavier free model stays affordable; group reply/mention
+// turns keep GROUP_MODEL, and the budget reserve is unaffected (it is a flat
+// per-call amount keyed to the Fast profile, not to the model).
+const CHANNEL_COMMENT_MODEL = "@cf/qwen/qwen3.8-27b";
+// Comments get their own output budget (v3.7.1): Qwen3.8 27B is a reasoning
 // model whose internal reasoning shares the profile budget, and on some
 // generations it ate so much of the Fast profile's 900 tokens that the
 // comment itself was cut off mid-sentence. 1600 leaves room for both.
