@@ -46,9 +46,58 @@ export async function downloadTelegramFile(fileId, env, { maxBytes = MAX_MEDIA_B
   return { bytes, filePath: metadata.file_path, mimeType: response.headers.get("content-type") || "application/octet-stream" };
 }
 
-export async function transcribeVoice({ fileId, languageHint }, env) {
+// BYOK ("My API", v3.8.0): the user's own OpenAI-compatible provider for
+// voice and vision. A preset without a compatible transcription endpoint
+// (DeepSeek, xAI, Gemini) always falls back to our Whisper, and a vision
+// refusal ("I can't see images") falls back to our vision — both with the
+// same one-line notice the text path shows (fellBackFromByok).
+async function runCustomTranscription({ media, languageHint, byokConfig }, env) {
+  const baseUrl = String(byokConfig.baseUrl).replace(/\/+$/, "");
+  const form = new FormData();
+  form.append("file", new File([media.bytes], "voice.ogg", { type: "audio/ogg" }));
+  form.append("model", byokConfig.transcriptionModel);
+  if (languageHint) form.append("language", languageHint);
+  const response = await fetchWithTimeout(`${baseUrl}/audio/transcriptions`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${byokConfig.apiKey}` },
+    body: form
+  });
+  if (!response.ok) throw new Error(`Custom API failed: ${response.status}`);
+  const payload = await response.json();
+  const text = payload?.text;
+  if (!String(text || "").trim()) throw new Error("Custom API returned an empty transcription");
+  return { text: String(text).trim(), provider: "byok", model: byokConfig.transcriptionModel };
+}
+
+const VISION_REFUSAL = /(can't|cannot|unable to|not able to|don't have|do not have).{0,40}(see|view|process|analyze|interpret|access).{0,20}(image|photo|picture|visual)/i;
+
+async function runCustomVision({ prompt, dataUrl, byokConfig }, env) {
+  const baseUrl = String(byokConfig.baseUrl).replace(/\/+$/, "");
+  const model = byokConfig.visionModel || byokConfig.model;
+  const response = await fetchWithTimeout(`${baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${byokConfig.apiKey}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: dataUrl } }] }],
+      max_tokens: 320
+    })
+  });
+  if (!response.ok) throw new Error(`Custom API failed: ${response.status}`);
+  const payload = await response.json();
+  const message = payload?.choices?.[0]?.message;
+  const text = message?.content || message?.reasoning_content;
+  if (!String(text || "").trim()) throw new Error("Custom API returned an empty response");
+  if (VISION_REFUSAL.test(String(text))) throw new Error("Custom API cannot see images");
+  return { text: String(text).trim(), provider: "byok", model: payload.model || model };
+}
+
+function byokActive(byokConfig) {
+  return Boolean(byokConfig?.enabled && byokConfig?.status === "valid" && byokConfig?.apiKey && byokConfig?.baseUrl);
+}
+
+async function transcribeWithWhisper(media, languageHint, env) {
   if (!env.AI?.run) throw new Error("Workers AI is not configured");
-  const media = await downloadTelegramFile(fileId, env, { maxBytes: VOICE_MAX_BYTES });
   // Reserve enough of the daily free budget for transcription plus a bounded response; refusal is safer than nearing the paid boundary.
   const budget = await reserveWorkersAiBudget(600, env);
   if (!budget.allowed) throw new Error("Workers AI free quota guard blocked voice transcription");
@@ -63,15 +112,47 @@ export async function transcribeVoice({ fileId, languageHint }, env) {
   return { text: String(text).trim(), provider: "workers-ai", model };
 }
 
-export async function analyzePhoto({ fileId, caption = "", language = "en" }, env) {
-  if (!env.AI?.run) throw new Error("Workers AI is not configured");
+export async function transcribeVoice({ fileId, languageHint, byokConfig }, env) {
+  const media = await downloadTelegramFile(fileId, env, { maxBytes: VOICE_MAX_BYTES });
+  let fellBackFromByok = false;
+  let byokAuthFailed = false;
+  if (byokActive(byokConfig)) {
+    fellBackFromByok = true;
+    if (byokConfig.transcriptionModel) {
+      try {
+        return { ...(await runCustomTranscription({ media, languageHint, byokConfig }, env)), fellBackFromByok: false, byokAuthFailed: false };
+      } catch (error) {
+        const message = String(error.message || error);
+        byokAuthFailed = /401/.test(message);
+        console.error(JSON.stringify({ event: "provider_attempt_failed", provider: "byok", error: message.slice(0, 120) }));
+      }
+    }
+    // No compatible transcription endpoint on this preset: Whisper + notice.
+  }
+  return { ...(await transcribeWithWhisper(media, languageHint, env)), fellBackFromByok, byokAuthFailed };
+}
+
+export async function analyzePhoto({ fileId, caption = "", language = "en", byokConfig }, env) {
   const media = await downloadTelegramFile(fileId, env);
+  const prompt = caption || (language === "fa" ? "این تصویر را دقیق و کوتاه توضیح بده." : "Describe this image accurately and concisely.");
+  const dataUrl = `data:${media.mimeType};base64,${bytesToBase64(media.bytes)}`;
+  let fellBackFromByok = false;
+  let byokAuthFailed = false;
+  if (byokActive(byokConfig)) {
+    fellBackFromByok = true;
+    try {
+      return { ...(await runCustomVision({ prompt, dataUrl, byokConfig }, env)), fellBackFromByok: false, byokAuthFailed: false };
+    } catch (error) {
+      const message = String(error.message || error);
+      byokAuthFailed = /401/.test(message);
+      console.error(JSON.stringify({ event: "provider_attempt_failed", provider: "byok", error: message.slice(0, 120) }));
+    }
+  }
+  if (!env.AI?.run) throw new Error("Workers AI is not configured");
   // Image understanding is comparatively expensive, so it receives the largest fixed reservation.
   const budget = await reserveWorkersAiBudget(1000, env);
   if (!budget.allowed) throw new Error("Workers AI free quota guard blocked image analysis");
   const model = FREE_MODEL_POLICY.workersAi.vision[0];
-  const prompt = caption || (language === "fa" ? "این تصویر را دقیق و کوتاه توضیح بده." : "Describe this image accurately and concisely.");
-  const dataUrl = `data:${media.mimeType};base64,${bytesToBase64(media.bytes)}`;
   const result = await withTimeout(env.AI.run(model, {
     messages: [{
       role: "user",
@@ -85,7 +166,7 @@ export async function analyzePhoto({ fileId, caption = "", language = "en" }, en
   }), AI_BINDING_TIMEOUT_MS, "Workers AI");
   const text = result?.response || result?.result?.response || result?.choices?.[0]?.message?.content;
   if (!String(text || "").trim()) throw new Error("Vision model returned an empty result");
-  return { text: String(text).trim(), provider: "workers-ai", model };
+  return { text: String(text).trim(), provider: "workers-ai", model, fellBackFromByok, byokAuthFailed };
 }
 
 function bytesToBase64(bytes) {

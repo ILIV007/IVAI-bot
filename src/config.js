@@ -1,6 +1,6 @@
 export const APP = Object.freeze({
   name: "IVAI",
-  version: "3.7.9",
+  version: "3.8.0",
   botUsername: "IVAI_Llm_bot",
   terminalAppUrl: "https://ivai-bot.ivai-bot.workers.dev/app",
   // Bot-owned file IDs from the IVAILlmBot pack; refresh deliberately when that pack changes.
@@ -126,7 +126,8 @@ export const SECRET_NAMES = Object.freeze([
   "ADMIN_TELEGRAM_IDS",
   "OPENROUTER_API_KEY",
   "GOOGLE_API_KEY",
-  "GROQ_API_KEY"
+  "GROQ_API_KEY",
+  "BYOK_ENCRYPTION_KEY"
 ]);
 
 // Only models confirmed for the current no-charge tier are listed here. Frontier models
@@ -177,6 +178,91 @@ export const FREE_MODEL_POLICY = Object.freeze({
     "gemini-2.5-flash-lite"
   ])
 });
+
+// BYOK ("My API", v3.8.0): presets for the user's own OpenAI-compatible
+// provider. Every entry speaks POST {baseUrl}/chat/completions with a Bearer
+// key; `visionModel: null` means "use the active chat model" (OpenRouter),
+// `transcriptionModel: null` means the preset has no OpenAI-compatible
+// transcription endpoint and voice falls back to our Whisper. Model IDs were
+// re-verified against the providers' own catalogs on 2026-11-14 — they retire
+// often, so re-verify before pinning a replacement. `keyPattern` is only a
+// first-pass format check at key entry; the connection test is authoritative.
+export const BYOK_PRESETS = Object.freeze({
+  openrouter: Object.freeze({
+    label: "OpenRouter",
+    baseUrl: "https://openrouter.ai/api/v1",
+    chatModels: Object.freeze(["openai/gpt-oss-120b", "openai/gpt-oss-20b", "meta-llama/llama-3.3-70b-instruct", "google/gemma-3-27b-it", "anthropic/claude-sonnet-4.5"]),
+    visionModel: null,
+    transcriptionModel: "openai/whisper-large-v3-turbo",
+    keyPattern: /^sk-or-v1-[A-Za-z0-9_-]{8,}$/
+  }),
+  groq: Object.freeze({
+    label: "Groq",
+    baseUrl: "https://api.groq.com/openai/v1",
+    chatModels: Object.freeze(["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b"]),
+    visionModel: "qwen/qwen3.8-27b",
+    transcriptionModel: "whisper-large-v3-turbo",
+    keyPattern: /^gsk_[A-Za-z0-9_-]{8,}$/
+  }),
+  deepseek: Object.freeze({
+    label: "DeepSeek",
+    baseUrl: "https://api.deepseek.com/v1",
+    chatModels: Object.freeze(["deepseek-flash", "deepseek-v4-pro"]),
+    visionModel: "deepseek-flash",
+    transcriptionModel: null,
+    keyPattern: /^sk-[A-Za-z0-9_-]{8,}$/
+  }),
+  together: Object.freeze({
+    label: "Together",
+    baseUrl: "https://api.together.ai/v1",
+    chatModels: Object.freeze(["meta-models/Muse-Glimmer-30B", "openai/gpt-oss-120b"]),
+    visionModel: "moonshotai/Kimi-K3.1-Pro",
+    transcriptionModel: "openai/whisper-large-v3",
+    keyPattern: /^[A-Za-z0-9]{16,}$/
+  }),
+  mistral: Object.freeze({
+    label: "Mistral",
+    baseUrl: "https://api.mistral.ai/v1",
+    chatModels: Object.freeze(["mistral-large-latest", "mistral-medium-3-5", "mistral-small-latest", "codestral-latest"]),
+    visionModel: "mistral-large-latest",
+    transcriptionModel: "voxtral-mini-latest",
+    keyPattern: /^[A-Za-z0-9]{16,}$/
+  }),
+  xai: Object.freeze({
+    label: "xAI",
+    baseUrl: "https://api.x.ai/v1",
+    chatModels: Object.freeze(["grok-4.7", "grok-4.3"]),
+    visionModel: "grok-4.7",
+    transcriptionModel: null,
+    keyPattern: /^xai-[A-Za-z0-9_-]{8,}$/
+  }),
+  gemini: Object.freeze({
+    label: "Gemini",
+    // The trailing slash is load-bearing: without it the joined
+    // `…/openai/chat/completions` path 404s.
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai/",
+    chatModels: Object.freeze(["gemini-3.8-flash", "gemini-3.6-flash"]),
+    visionModel: "gemini-3.8-flash",
+    transcriptionModel: null,
+    keyPattern: /^AIza[A-Za-z0-9_-]{8,}$/
+  }),
+  custom: Object.freeze({
+    label: "Custom endpoint",
+    baseUrl: null,
+    chatModels: Object.freeze([]),
+    visionModel: null,
+    transcriptionModel: null,
+    keyPattern: /^.{8,}$/
+  })
+});
+
+export function byokPreset(id) {
+  return BYOK_PRESETS[id] || null;
+}
+
+export function byokPresetIds() {
+  return Object.keys(BYOK_PRESETS);
+}
 
 // Automatic model selection belongs to the Model Route only. Response Mode
 // controls the profile (instruction, output budget, temperature, and Rich Math),

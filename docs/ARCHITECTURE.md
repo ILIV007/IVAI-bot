@@ -10,7 +10,8 @@ IVAI is a single Cloudflare Worker that receives Telegram updates over a secret-
 | `security.js` | Webhook validation, update deduplication, rate/quota checks, roles | D1-backed atomic runtime guards. |
 | `router.js` | Commands, callbacks, text/media updates, inline, Guest, reactions | Selects the minimum path necessary for each update. |
 | `response-profile.js` | Authoritative response-mode contract | Resolves the visible Mode, instruction, bounded output budget, temperature, Workers AI reservation and Rich Math eligibility. Auto remains Auto and never silently becomes Fast/Deep/Code. |
-| `ai.js` | Provider execution, prompt assembly, sequential fallback | Consumes one Response Profile per turn; Workers AI primary; allowlisted free providers only. |
+| `ai.js` | Provider execution, prompt assembly, sequential fallback | Consumes one Response Profile per turn; Workers AI primary; allowlisted free providers only. BYOK (`runCustomApi`) is the fifth runner — the user's own OpenAI-compatible provider, tried before the free chain in private chats only. |
+| `byok-crypto.js` | AES-256-GCM encryption of user API keys | Key from the `BYOK_ENCRYPTION_KEY` Worker secret only; stored value is `iv_hex:ciphertext_hex` with the auth tag appended. |
 | `catalog.js` | Free-model catalog and picker | KV cache; selected model validation. |
 | `telegram.js` | Telegram API calls, Rich Draft/Message fallback, UI and context forwarding | Preserves business and topic identifiers. |
 | `storage.js` | User preferences, conversations, tasks, delivery state, audit data | D1 for relational state, KV for bounded memory/cache. |
@@ -74,6 +75,15 @@ The Worker runs every ten minutes. A single scheduled invocation performs only s
 | D1 | Users, preferences, roles, task/reminder state, broadcast delivery/audit records, re-engagement consent | Structured operational state; migration-managed. |
 | KV | Opt-in short-term conversation memory and catalog/cache values | TTL-bounded; users can inspect or clear memory. |
 | Cloudflare Worker Secrets | Telegram token, webhook secret, admin IDs, optional provider keys | Never committed or returned by application routes. |
+
+## BYOK — "My API" (v3.8.0)
+
+A private-chat-only opt-in: the user adds their own API key + models and the bot answers through their OpenAI-compatible provider (text, photo vision, voice transcription). Groups keep the free models; Guard mode never uses BYOK.
+
+- **Presets** (`BYOK_PRESETS` in `config.js`): OpenRouter, Groq, DeepSeek, Together, Mistral, xAI, Gemini + Custom endpoint. One runner (`runCustomApi` in `ai.js`) serves all of them — `POST {baseUrl}/chat/completions` with a Bearer key. Model IDs were re-verified against the providers' own catalogs on 2026-11-14; they retire often, so re-verify before pinning a replacement. Presets without a compatible transcription endpoint (DeepSeek, xAI, Gemini) always fall back to our Whisper.
+- **Storage** (`db/0007_user_api_configs.sql`, helpers in `storage.js`): one row per user, created with `enabled=0` and flipped to `1` only after a successful connection test (16-token probe; success is HTTP 200 with non-empty content, `reasoning_content` counts). The key is stored AES-256-GCM encrypted (`byok-crypto.js`, secret `BYOK_ENCRYPTION_KEY`); plaintext keys never reach D1, logs, or the AI. If the secret is unset or a stored value cannot decrypt, the turn fails soft to the free chain.
+- **Setup flow** (`router.js`): a pending-input state machine in KV (`byok:pending:<userId>`, 10-minute TTL) is intercepted in `handleUpdate` before `processText`, so a pasted key never reaches the AI or the session; `/cancel` cancels it. The key message is deleted right after a successful save. The Settings screen shows IVAI models and My API as separate sections with a single ● Active marker; copy is English first.
+- **Fallback**: a BYOK failure falls back to the free chain with `fellBackFromByok` and a one-line notice before the footer (standard and Rich paths, text and media); if the free chain fails too, the failure message notes that the user's API also didn't respond. Three consecutive 401s mark the config invalid; a BYOK success resets the counter.
 
 ## Extension rules
 

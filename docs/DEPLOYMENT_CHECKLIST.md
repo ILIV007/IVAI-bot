@@ -24,7 +24,15 @@ Run every migration exactly once and in the listed order. Never edit an applied 
 | 3 | `db/0003_secretary_reminders.sql` | Task reminder delivery state and indexes. |
 | 4 | `db/0004_reengagement.sql` | Re-engagement consent and delivery state. |
 | 5 | `db/0005_broadcast_claims.sql` | Atomic broadcast delivery lease and claim index. |
-| 6 | `db/0006_reset_language_to_english.sql` | One-time reset of all stored user languages to English (v3.4.0); afterwards language changes only via explicit `/lang`. |
+| 6 | `db/0006_reset_language_to_english.sql` | One-time reset of all stored user languages to English (v3.4.0); afterwards language changes only via explicit `/lang`. **NEVER RUN — see note below.** |
+| 7 | `db/0007_user_api_configs.sql` | BYOK ("My API", v3.8.0): one encrypted custom-provider config per user; the key column stores AES-256-GCM ciphertext only. |
+
+> **Migration 0006 must never run (owner decision 2026-11-03).** The live
+> database has no `d1_migrations` table (verified 2026-11-14), so there is no
+> runner row to record 0006 as applied-without-running — apply 0007 directly
+> with the D1 query API (`CREATE TABLE IF NOT EXISTS user_api_configs ...`)
+> and never execute the 0006 `UPDATE users SET language = 'en'` under any
+> circumstance. Stored user languages stay as they are.
 
 ## 3. Register Worker Secrets
 
@@ -38,6 +46,7 @@ Create the following names with real values only in the Cloudflare Worker secret
 | `OPENROUTER_API_KEY` | Optional | Enables the free-model catalog and `:free` fallback. |
 | `GROQ_API_KEY` | Optional | Enables a configured free-tier fallback. |
 | `GOOGLE_API_KEY` | Optional | Enables a configured free-tier fallback. |
+| `BYOK_ENCRYPTION_KEY` | Yes (from v3.8.0) | 32 random bytes, base64-encoded. Encrypts user API keys (AES-256-GCM) for BYOK ("My API"). If unset, BYOK setup fails soft to the free chain. Rotating it invalidates saved keys — users must re-enter them. |
 
 ## 4. Deploy and configure Telegram
 
