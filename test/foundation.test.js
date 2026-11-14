@@ -3208,7 +3208,7 @@ test("comment completeness guard keeps complete comments and cuts or skips broke
 test("comment length cap cuts essays to a short take (v3.14.1)", () => {
   // Live 2026-11-14: a ~230-word ANALYSIS comment (3 long paragraphs) on a
   // mining-card post sailed through the 5-line cap — 3 paragraphs are 3
-  // "lines". The cap keeps at most 3 sentences / 60 words.
+  // "lines". The cap keeps at most 3 sentences / 70 words.
   const essay = "نکته‌ی اصلی این است که کل این ماجرا ریشه در یک تصمیم اقتصادی داشت، نه فنی: انویدیا چون رم را ارزان می‌دید، به‌جای طراحی چیپ سبک‌تر همان GA100 را با eFuse ناقص می‌کرد و خروجی تصویر را هم می‌بست تا کارت به بازار دست‌دوم گیمینگ برنگردد.\n\nاما همان چیزی که این کارت را وسوسه‌انگیز می‌کند، سقفش را هم تعیین می‌کند: این‌ها سخت‌افزار دست‌دوم ماینینگ‌اند، با خنک‌کننده و VRM طراحی‌شده برای بار ثابت ماینینگ، بدون ضمانت و بدون هیچ اعتبارسنجی پایداری بعد از آنلاک — و برای اجرای مدل، یک خطای حافظه یعنی دود شدن یک اجرا، پس «آنلاک شد» با «قابل اتکاست» دو چیز متفاوت است.\n\nقیمت بالای ۴ هزار دلار هم عملاً می‌گوید سود این کشف الان جیب فروشنده‌ها رفته، نه خریدار؛ ارزش واقعی کار بیشتر در اثبات این نکته است که قفل‌های eFuse هم روی سخت‌افزار قابل بازگشت‌اند.";
   assert.equal(
     shortenChannelComment(essay),
@@ -3221,8 +3221,8 @@ test("comment length cap cuts essays to a short take (v3.14.1)", () => {
   );
   // A short comment passes through byte-identical.
   assert.equal(shortenChannelComment("قیمتش نصف شده! واقعاً کی فکرشو می‌کرد؟"), "قیمتش نصف شده! واقعاً کی فکرشو می‌کرد؟");
-  // The first segment is always kept whole, even past 60 words.
-  const longSentence = "This one very long sentence keeps going with many commas, many clauses, and many extra words, far past the sixty word limit, because the first segment is always kept whole no matter how long it is, and that is the intended behavior for a single take that cannot be split into smaller pieces without losing its meaning or its punch.";
+  // The first segment is always kept whole, even past 70 words.
+  const longSentence = "This one very long sentence keeps going with many commas, many clauses, and many extra words, far past the seventy word limit, because the first segment is always kept whole no matter how long it is, and that is the intended behavior for a single take that cannot be split into smaller pieces without losing its meaning or its punch, and that is why the first segment rule exists in the first place.";
   assert.equal(shortenChannelComment(`${longSentence} And this second sentence must be dropped.`), longSentence);
   // A lone bare question still earns no comment.
   assert.equal(shortenChannelComment("واقعاً قراره این اتفاق بیفته؟"), "");

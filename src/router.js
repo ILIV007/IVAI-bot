@@ -581,14 +581,14 @@ export function completeChannelComment(comment) {
 // 5-line cap counted lines, not sentences — a 3-paragraph essay is 3
 // "lines" and sailed through (live 2026-11-14: a ~230-word ANALYSIS
 // comment on a mining-card post). Models ignore length instructions, so
-// the cap is enforced here: at most 3 sentences and 60 words. The first
+// the cap is enforced here: at most 3 sentences and 70 words. The first
 // segment is always kept whole (a single long sentence is still a take);
 // the completeness guard then applies its bare-question rule.
 // The cap counts SENTENCES, not COMMENT_SEGMENT_END boundaries: a colon
 // continues a sentence, and counting it as a boundary would cut a comment
 // mid-thought (e.g. keeping "…سقفش را هم تعیین می‌کند:" as the tail).
 const COMMENT_SENTENCE_END = /[.!?؟…]+(?=\s|$)|(?:\p{Extended_Pictographic}(?:[\u{1F3FB}-\u{1F3FF}]|\uFE0F|\u200D\p{Extended_Pictographic})*)(?=\s|$)/gu;
-const COMMENT_MAX_WORDS = 60;
+const COMMENT_MAX_WORDS = 70;
 const COMMENT_MAX_SEGMENTS = 3;
 
 export function shortenChannelComment(comment) {
@@ -677,7 +677,7 @@ Post: توسعه‌دهنده‌ی NTDEV ویندوز ۱۱ نسخه 26H2 رو ب
 Post: Nota یه دستیار مطالعه‌ی محلیه که مقاله و PDF رو با مدل‌های Ollama کاملاً آفلاین می‌خونه؛ لازم نیست بین PDFخوان و مترجم و چت‌بات جابه‌جا شی، یادداشت و هایلایت کنار خود متن می‌مونه و همه‌ی داده‌ها توی مرورگر خودت ذخیره می‌شه. → Comment: قوی‌ترین بخشش همون محلی بودنه: PDFهات از دستگاهت بیرون نمی‌رن و برای مطالعه‌ی فارسی هم طراحی شده. سمت دیگه‌ش هم مهمه: کیفیت جواب یه مدل محلی کوچیک با مدل‌های ابری یکی نیست، و ذخیره‌سازی مرورگر برای یه آرشیو بزرگ مقاله‌ها زود سقف می‌خوره.
 
 Hard rules:
-- Same language as the post; one comment, at most 3 short sentences (roughly 40–60 words) — never a multi-paragraph essay.
+- Same language as the post; one comment, at most 3 short sentences (roughly 40–70 words) — never a multi-paragraph essay.
 - Always land something real: in FUN mode a take — a prediction, or one line of cause-and-effect; in ANALYSIS mode a balanced point — what is genuinely good here and what else matters. Never end on a bare question, "how interesting!", or empty amazement.
 - One mode per comment — do not blend a joke into an analysis.
 - No summaries, no report-speak ("this shows that…"), no generic lines that could fit any post.
@@ -696,7 +696,7 @@ ${postText}`,
     const generated = String(result.text || "").split("\n").map((line) => line.trim()).filter(Boolean).slice(0, 5).join("\n");
     // Length cap (v3.14.1): the 5-line cap counts paragraphs, not sentences,
     // so a 3-paragraph essay passed it. shortenChannelComment enforces the
-    // real contract — at most 3 sentences / 60 words — then the completeness
+    // real contract — at most 3 sentences / 70 words — then the completeness
     // guard trims to the last complete segment, or skips the post.
     const comment = shortenChannelComment(generated);
     if (!comment) {
