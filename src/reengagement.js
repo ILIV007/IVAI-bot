@@ -1,18 +1,18 @@
 import { claimReengagementUsers, markReengagementFailure, markReengagementSent } from "./storage.js";
-import { telegram } from "./telegram.js";
+import { sendRichMessage, telegram } from "./telegram.js";
 
 const COPY = Object.freeze({
-  en: { text: "<b>🪐 IVAI is still here</b>\n\nHave a question, idea, or task? Send it anytime — free AI, your language, your pace.", open: "Open IVAI", pause: "Pause reminders" },
-  fa: { text: "<b>🪐 IVAI هنوز اینجاست</b>\n\nسؤال، ایده یا کاری دارید؟ هر زمان پیام بدهید — AI رایگان، به زبان شما و با سرعت خودتان.", open: "باز کردن IVAI", pause: "توقف یادآوری‌ها" },
-  ar: { text: "<b>🪐 ما زلنا هنا</b>\n\nلديك سؤال أو فكرة أو مهمة؟ أرسلها في أي وقت — ذكاء اصطناعي مجاني بلغتك.", open: "فتح IVAI", pause: "إيقاف التذكيرات" },
-  es: { text: "<b>🪐 IVAI sigue aquí</b>\n\n¿Tienes una pregunta, idea o tarea? Escríbeme cuando quieras: IA gratuita en tu idioma.", open: "Abrir IVAI", pause: "Pausar recordatorios" },
-  tr: { text: "<b>🪐 IVAI hâlâ burada</b>\n\nBir sorunuz, fikriniz veya göreviniz mi var? İstediğiniz zaman yazın: dilinizde ücretsiz yapay zekâ.", open: "IVAI’yi aç", pause: "Hatırlatmaları duraklat" },
-  ru: { text: "<b>🪐 IVAI всё ещё здесь</b>\n\nЕсть вопрос, идея или задача? Напишите в любое время — бесплатный ИИ на вашем языке.", open: "Открыть IVAI", pause: "Приостановить напоминания" },
-  "pt-BR": { text: "<b>🪐 IVAI continua aqui</b>\n\nTem uma pergunta, ideia ou tarefa? Escreva quando quiser: IA gratuita no seu idioma.", open: "Abrir IVAI", pause: "Pausar lembretes" },
-  id: { text: "<b>🪐 IVAI masih di sini</b>\n\nPunya pertanyaan, ide, atau tugas? Kirim kapan saja — AI gratis dalam bahasa Anda.", open: "Buka IVAI", pause: "Jeda pengingat" },
-  hi: { text: "<b>🪐 IVAI अभी भी यहाँ है</b>\n\nकोई सवाल, विचार या काम है? कभी भी संदेश भेजें — आपकी भाषा में निःशुल्क AI.", open: "IVAI खोलें", pause: "रिमाइंडर रोकें" },
-  fr: { text: "<b>🪐 IVAI est toujours là</b>\n\nUne question, une idée ou une tâche ? Écrivez à tout moment : une IA gratuite dans votre langue.", open: "Ouvrir IVAI", pause: "Mettre en pause" },
-  de: { text: "<b>🪐 IVAI ist noch da</b>\n\nEine Frage, Idee oder Aufgabe? Schreib jederzeit – kostenlose KI in deiner Sprache.", open: "IVAI öffnen", pause: "Erinnerungen pausieren" }
+  en: { text: "<b>🪐 Still here, whenever you need me</b>\n\nGot a question, an idea, or a task? Send it anytime — free AI, in your language, at your pace.", open: "Open IVAI", pause: "Pause reminders" },
+  fa: { text: "<b>🪐 هر وقت لازم داشتی، اینجام</b>\n\nسؤال، ایده یا کاری داری؟ هر وقت خواستی بفرست — AI رایگان، به زبان خودت و با سرعت خودت.", open: "باز کردن IVAI", pause: "توقف یادآوری‌ها" },
+  ar: { text: "<b>🪐 ما زلنا هنا، متى ما احتجتني</b>\n\nلديك سؤال أو فكرة أو مهمة؟ أرسلها في أي وقت — ذكاء اصطناعي مجاني، بلغتك، وعلى إيقاعك.", open: "فتح IVAI", pause: "إيقاف التذكيرات" },
+  es: { text: "<b>🪐 Sigo aquí, cuando me necesites</b>\n\n¿Tienes una pregunta, una idea o una tarea? Escríbela cuando quieras: IA gratuita, en tu idioma y a tu ritmo.", open: "Abrir IVAI", pause: "Pausar recordatorios" },
+  tr: { text: "<b>🪐 İhtiyacın olduğunda hâlâ buradayım</b>\n\nBir sorun, fikrin veya görevin mi var? İstediğin zaman yaz — dilinde ücretsiz yapay zekâ, kendi hızında.", open: "IVAI’yi aç", pause: "Hatırlatmaları duraklat" },
+  ru: { text: "<b>🪐 Я всё ещё здесь, когда понадоблюсь</b>\n\nЕсть вопрос, идея или задача? Напишите в любое время — бесплатный ИИ на вашем языке и в вашем темпе.", open: "Открыть IVAI", pause: "Приостановить напоминания" },
+  "pt-BR": { text: "<b>🪐 Ainda estou aqui, quando precisar de mim</b>\n\nTem uma pergunta, uma ideia ou uma tarefa? Escreva quando quiser — IA gratuita, no seu idioma e no seu ritmo.", open: "Abrir IVAI", pause: "Pausar lembretes" },
+  id: { text: "<b>🪐 Masih di sini, kapan pun kamu butuh</b>\n\nPunya pertanyaan, ide, atau tugas? Kirim kapan saja — AI gratis, dalam bahasamu, sesuai waktumu.", open: "Buka IVAI", pause: "Jeda pengingat" },
+  hi: { text: "<b>🪐 जब भी ज़रूरत हो, मैं यहीं हूँ</b>\n\nकोई सवाल, विचार या काम है? कभी भी भेजें — आपकी भाषा में, आपकी गति से निःशुल्क AI.", open: "IVAI खोलें", pause: "रिमाइंडर रोकें" },
+  fr: { text: "<b>🪐 Toujours là, quand tu as besoin de moi</b>\n\nUne question, une idée ou une tâche ? Écris à tout moment — une IA gratuite, dans ta langue, à ton rythme.", open: "Ouvrir IVAI", pause: "Mettre en pause" },
+  de: { text: "<b>🪐 Immer noch da, wann immer du mich brauchst</b>\n\nEine Frage, Idee oder Aufgabe? Schreib jederzeit — kostenlose KI in deiner Sprache, in deinem Tempo.", open: "IVAI öffnen", pause: "Erinnerungen pausieren" }
 });
 
 function copyFor(language) {
@@ -28,19 +28,24 @@ export async function processReengagementBatch(env, { limit = 5, now } = {}) {
   const summary = { claimed: users.length, sent: 0, failed: 0, blocked: 0 };
   for (const user of users) {
     const copy = copyFor(user.language);
+    const keyboard = {
+      inline_keyboard: [[
+        { text: copy.open, url: "https://t.me/IVAI_Llm_bot" },
+        { text: copy.pause, callback_data: "notify:off", style: "danger" }
+      ]]
+    };
     try {
-      await telegram(env, "sendMessage", {
-        chat_id: user.userId,
-        text: copy.text,
-        parse_mode: "HTML",
-        disable_web_page_preview: true,
-        reply_markup: {
-          inline_keyboard: [[
-            { text: copy.open, url: "https://t.me/IVAI_Llm_bot" },
-            { text: copy.pause, callback_data: "notify:off", style: "danger" }
-          ]]
-        }
-      });
+      try {
+        await sendRichMessage(env, { chatId: user.userId, html: copy.text, keyboard, rtl: ["fa", "ar"].includes(user.language) });
+      } catch {
+        await telegram(env, "sendMessage", {
+          chat_id: user.userId,
+          text: copy.text,
+          parse_mode: "HTML",
+          disable_web_page_preview: true,
+          reply_markup: keyboard
+        });
+      }
       await markReengagementSent(user.userId, env);
       summary.sent += 1;
     } catch (error) {

@@ -200,9 +200,9 @@ export function modelPickerText(models, { selectedModel, language = "en", scope 
   const selected = models.find((model) => model.id === selectedModel);
   const current = selected ? `${providerIcon(selected.provider)} <code>${escapeHtml(modelRouteLabel(selected.name, language))}</code>` : `🔀 <code>${escapeHtml(modelRouteLabel(null, language))}</code>`;
   const view = activeScope === "all" ? (language === "fa" ? "همهٔ مدل‌های رایگان" : language === "ar" ? "كل النماذج المجانية" : "all free models") : `${categoryIcon(activeScope)} ${escapeHtml(activeScope === "workers-ai" || activeScope === "openrouter" || activeScope === "groq" || activeScope === "google" ? providerLabel(activeScope, language) : modelCategoryLabel(activeScope, language))}`;
-  if (language === "fa") return `<b>🎛 مسیر مدل AI رایگان</b>\n\n<b>مسیر مدل:</b> ${current}\n<b>نمایش:</b> ${view} · <code>${scopedModels.length}</code> مدل\n\nرنگ هر emoji پروایدر را مشخص می‌کند: 🟣 Cloudflare · 🔵 OpenRouter · 🟠 Groq · 🟢 Gemini\n⚡ سریع، 🧠 تحلیلی و ⌘ کدنویسی فقط فیلتر فهرست مدل هستند. انتخاب مدل فقط مسیر مدل را دستی می‌کند؛ حالت پاسخ جداگانه و بدون تغییر می‌ماند. fallback رایگان همیشه فعال است.`;
-  if (language === "ar") return `<b>🎛 مسار نموذج AI مجاني</b>\n\n<b>مسار النموذج:</b> ${current}\n<b>العرض:</b> ${view} · <code>${scopedModels.length}</code> نموذج\n\nلون كل emoji يعرّف الموفر: 🟣 Cloudflare · 🔵 OpenRouter · 🟠 Groq · 🟢 Gemini\n⚡ و🧠 و⌘ مرشحات لقائمة النماذج فقط. اختيار نموذج يثبّت المسار فقط؛ يبقى وضع الرد منفصلاً ودون تغيير. يبقى fallback المجاني نشطًا.`;
-  return `<b>🎛 Free AI model route</b>\n\n<b>Model route:</b> ${current}\n<b>Viewing:</b> ${view} · <code>${scopedModels.length}</code> models\n\nEach colored provider emoji identifies the route: 🟣 Cloudflare · 🔵 OpenRouter · 🟠 Groq · 🟢 Gemini\n⚡, 🧠, and ⌘ filter the model list only. Selecting a model pins the route only; Response mode stays separate and unchanged. The free fallback remains active.`;
+  if (language === "fa") return `<b>🎛 مسیر مدل AI رایگان</b>\n\n<b>مسیر مدل:</b> ${current}\n<b>نمایش:</b> ${view} · <code>${scopedModels.length}</code> مدل\n\nهر رنگ یک پروایدر است: 🟣 Cloudflare · 🔵 OpenRouter · 🟠 Groq · 🟢 Gemini\n⚡، 🧠 و ⌘ فقط همین فهرست را فیلتر می‌کنند. انتخاب مدل فقط مسیر را ثابت می‌کند — حالت پاسخ همان می‌ماند و fallback رایگان روشن می‌ماند.`;
+  if (language === "ar") return `<b>🎛 مسار نموذج AI مجاني</b>\n\n<b>مسار النموذج:</b> ${current}\n<b>العرض:</b> ${view} · <code>${scopedModels.length}</code> نموذج\n\nكل لون يعرّف موفرًا: 🟣 Cloudflare · 🔵 OpenRouter · 🟠 Groq · 🟢 Gemini\n⚡ و🧠 و⌘ مرشحات لهذه القائمة فقط. اختيار نموذج يثبّت المسار فقط — يبقى وضع الرد كما هو، ويبقى fallback المجاني نشطًا.`;
+  return `<b>🎛 Free AI model route</b>\n\n<b>Model route:</b> ${current}\n<b>Viewing:</b> ${view} · <code>${scopedModels.length}</code> models\n\nEach color is a provider: 🟣 Cloudflare · 🔵 OpenRouter · 🟠 Groq · 🟢 Gemini\n⚡, 🧠, and ⌘ only filter this list. Picking a model pins the route — your response mode stays the same, and the free fallback stays on.`;
 }
 
 export function modelSelectionText(model, language = "en", mode = MODES.AUTO) {
@@ -210,12 +210,12 @@ export function modelSelectionText(model, language = "en", mode = MODES.AUTO) {
   const provider = escapeHtml(providerLabel(model.provider, language));
   const category = escapeHtml(modelCategoryLabel(model.category, language));
   const useCase = escapeHtml(modelUseCase(model.category, language));
-  const context = Number(model.contextLength) > 0 ? ` · <code>${Number(model.contextLength).toLocaleString()}</code>` : "";
+  const context = Number(model.contextLength) > 0 ? ` · <code>${Number(model.contextLength).toLocaleString()}</code>${language === "fa" ? " توکن" : language === "ar" ? " توكن" : " tokens"}` : "";
   const headline = `${providerIcon(model.provider)} <b>${name}</b>`;
   const responseMode = escapeHtml(modeLabel(mode, language));
-  if (language === "fa") return `<b>✓ مسیر مدل دستی شد</b>\n\n${headline}\n<b>پروایدر:</b> ${provider}\n<b>دسته:</b> <code>${category}</code> · ${useCase}${context}\n<b>حالت پاسخ:</b> <code>${responseMode}</code> (بدون تغییر)\n\nاین انتخاب فقط مسیر مدل را در اولویت می‌گذارد. اگر موقتاً در دسترس نباشد، fallback رایگان خودکار ادامه می‌دهد.`;
-  if (language === "ar") return `<b>✓ تم تثبيت مسار النموذج</b>\n\n${headline}\n<b>الموفر:</b> ${provider}\n<b>الفئة:</b> <code>${category}</code> · ${useCase}${context}\n<b>وضع الرد:</b> <code>${responseMode}</code> (دون تغيير)\n\nهذا الاختيار يثبّت مسار النموذج فقط. إذا لم يكن متاحًا مؤقتًا، يستمر fallback المجاني تلقائيًا.`;
-  return `<b>✓ Model route pinned</b>\n\n${headline}\n<b>Provider:</b> ${provider}\n<b>Best for:</b> <code>${category}</code> · ${useCase}${context}\n<b>Response mode:</b> <code>${responseMode}</code> (unchanged)\n\nThis selection pins only the model route. If it is temporarily unavailable, the free fallback continues automatically.`;
+  if (language === "fa") return `<b>✓ مسیر مدل ثابت شد</b>\n\n${headline}\nپروایدر: ${provider}\nبهترین کاربرد: <code>${category}</code> · ${useCase}${context}\nحالت پاسخ: <code>${responseMode}</code> (بدون تغییر)\n\nفقط مسیر مدل ثابت شد. اگر هر وقت در دسترس نبود، fallback رایگان خودکار ادامه می‌دهد.`;
+  if (language === "ar") return `<b>✓ تم تثبيت مسار النموذج</b>\n\n${headline}\nالموفر: ${provider}\nالأفضل لـ: <code>${category}</code> · ${useCase}${context}\nوضع الرد: <code>${responseMode}</code> (دون تغيير)\n\nهذا الاختيار يثبّت مسار النموذج فقط. إذا لم يكن متاحًا أبدًا، يتولى fallback المجاني تلقائيًا.`;
+  return `<b>✓ Model route pinned</b>\n\n${headline}\nProvider: ${provider}\nBest for: <code>${category}</code> · ${useCase}${context}\nResponse mode: <code>${responseMode}</code> (unchanged)\n\nOnly the model route is pinned. If it is ever unavailable, the free fallback takes over automatically.`;
 }
 
 export function languageKeyboard(selectedCode = "en", page = 0, pageSize = 6) {
@@ -243,7 +243,7 @@ export function languageKeyboard(selectedCode = "en", page = 0, pageSize = 6) {
 export function languageMenuText(language = "en") {
   const selected = getLanguageOption(language);
   const label = `${selected.flag || "🌐"} ${escapeHtml(selected.native)}`;
-  return language === "fa" ? `<b>🌐 زبان</b>\n\nزبان فعلی: <b>${label}</b>` : `<b>🌐 Language</b>\n\nCurrent language: <b>${label}</b>`;
+  return language === "fa" ? `<b>🌐 زبان</b>\nزبان فعلی: <b>${label}</b>\nزبان را پایین انتخاب کنید — روی منوها و پاسخ‌ها اعمال می‌شود.` : `<b>🌐 Language</b>\nCurrent language: <b>${label}</b>\nPick a language below — it applies to menus and replies.`;
 }
 
 export function settingsKeyboard(language = "en", memoryEnabled = false) {
@@ -394,15 +394,15 @@ export async function ensureTerminalMenuButton(env) {
 export function requiredMembershipText(language = "en", { checkFailed = false } = {}) {
   const channel = `@${APP.requiredChannelUsername}`;
   if (language === "fa") {
-    const detail = checkFailed ? "بررسی عضویت موقتاً در دسترس نبود. پس از عضویت، چند لحظه بعد دوباره بررسی کنید." : "برای استفاده از IVAI ابتدا باید عضو کانال شوید.";
-    return `<b>🔒 عضویت در ${channel} لازم است</b>\n\n${detail}\n\n۱) روی «عضویت در کانال» بزنید\n۲) عضو ${channel} شوید\n۳) به اینجا برگردید و «بررسی عضویت» را بزنید`;
+    if (checkFailed) return `<b>🔒 برای استفاده از IVAI عضو ${channel} شوید</b>\n\nتلگرام فعلاً نتوانست عضویت شما را بررسی کند. عضو کانال شوید، کمی صبر کنید و دوباره «بررسی عضویت» را بزنید.`;
+    return `<b>🔒 برای استفاده از IVAI عضو ${channel} شوید</b>\n\nIVAI برای اعضای کانال رایگان است — فقط یک لحظه طول می‌کشد:\n۱) «عضویت در کانال» را بزنید\n۲) عضو ${channel} شوید\n۳) برگردید و «بررسی عضویت» را بزنید`;
   }
   if (language === "ar") {
-    const detail = checkFailed ? "تعذر التحقق من العضوية مؤقتًا. بعد الانضمام، انتظر لحظة ثم تحقق مرة أخرى." : "يجب الانضمام إلى القناة قبل استخدام IVAI.";
-    return `<b>🔒 Membership in ${channel} is required</b>\n\n${detail}\n\n1) Join ${channel}\n2) Return here\n3) Tap Check membership`;
+    if (checkFailed) return `<b>🔒 انضم إلى ${channel} لاستخدام IVAI</b>\n\nتعذّر على Telegram التحقق من عضويتك الآن. انضم إلى القناة، وانتظر لحظة، ثم اضغط «التحقق من العضوية» مرة أخرى.`;
+    return `<b>🔒 انضم إلى ${channel} لاستخدام IVAI</b>\n\nIVAI مجاني لأعضاء القناة — يستغرق لحظة فقط:\n1) اضغط «الانضمام إلى القناة»\n2) انضم إلى ${channel}\n3) عُد واضغط «التحقق من العضوية»`;
   }
-  const detail = checkFailed ? "Membership could not be verified temporarily. After joining, wait a moment and check again." : "You must join the channel before using IVAI.";
-  return `<b>🔒 Membership in ${channel} is required</b>\n\n${detail}\n\n1) Join ${channel}\n2) Return here\n3) Tap Check membership`;
+  if (checkFailed) return `<b>🔒 Join ${channel} to use IVAI</b>\n\nTelegram couldn't check your membership just now. Join the channel, wait a moment, then tap «Check membership» again.`;
+  return `<b>🔒 Join ${channel} to use IVAI</b>\n\nIVAI is free for channel members — it only takes a moment:\n1) Tap «Join channel»\n2) Join ${channel}\n3) Come back and tap «Check membership»`;
 }
 
 export function requiredMembershipKeyboard(language = "en") {
@@ -606,6 +606,30 @@ export async function editMessage(env, { chatId, messageId, text, keyboard, busi
   }
 }
 
+// Rich-message edits (Bot API 10.1, v3.11.0): there is NO editRichMessage
+// method — editMessageText takes a rich_message parameter instead, mutually
+// exclusive with text. Callback-edited screens use this so a Rich screen
+// stays Rich after a tap; callers fall back to the plain edit on failure.
+export async function editRichMessage(env, { chatId, messageId, html, keyboard, rtl = false, businessConnectionId }) {
+  try {
+    return await telegram(env, "editMessageText", {
+      chat_id: chatId,
+      message_id: messageId,
+      rich_message: { html, is_rtl: rtl || undefined, skip_entity_detection: false },
+      disable_web_page_preview: true,
+      business_connection_id: businessConnectionId || undefined,
+      reply_markup: keyboard
+    });
+  } catch (error) {
+    const detail = String(error?.message || "");
+    if (/message is not modified|message content and reply markup are exactly the same/i.test(detail)) {
+      console.info(JSON.stringify({ event: "telegram_edit_noop" }));
+      return null;
+    }
+    throw error;
+  }
+}
+
 export async function answerCallback(env, callbackQueryId, text = "", { showAlert = false } = {}) {
   return telegram(env, "answerCallbackQuery", { callback_query_id: callbackQueryId, text, show_alert: showAlert });
 }
@@ -628,21 +652,25 @@ export function splitText(text, maxLength) {
 
 export function welcomeText(language = "en") {
   if (language === "fa") {
-    return "<b>🪐 IVAI</b> — دستیار AI رایگان برای گفتگو، تحلیل، نوشتن و کد.\n\n• متن، عکس و voice\n• پاسخ‌های Auto، Fast، Deep و Code\n• انتخاب مدل، حافظهٔ اختیاری و IVAI Terminal\n• Guard و یادآوری‌های رایگان";
+    return "<b>🪐 IVAI — دستیار AI رایگان شما</b>\nگفتگو، نوشتن، تحلیل و کد — رایگان، خصوصی و به زبان شما.\n\n• متن، عکس و voice\n• پاسخ‌های Auto، Fast، Deep و Code\n• مدل‌های خودتان، حافظه و IVAI Terminal\nبرای شروع، هر سؤالی بفرستید.";
   }
   if (language === "ar") {
-    return "<b>🪐 IVAI</b> — مساعد AI مجاني للدردشة والتحليل والكتابة والبرمجة.\n\n• رسائل نصية وصور وصوت\n• أوضاع Auto وFast وDeep وCode\n• اختيار النموذج والذاكرة الاختيارية وIVAI Terminal\n• فحوص Guard وتذكيرات مجانية";
+    return "<b>🪐 IVAI — مساعدك المجاني للذكاء الاصطناعي</b>\nالدردشة والكتابة والتحليل والبرمجة — مجاني، خاص، وبلغتك.\n\n• نصوص وصور وصوت\n• أوضاع Auto وFast وDeep وCode\n• نماذجك الخاصة وذاكرتك وIVAI Terminal\nأرسل أي سؤال للبدء.";
   }
-  return "<b>🪐 IVAI</b> — a free AI assistant for chat, analysis, writing and code.\n\n• Text, photo and voice prompts\n• Auto, Fast, Deep and Code replies\n• Model picker, optional memory and IVAI Terminal\n• Guard checks and free reminders";
+  return "<b>🪐 IVAI — your free AI assistant</b>\nChat, write, analyze, and code — free, private, in your language.\n\n• Text, photos, and voice\n• Auto, Fast, Deep, and Code replies\n• Your own models, memory, and IVAI Terminal\nSend any question to start.";
 }
 
 export function menuText(language = "en", settings = {}) {
   const mode = escapeHtml(modeLabel(settings.mode || MODES.AUTO, language));
   const model = escapeHtml(modelRouteLabel(settings.selectedModel, language));
   const memory = settings.memoryEnabled ? (language === "fa" ? "روشن" : language === "ar" ? "مفعّلة" : "On") : (language === "fa" ? "خاموش" : language === "ar" ? "متوقفة" : "Off");
-  if (language === "fa") return `<b>🎛 منوی IVAI</b>\n\n<b>وضعیت شما</b>\n<b>حالت پاسخ:</b> <code>${mode}</code>\n<b>مسیر مدل:</b> <code>${model}</code>\n<b>حافظه:</b> <code>${memory}</code>\n\n<b>راهنمای کنترل‌ها</b>\n• <b>Auto</b> یک حالت پاسخ مستقل است و footer همیشه Auto می‌ماند. تا وقتی مسیر مدل خودکار است، IVAI مدل/پروایدر رایگان را انتخاب می‌کند.\n• <b>Fast</b> برای پاسخ سریع، <b>Deep</b> برای تحلیل دقیق و <b>Code</b> برای برنامه‌نویسی است.\n• <b>Pick model</b> فقط مسیر مدل را دستی می‌کند و حالت پاسخ را تغییر نمی‌دهد؛ fallback رایگان فعال می‌ماند.\n• <b>IVAI Terminal</b> همین تنظیمات را نمایش می‌دهد.\n• <b>Settings</b> حافظه را مدیریت می‌کند و <b>Language</b> زبان پاسخ‌ها و رابط را تغییر می‌دهد.\n\n• /new گفتگوی تازه‌ای برای همین گفتگو شروع می‌کند.\n\nیک بخش را انتخاب کنید.`;
-  if (language === "ar") return `<b>🎛 قائمة IVAI</b>\n\n<b>حالتك</b>\n<b>وضع الرد:</b> <code>${mode}</code>\n<b>مسار النموذج:</b> <code>${model}</code>\n<b>الذاكرة:</b> <code>${memory}</code>\n\n<b>دليل التحكم</b>\n• <b>Auto</b> وضع رد مستقل ويبقى ظاهرًا في التذييل. ما دام مسار النموذج تلقائيًا، يختار IVAI نموذجًا/موفرًا مجانيًا.\n• <b>Fast</b> للرد السريع، و<b>Deep</b> للتحليل، و<b>Code</b> للبرمجة.\n• <b>Pick model</b> يثبّت مسار النموذج فقط ولا يغيّر وضع الرد؛ ويبقى fallback المجاني نشطًا.\n• <b>IVAI Terminal</b> يعرض الإعدادات نفسها.\n• <b>Settings</b> لإدارة الذاكرة و<b>Language</b> لتغيير لغة الواجهة والردود.\n\n• /new يبدأ محادثة جديدة لهذه الدردشة.\n\nاختر أحد الأقسام.`;
-  return `<b>🎛 IVAI menu</b>\n\n<b>Your status</b>\n<b>Response mode:</b> <code>${mode}</code>\n<b>Model route:</b> <code>${model}</code>\n<b>Memory:</b> <code>${memory}</code>\n\n<b>Control guide</b>\n• <b>Auto</b> is an independent response mode and always stays Auto in the footer. While the model route is Auto, IVAI chooses an eligible free model/provider.\n• <b>Fast</b> is for speed, <b>Deep</b> for deeper analysis, and <b>Code</b> for programming work.\n• <b>Pick model</b> pins only the model route and does not change Response mode; the free fallback remains active.\n• <b>IVAI Terminal</b> shows the same settings.\n• <b>Settings</b> manages memory, while <b>Language</b> changes reply and interface language.\n\n• /new starts a fresh chat for this conversation.\n\nChoose a section to continue.`;
+  // S1 (v3.11.0): the menu always names the engine answering — IVAI models,
+  // or the active My API config. settings.engine is set by the router from
+  // the live active config; without it the menu still reads "IVAI models".
+  const engine = escapeHtml(settings.engine || (language === "fa" ? "مدل‌های IVAI" : language === "ar" ? "نماذج IVAI" : "IVAI models"));
+  if (language === "fa") return `<b>🎛 منوی IVAI</b>\n\n<b>تنظیمات شما</b>\nحالت پاسخ: <code>${mode}</code>\nمسیر مدل: <code>${model}</code>\nحافظه: <code>${memory}</code>\nموتور: <code>${engine}</code>\n\n<b>چطور کار می‌کند</b>\n• <b>Auto</b> مسیر رایگان را خودش انتخاب می‌کند.\n• <b>Fast</b> سریع است، <b>Deep</b> بیشتر فکر می‌کند و <b>Code</b> برای برنامه‌نویسی است.\n• <b>Pick model</b> فقط مدل را ثابت می‌کند — حالت پاسخ همان می‌ماند.\n• <b>My API</b> با کلید خودتان جواب می‌دهد، نه با مدل‌های IVAI.\n\nیک بخش را پایین انتخاب کنید.`;
+  if (language === "ar") return `<b>🎛 قائمة IVAI</b>\n\n<b>إعداداتك</b>\nوضع الرد: <code>${mode}</code>\nمسار النموذج: <code>${model}</code>\nالذاكرة: <code>${memory}</code>\nالمحرك: <code>${engine}</code>\n\n<b>كيف يعمل</b>\n• <b>Auto</b> يختار مسارًا مجانيًا لك.\n• <b>Fast</b> سريع، و<b>Deep</b> يفكر أكثر، و<b>Code</b> للبرمجة.\n• <b>Pick model</b> يثبّت النموذج فقط — يبقى وضع الرد كما هو.\n• <b>My API</b> يجيب بمفتاحك الخاص بدل نماذج IVAI.\n\nاختر قسمًا أدناه.`;
+  return `<b>🎛 IVAI menu</b>\n\n<b>Your setup</b>\nResponse mode: <code>${mode}</code>\nModel route: <code>${model}</code>\nMemory: <code>${memory}</code>\nEngine: <code>${engine}</code>\n\n<b>How it works</b>\n• <b>Auto</b> picks a free route for you.\n• <b>Fast</b> is quick, <b>Deep</b> thinks more, <b>Code</b> is for programming.\n• <b>Pick model</b> pins only the model — your response mode stays as it is.\n• <b>My API</b> answers with your own key instead of IVAI models.\n\nChoose a section below.`;
 }
 
 export function shortModelLabel(model = "") {

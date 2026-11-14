@@ -1,8 +1,11 @@
-import { claimDueSecretaryTasks, markSecretaryReminderFailed, markSecretaryReminderSent } from "./storage.js";
-import { telegram } from "./telegram.js";
+import { claimDueSecretaryTasks, getUserSettings, markSecretaryReminderFailed, markSecretaryReminderSent } from "./storage.js";
+import { sendRichMessage, telegram } from "./telegram.js";
 
-function reminderText(task) {
-  return `<b>⏰ IVAI reminder</b>\n\n${escapeHtml(task.title)}\n\n<i>Scheduled for ${escapeHtml(formatDueAt(task.dueAt))}</i>`;
+function reminderText(task, language) {
+  const html = language === "fa"
+    ? `<b>⏰ یادآوری</b>\n${escapeHtml(task.title)}\n\n<i>برای ${escapeHtml(formatDueAt(task.dueAt))}</i>\nتمام شد؟ در <code>/tasks</code> ببندیدش.`
+    : `<b>⏰ Reminder</b>\n${escapeHtml(task.title)}\n\n<i>For ${escapeHtml(formatDueAt(task.dueAt))}</i>\nDone with it? Open <code>/tasks</code> to close it.`;
+  return html;
 }
 
 function formatDueAt(value) {
@@ -19,12 +22,21 @@ export async function processSecretaryReminderBatch(env, { limit = 4, now } = {}
   const summary = { claimed: tasks.length, sent: 0, retried: 0, failed: 0 };
   for (const task of tasks) {
     try {
-      const sent = await telegram(env, "sendMessage", {
-        chat_id: task.chatId,
-        text: reminderText(task),
-        parse_mode: "HTML",
-        disable_web_page_preview: true
-      });
+      // Reminders speak the owner's stored language; a lookup failure
+      // falls back to English rather than dropping the reminder.
+      const language = (await getUserSettings(task.userId, env).catch(() => null))?.language || "en";
+      const html = reminderText(task, language);
+      let sent;
+      try {
+        sent = await sendRichMessage(env, { chatId: task.chatId, html, rtl: language === "fa" });
+      } catch {
+        sent = await telegram(env, "sendMessage", {
+          chat_id: task.chatId,
+          text: html,
+          parse_mode: "HTML",
+          disable_web_page_preview: true
+        });
+      }
       await markSecretaryReminderSent({ id: task.id, messageId: sent?.message_id }, env);
       summary.sent += 1;
     } catch (error) {

@@ -184,6 +184,19 @@ test("uses D1 atomic guards for dedupe and quotas when available", async () => {
   assert.equal((await reserveWorkersAiBudget(1, env)).allowed, false);
 });
 
+test("allowUsage reports the wall-clock reset window for busy messages (v3.11.0 S2)", async () => {
+  const env = { ...baseEnv(), IVAI_DB: new GuardD1() };
+  const first = await allowUsage({ scope: "text", id: 42, limit: 2 }, env);
+  assert.equal(first.allowed, true);
+  assert.equal(typeof first.resetInSeconds, "number");
+  assert.ok(first.resetInSeconds > 0 && first.resetInSeconds <= 3600);
+  await allowUsage({ scope: "text", id: 42, limit: 2 }, env);
+  const denied = await allowUsage({ scope: "text", id: 42, limit: 2 }, env);
+  assert.equal(denied.allowed, false);
+  assert.equal(denied.remaining, 0);
+  assert.ok(denied.resetInSeconds > 0 && denied.resetInSeconds <= 3600);
+});
+
 test("keeps Worker AI below the published free allocation and keeps automatic routes independent from Response Mode", () => {
   assert.equal(APP.systemDailyWorkersAiBudget, 8000);
   assert.ok(APP.systemDailyWorkersAiBudget < 10_000);
@@ -241,8 +254,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.9.3 release version", () => {
-  assert.equal(APP.version, "3.9.3");
+test("declares the official v3.11.0 release version", () => {
+  assert.equal(APP.version, "3.11.0");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -353,11 +366,11 @@ test("presents the requested Start controls and six-row Menu hierarchy", () => {
   const pinnedPicker = modelPickerText(pickerModels, { selectedModel: "@cf/zai-org/glm-4.7-flash", language: "en" });
   assert.match(pinnedPicker, /Cloudflare/);
   assert.match(pinnedPicker, /Model route/);
-  assert.match(pinnedPicker, /Response mode stays separate/);
+  assert.match(pinnedPicker, /your response mode stays the same/);
   const selectedCopy = modelSelectionText(pickerModels[0], "en", MODES.AUTO);
   assert.match(selectedCopy, /Provider:/);
   assert.match(selectedCopy, /Model route pinned/);
-  assert.match(selectedCopy, /Response mode:<\/b> <code>Auto<\/code> \(unchanged\)/);
+  assert.match(selectedCopy, /Response mode: <code>Auto<\/code> \(unchanged\)/);
   assert.equal(thinkingText("en", 0), "<i>⚡ IVAI is thinking.</i>");
   assert.equal(thinkingText("en", 2), "<i>⚡ IVAI is thinking...</i>");
   assert.equal(modeLabel(MODES.DEEP, "en"), "Deep");
@@ -367,16 +380,19 @@ test("presents the requested Start controls and six-row Menu hierarchy", () => {
 });
 
 test("renders focused Start copy and a descriptive Menu with live settings and language flags", () => {
-  assert.match(welcomeText("en"), /Auto, Fast, Deep and Code replies/);
+  assert.match(welcomeText("en"), /Auto, Fast, Deep, and Code replies/);
   assert.doesNotMatch(welcomeText("en"), /Free-only routes|one AI call per request|Send a message to begin/);
   const menu = menuText("en", { mode: MODES.DEEP, selectedModel: "@cf/zai-org/glm-4.7-flash", memoryEnabled: true });
-  assert.match(menu, /Response mode:<\/b> <code>Deep<\/code>/);
-  assert.match(menu, /Model route:<\/b> <code>Pinned · GLM 4\.7 Flash<\/code>/);
-  assert.match(menu, /Memory:<\/b> <code>On<\/code>/);
-  assert.match(menu, /Control guide/);
-  assert.match(menu, /Code<\/b> for programming work/);
-  assert.match(menu, /• \/new starts a fresh chat for this conversation\./);
-  assert.doesNotMatch(menu, /<code>\/new<\/code>|Color guide/);
+  assert.match(menu, /Response mode: <code>Deep<\/code>/);
+  assert.match(menu, /Model route: <code>Pinned · GLM 4\.7 Flash<\/code>/);
+  assert.match(menu, /Memory: <code>On<\/code>/);
+  // v3.11.0: the menu names the answering engine (S1) and explains itself
+  // in a short "How it works" section instead of the old control guide.
+  assert.match(menu, /Engine: <code>IVAI models<\/code>/);
+  assert.match(menu, /How it works/);
+  assert.match(menu, /Code<\/b> is for programming/);
+  assert.match(menu, /Choose a section below\./);
+  assert.doesNotMatch(menu, /<code>\/new<\/code>|Color guide|Control guide/);
   const languages = languageKeyboard("en").inline_keyboard.flat().map((button) => button.text).join(" ");
   assert.match(languages, /🇬🇧 English/);
   assert.match(languages, /🇮🇷 فارسی/);
@@ -447,7 +463,7 @@ test("handles a valid start update and sends Telegram output", async () => {
     assert.ok(APP.welcomeStickerFileIds.includes(sticker.body.sticker));
     assert.deepEqual(sticker.body.reply_parameters, { message_id: 11 });
     assert.equal(calls.some((call) => /sendMessage$/.test(call.url)), false);
-    assert.match(reply.body.rich_message.html, /a free AI assistant for chat, analysis, writing and code/);
+    assert.match(reply.body.rich_message.html, /your free AI assistant/);
     const startRow = reply.body.reply_markup.inline_keyboard[0];
     assert.equal(startRow[0].callback_data, "menu:main");
     assert.equal(startRow[1].web_app.url, APP.terminalAppUrl);
@@ -478,7 +494,7 @@ test("delivers the start welcome when the optional sticker send fails", async ()
     assert.equal(response.status, 200);
     assert.ok(calls.some((call) => /sendSticker$/.test(call.url)));
     const reply = calls.find((call) => /sendRichMessage$/.test(call.url));
-    assert.match(reply.body.rich_message.html, /a free AI assistant for chat, analysis, writing and code/);
+    assert.match(reply.body.rich_message.html, /your free AI assistant/);
     assert.ok(reply.body.reply_markup.inline_keyboard);
   } finally {
     globalThis.fetch = originalFetch;
@@ -519,7 +535,7 @@ test("blocks a non-member before bot commands and presents the correct join flow
     assert.match(calls[0].url, /getChatMember$/);
     assert.equal(calls[0].body.chat_id, APP.requiredChannelId);
     assert.match(calls[1].url, /sendRichMessage$/);
-    assert.match(calls[1].body.rich_message.html, /Membership in @ILIVIR3 is required/);
+    assert.match(calls[1].body.rich_message.html, /Join @ILIVIR3 to use IVAI/);
     assert.equal(calls[1].body.reply_markup.inline_keyboard[0][0].url, APP.requiredChannelUrl);
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -540,7 +556,7 @@ test("keeps the join prompt intact and shows a useful alert when Telegram cannot
     assert.equal(calls.filter((call) => /getChatMember$/.test(call.url)).length, 2);
     const alert = calls.find((call) => /answerCallbackQuery$/.test(call.url));
     assert.equal(alert.body.show_alert, true);
-    assert.match(alert.body.text, /administrator of @ILIVIR3/);
+    assert.match(alert.body.text, /an admin of @ILIVIR3/);
     assert.equal(calls.some((call) => /editMessageText$/.test(call.url)), false);
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -559,8 +575,8 @@ test("confirms membership after a verified callback without showing the join pro
     const response = await worker.fetch(new Request("https://worker.test/", { method: "POST", headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" }, body: JSON.stringify(update) }), { ...baseEnv(), REQUIRED_CHANNEL_ENFORCED: "true" });
     assert.equal(response.status, 200);
     const edit = calls.find((call) => /editMessageText$/.test(call.url));
-    assert.match(edit.body.text, /Membership confirmed/);
-    assert.doesNotMatch(edit.body.text, /Join @ILIVIR3/);
+    assert.match(edit.body.rich_message.html, /Membership confirmed/);
+    assert.doesNotMatch(edit.body.rich_message.html, /Join @ILIVIR3/);
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -579,8 +595,8 @@ test("lets a confirmed channel member enter without any join prompt", async () =
     assert.equal(response.status, 200);
     assert.match(calls[0].url, /getChatMember$/);
     const reply = calls.find((call) => /sendRichMessage$/.test(call.url));
-    assert.match(reply.body.rich_message.html, /a free AI assistant for chat, analysis, writing and code/);
-    assert.doesNotMatch(reply.body.rich_message.html, /Membership in @ILIVIR3 is required/);
+    assert.match(reply.body.rich_message.html, /your free AI assistant/);
+    assert.doesNotMatch(reply.body.rich_message.html, /Join @ILIVIR3 to use IVAI/);
     assert.equal(reply.body.reply_markup.inline_keyboard[0][0].callback_data, "menu:main");
     assert.equal(reply.body.reply_markup.inline_keyboard[0][1].web_app.url, APP.terminalAppUrl);
     assert.equal(reply.body.reply_markup.inline_keyboard[0][2].callback_data, "menu:language");
@@ -610,6 +626,80 @@ test("keeps /menu separate from the welcome flow", async () => {
     assert.equal(reply.body.reply_markup.inline_keyboard[0][0].callback_data, "mode:auto");
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test("sends Help as a Rich Message with a collapsible sessions section (v3.11.0)", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 78 } }), { status: 200 });
+  };
+  try {
+    const update = {
+      update_id: 23,
+      message: { message_id: 23, chat: { id: 42, type: "private" }, from: { id: 126679582, first_name: "Owner" }, text: "/help" }
+    };
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+      body: JSON.stringify(update)
+    }), baseEnv());
+    assert.equal(response.status, 200);
+    const reply = calls.find((call) => /sendRichMessage$/.test(call.url));
+    assert.match(reply.body.rich_message.html, /IVAI Help/);
+    assert.match(reply.body.rich_message.html, /<details><summary>More about sessions<\/summary>/);
+    assert.match(reply.body.rich_message.html, /\/models/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("falls back to a plain message when the Rich send fails (v3.11.0)", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    if (/sendRichMessage$/.test(String(url))) return new Response(JSON.stringify({ ok: false, description: "Bad Request: rich messages unavailable" }), { status: 400 });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 78 } }), { status: 200 });
+  };
+  try {
+    const update = {
+      update_id: 24,
+      message: { message_id: 24, chat: { id: 42, type: "private" }, from: { id: 126679582, first_name: "Owner" }, text: "/menu" }
+    };
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+      body: JSON.stringify(update)
+    }), baseEnv());
+    assert.equal(response.status, 200);
+    assert.ok(calls.some((call) => /sendRichMessage$/.test(call.url)));
+    const plain = calls.find((call) => /sendMessage$/.test(call.url));
+    assert.match(plain.body.text, /IVAI menu/);
+    assert.match(plain.body.text, /Engine: <code>IVAI models<\/code>/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("shows the empty task list as a Rich screen with one next action (v3.11.0)", async () => {
+  const originalFetch = globalThis.fetch;
+  const { db, env, calls, fetchMock } = byokWorkerEnv();
+  // byokWorkerEnv applies only the BYOK migrations; the tasks table needs
+  // the secretary migration for the reminder_status column listSecretaryTasks
+  // selects.
+  db.exec(readFileSync(new URL("../db/0003_secretary_reminders.sql", import.meta.url), "utf8"));
+  globalThis.fetch = fetchMock;
+  try {
+    assert.equal((await postGroupUpdate(env, privateTextUpdate(5801, 20, "/tasks"))).status, 200);
+    const reply = calls.find((call) => /sendRichMessage$/.test(call.url));
+    assert.match(reply.body.rich_message.html, /Your tasks/);
+    assert.match(reply.body.rich_message.html, /You have no open tasks\. Send <code>\/task title<\/code> to add one\./);
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.close();
   }
 });
 
@@ -818,9 +908,12 @@ test("shows a read-only operations summary to an authorized admin", async () => 
       body: JSON.stringify(update)
     }), baseEnv());
     assert.equal(response.status, 200);
-    const summary = calls.find((call) => /sendMessage$/.test(call.url));
-    assert.match(summary.body.text, /IVAI Operations/);
-    assert.match(summary.body.text, /Workers AI daily budget remaining/);
+    const summary = calls.find((call) => /sendRichMessage$/.test(call.url));
+    assert.match(summary.body.rich_message.html, /IVAI Operations/);
+    assert.match(summary.body.rich_message.html, /Workers AI budget left today/);
+    // v3.11.0: the stats arrive as one small table, not a plain line list.
+    assert.match(summary.body.rich_message.html, /<table>/);
+    assert.match(summary.body.rich_message.html, /<th colspan="2">People<\/th>/);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1200,9 +1293,9 @@ test("opens a callback-driven model picker and selects a displayed free model", 
     }), env);
     assert.equal(response.status, 200);
     const edit = calls.find((call) => /editMessageText$/.test(call.url));
-    assert.match(edit.body.text, /Model route pinned/);
-    assert.match(edit.body.text, /Provider:/);
-    assert.match(edit.body.text, /Response mode:<\/b> <code>Auto<\/code> \(unchanged\)/);
+    assert.match(edit.body.rich_message.html, /Model route pinned/);
+    assert.match(edit.body.rich_message.html, /Provider:/);
+    assert.match(edit.body.rich_message.html, /Response mode: <code>Auto<\/code> \(unchanged\)/);
     assert.equal(edit.body.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === "model:auto:all"), true);
     assert.deepEqual(selectedWrites, [["@cf/zai-org/glm-4.7-flash", "7"]]);
   } finally {
@@ -1231,7 +1324,7 @@ test("recovers the model picker when a stale model token is clicked", async () =
     }), env);
     assert.equal(response.status, 200);
     const edit = calls.find((call) => /editMessageText$/.test(call.url));
-    assert.match(edit.body.text, /model list changed/i);
+    assert.match(edit.body.rich_message.html, /model list changed/i);
     assert.ok(edit.body.reply_markup.inline_keyboard.flat().some((button) => String(button.callback_data || "").startsWith("model:pick:m")));
     assert.equal((await getUserSettings(8, env)).selectedModel, null);
   } finally {
@@ -1252,8 +1345,12 @@ test("delivers each due Secretary reminder once after an atomic claim", async ()
     const second = await processSecretaryReminderBatch(env, { now: "2026-08-20T00:20:00.000Z" });
     assert.deepEqual(first, { claimed: 1, sent: 1, retried: 0, failed: 0 });
     assert.deepEqual(second, { claimed: 0, sent: 0, retried: 0, failed: 0 });
-    assert.equal(calls.filter((call) => /sendMessage$/.test(call.url)).length, 1);
-    assert.match(calls[0].body.text, /Review the launch/);
+    assert.equal(calls.filter((call) => /sendRichMessage$/.test(call.url)).length, 1);
+    assert.match(calls[0].body.rich_message.html, /Review the launch/);
+    // v3.11.0 (K01): the reminder is a Rich Message with the new copy —
+    // short heading, the title, and one next action.
+    assert.match(calls[0].body.rich_message.html, /⏰ Reminder/);
+    assert.match(calls[0].body.rich_message.html, /Done with it\? Open <code>\/tasks<\/code> to close it\./);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1388,7 +1485,9 @@ test("sends one localized re-engagement message after an atomic claim", async ()
     assert.deepEqual(first, { claimed: 1, sent: 1, failed: 0, blocked: 0 });
     assert.deepEqual(second, { claimed: 0, sent: 0, failed: 0, blocked: 0 });
     assert.equal(calls.length, 1);
-    assert.match(calls[0].body.text, /IVAI sigue aquí/);
+    // v3.11.0 (K02): the re-engagement message is a Rich Message with the
+    // new heading ("Still here, whenever you need me").
+    assert.match(calls[0].body.rich_message.html, /Sigo aquí, cuando me necesites/);
     assert.equal(calls[0].body.reply_markup.inline_keyboard[0][1].callback_data, "notify:off");
   } finally {
     globalThis.fetch = originalFetch;
@@ -1693,15 +1792,15 @@ test("sends each Menu mode confirmation as a separate message before redrawing t
       assert.equal(response.status, 200);
       const confirmation = calls.find((call) => /sendMessage$/.test(call.url));
       const edit = calls.find((call) => /editMessageText$/.test(call.url));
-      assert.match(confirmation.body.text, /Response mode changed/);
-      assert.match(confirmation.body.text, new RegExp(`Active mode:<\\/b> <code>${label}<\\/code>`));
+      assert.match(confirmation.body.text, /Response mode is now/);
+      assert.match(confirmation.body.text, new RegExp(`Response mode is now <b>${label}<\\/b>`));
       assert.equal(confirmation.body.reply_parameters.message_id, 70 + offset);
       assert.ok(calls.indexOf(confirmation) < calls.indexOf(edit));
-      assert.doesNotMatch(edit.body.text, /Response mode changed/);
+      assert.doesNotMatch(edit.body.rich_message.html, /Response mode is now/);
       const settings = await getUserSettings(885, env);
       assert.equal(settings.mode, mode);
       assert.equal(settings.selectedModel, mode === MODES.AUTO ? null : "@cf/meta/llama-3.2-1b-instruct");
-      if (mode === MODES.AUTO) assert.match(confirmation.body.text, /Model route:<\/b> <code>Auto<\/code>/);
+      if (mode === MODES.AUTO) assert.match(confirmation.body.text, /model route: Auto/);
     }
   } finally {
     globalThis.fetch = originalFetch;
@@ -1732,7 +1831,7 @@ test("clears a selected provider model when the /auto command enables Auto mode"
     assert.equal(settings.mode, MODES.AUTO);
     assert.equal(settings.selectedModel, null);
     const confirmation = calls.find((call) => /sendMessage$/.test(call.url));
-    assert.match(confirmation.body.text, /Model route:<\/b> <code>Auto<\/code>/);
+    assert.match(confirmation.body.text, /Mode set to <b>Auto<\/b>, model route: Auto\./);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1759,8 +1858,8 @@ test("switches only the model route to Auto when /model off is used", async () =
     assert.equal(settings.mode, MODES.DEEP);
     assert.equal(settings.selectedModel, null);
     const confirmation = calls.find((call) => /sendMessage$/.test(call.url));
-    assert.match(confirmation.body.text, /Model route is now Auto/);
-    assert.match(confirmation.body.text, /Response mode:<\/b> <code>Deep<\/code> \(unchanged\)/);
+    assert.match(confirmation.body.text, /Model route is Auto now/);
+    assert.match(confirmation.body.text, /Response mode stays <b>Deep<\/b>/);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -2051,9 +2150,9 @@ test("starts a new Telegram Session with /new without AI work and restores Agent
     assert.equal(response.status, 200);
     assert.equal(await getConversationSession(scope, env), null);
     const reply = calls.find((call) => /sendMessage$/.test(call.url));
-    assert.match(reply.body.text, /^<b>🪐 Fresh chat, ready to go!<\/b>\n\n<blockquote>/);
-    assert.match(reply.body.text, /Auto mode, automatic model routing, and Memory off/);
-    assert.match(reply.body.text, /<\/blockquote>$/);
+    assert.match(reply.body.text, /^<b>🪐 Fresh chat, ready to go!<\/b>\nPrevious context is cleared\./);
+    assert.match(reply.body.text, /Mode is Auto, the model route is automatic, and memory is off/);
+    assert.match(reply.body.text, /What shall we do first\?$/);
     assert.deepEqual(await getUserSettings(126679582, env), {
       language: "en",
       mode: MODES.AUTO,
@@ -2149,7 +2248,7 @@ test("resets Agent settings but preserves the interface language when /new start
     assert.equal(response.status, 200);
     const reply = calls.find((call) => /sendMessage$/.test(call.url));
     assert.match(reply.body.text, /گفتگوی تازه آماده است/);
-    assert.match(reply.body.text, /تنظیمات Agent بازنشانی شدند/);
+    assert.match(reply.body.text, /حافظه خاموش است/);
     assert.equal(await getConversationSession(scope, env), null);
     assert.deepEqual(await getUserSettings(user.id, env), {
       language: "fa",
@@ -2199,7 +2298,7 @@ test("turning memory off clears Telegram and Terminal Sessions without resetting
       memoryEnabled: false
     });
     const reply = calls.find((call) => /sendMessage$/.test(call.url));
-    assert.match(reply.body.text, /IVAI Terminal پاک شد/);
+    assert.match(reply.body.text, /حافظه <b>خاموش<\/b> شد/);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -3168,7 +3267,7 @@ test("re-verifies a stale cached denial live before prompting, so a member gets 
     assert.equal(aiCalls.length, 1);
     assert.ok(calls.some((call) => /getChatMember$/.test(call.url)));
     const prompted = calls.some((call) =>
-      /Membership in @ILIVIR3 is required/.test(call.body?.rich_message?.html || call.body?.text || ""));
+      /Join @ILIVIR3 to use IVAI/.test(call.body?.rich_message?.html || call.body?.text || ""));
     assert.equal(prompted, false);
     // The fresh definitive result replaced the stale cache entry.
     assert.equal(JSON.parse(await env.IVAI_KV.get("member:42")).allowed, true);
@@ -3191,7 +3290,7 @@ test("membership:check callback always checks live, ignoring a stale cached deni
     const alert = calls.find((call) => /answerCallbackQuery$/.test(call.url) && call.body.show_alert);
     assert.equal(alert, undefined);
     const edit = calls.find((call) => /editMessageText$/.test(call.url));
-    assert.match(edit.body.text, /Membership confirmed/);
+    assert.match(edit.body.rich_message.html, /Membership confirmed/);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -3947,7 +4046,7 @@ test("completes /start even when the session KV deletes fail", async () => {
     const update = { update_id: 4002, message: { message_id: 2, chat: { id: 42, type: "private" }, from: { id: 42, first_name: "A" }, text: "/start" } };
     const response = await postGroupUpdate(env, update);
     assert.equal(response.status, 200);
-    assert.ok(calls.some((call) => /sendRichMessage$/.test(call.url) && /a free AI assistant/.test(call.body.rich_message.html)));
+    assert.ok(calls.some((call) => /sendRichMessage$/.test(call.url) && /your free AI assistant/.test(call.body.rich_message.html)));
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -3993,13 +4092,13 @@ test("exempts the owner from the membership gate when the check itself fails, bu
     assert.equal((await postGroupUpdate(env, ownerUpdate)).status, 200);
     assert.equal(aiCalls.length, 1);
     assert.equal(calls.filter((call) => /getChatMember$/.test(call.url)).length, 0);
-    assert.ok(!calls.some((call) => JSON.stringify(call.body).includes("Membership in @ILIVIR3 is required")));
+    assert.ok(!calls.some((call) => JSON.stringify(call.body).includes("Join @ILIVIR3 to use IVAI")));
 
     const memberUpdate = { update_id: 4004, message: { message_id: 4, chat: { id: 42, type: "private" }, from: { id: 555001, first_name: "Member" }, text: "Hello IVAI" } };
     assert.equal((await postGroupUpdate(env, memberUpdate)).status, 200);
     assert.equal(aiCalls.length, 1);
     assert.ok(calls.some((call) => /getChatMember$/.test(call.url)));
-    assert.ok(calls.some((call) => JSON.stringify(call.body).includes("Membership in @ILIVIR3 is required")));
+    assert.ok(calls.some((call) => JSON.stringify(call.body).includes("Join @ILIVIR3 to use IVAI")));
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -4809,7 +4908,7 @@ test("BYOK setup flow: preset → key → test → model → active, key message
     // Open My API: preset list.
     assert.equal((await postGroupUpdate(env, privateCallbackUpdate(5001, "byok:open"))).status, 200);
     let edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
-    assert.match(edit.body.text, /Choose your provider/);
+    assert.match(edit.body.rich_message.html, /Choose your provider below/);
     assert.ok(edit.body.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === "byok:preset:groq"));
 
     // Pick Groq: ask for the key; pending state recorded with a TTL.
@@ -4837,7 +4936,7 @@ test("BYOK setup flow: preset → key → test → model → active, key message
     assert.equal((await postGroupUpdate(env, privateCallbackUpdate(5004, `byok:test:${configId}`))).status, 200);
     assert.ok(calls.some((call) => call.url === "https://api.groq.com/openai/v1/chat/completions"));
     edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
-    assert.match(edit.body.text, /Connection works/);
+    assert.match(edit.body.rich_message.html, /Connection works/);
     assert.ok(edit.body.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === `byok:model:${configId}:0`));
 
     // Pick a model: enabled, active screen shown.
@@ -4888,7 +4987,7 @@ test("a BYOK 401 in a text turn falls back with the notice before the footer and
     assert.equal(aiCalls.length, 1);
     const rich = calls.filter((call) => /sendRichMessage$/.test(call.url)).at(-1);
     assert.match(rich.body.rich_message.html, /Free answer\./);
-    assert.match(rich.body.rich_message.html, /Your API didn't respond, so I answered with IVAI models\./);
+    assert.match(rich.body.rich_message.html, /Your API didn't answer, so I replied with IVAI models instead\./);
     assert.ok(rich.body.rich_message.html.indexOf("didn't respond") < rich.body.rich_message.html.lastIndexOf("IVAI"));
     assert.equal((await getUserApiConfigMeta(42, env)).authFailures, 1);
   } finally {
@@ -4932,20 +5031,20 @@ test("pending setup: a wrong-format key is rejected, /cancel cancels, another co
     await postGroupUpdate(env, privateCallbackUpdate(5401, "byok:preset:groq"));
     // Wrong format: guidance, pending kept, nothing saved.
     assert.equal((await postGroupUpdate(env, privateTextUpdate(5402, 7, "not-a-key"))).status, 200);
-    assert.match(calls.filter((call) => /sendMessage$/.test(call.url)).at(-1).body.text, /doesn't look right/);
+    assert.match(calls.filter((call) => /sendMessage$/.test(call.url)).at(-1).body.text, /doesn't look like a .* key/);
     assert.equal(JSON.parse(await env.IVAI_KV.get("byok:pending:42")).step, "key");
     assert.equal(await getUserApiConfigMeta(42, env), null);
 
     // Bare /cancel: setup cancelled, pending cleared.
     assert.equal((await postGroupUpdate(env, privateTextUpdate(5403, 8, "/cancel"))).status, 200);
-    assert.match(calls.filter((call) => /sendMessage$/.test(call.url)).at(-1).body.text, /setup cancelled/);
+    assert.match(calls.filter((call) => /sendMessage$/.test(call.url)).at(-1).body.text, /Cancelled — nothing was saved/);
     assert.equal(await env.IVAI_KV.get("byok:pending:42"), null);
 
     // Another command clears the state and runs as its own command.
     await postGroupUpdate(env, privateCallbackUpdate(5404, "byok:preset:groq"));
     assert.equal((await postGroupUpdate(env, privateTextUpdate(5405, 9, "/start"))).status, 200);
     assert.equal(await env.IVAI_KV.get("byok:pending:42"), null);
-    assert.ok(calls.some((call) => /sendRichMessage$/.test(call.url) && /a free AI assistant/.test(call.body.rich_message.html)));
+    assert.ok(calls.some((call) => /sendRichMessage$/.test(call.url) && /your free AI assistant/.test(call.body.rich_message.html)));
   } finally {
     globalThis.fetch = originalFetch;
     db.close();
@@ -4962,9 +5061,13 @@ test("settings no longer carries My API; the main menu does, and the My API list
     // section this test used to assert).
     await postGroupUpdate(env, privateCallbackUpdate(5501, "menu:settings"));
     let edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
-    assert.match(edit.body.text, /IVAI models/);
-    assert.doesNotMatch(edit.body.text, /My API/);
-    assert.equal((edit.body.text.match(/●/g) || []).length, 0);
+    assert.match(edit.body.rich_message.html, /IVAI models/);
+    // v3.11.0 (C09): Settings still carries no My API section or ● marker —
+    // it only points at the main menu ("Your own APIs live under 🔑 My API
+    // in the main menu."), and its keyboard carries no My API button.
+    assert.match(edit.body.rich_message.html, /Your own APIs live under <b>🔑 My API<\/b> in the main menu\./);
+    assert.equal(edit.body.reply_markup.inline_keyboard.flat().some((button) => String(button.callback_data || "").startsWith("byok:")), false);
+    assert.equal((edit.body.rich_message.html.match(/●/g) || []).length, 0);
 
     // The My API list is the one place with the ● Active marker.
     const configId = await saveUserApiConfig({ userId: 42, preset: "groq", baseUrl: "https://api.groq.com/openai/v1", apiKey: "gsk_test-key-abc", model: "openai/gpt-oss-20b" }, env);
@@ -4972,9 +5075,9 @@ test("settings no longer carries My API; the main menu does, and the My API list
     await setActiveUserApiConfig(42, configId, env);
     await postGroupUpdate(env, privateCallbackUpdate(5502, "byok:open"));
     edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
-    assert.equal((edit.body.text.match(/●/g) || []).length, 1);
-    assert.match(edit.body.text, /● <b>My API 1<\/b> — Groq · <code>openai\/gpt-oss-20b<\/code>/);
-    assert.match(edit.body.text, /stored encrypted \(AES-256-GCM\)/);
+    assert.equal((edit.body.rich_message.html.match(/●/g) || []).length, 1);
+    assert.match(edit.body.rich_message.html, /● <b>My API 1<\/b> — Groq · <code>openai\/gpt-oss-20b<\/code>/);
+    assert.match(edit.body.rich_message.html, /stored encrypted \(AES-256-GCM\)/);
   } finally {
     globalThis.fetch = originalFetch;
     db.close();
@@ -5067,7 +5170,7 @@ test("model menu lists the preset catalog plus added models, marks the active on
     // The menu shows the catalog, the added model, and the Add button.
     await postGroupUpdate(env, privateCallbackUpdate(5621, `byok:models:${configId}`));
     let edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
-    assert.match(edit.body.text, /Which model should answer\?/);
+    assert.match(edit.body.rich_message.html, /Which model should answer\?/);
     const buttons = edit.body.reply_markup.inline_keyboard.flat();
     assert.ok(buttons.some((button) => button.text === "my-groq-extra-1" && button.callback_data === `byok:model:${configId}:3`));
     assert.ok(buttons.some((button) => button.callback_data === `byok:model:${configId}:other`));
@@ -5115,7 +5218,7 @@ test("removing My API deletes the config and private chats answer with IVAI mode
     await postGroupUpdate(env, privateCallbackUpdate(5703, `byok:remove:yes:${configId}`));
     assert.equal(await getUserApiConfigMeta(42, env), null);
     edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
-    assert.match(edit.body.text, /My API removed/);
+    assert.match(edit.body.rich_message.html, /My API removed/);
 
     // Next text turn: no BYOK call at all.
     assert.equal((await postGroupUpdate(env, privateTextUpdate(5704, 13, "Hello"))).status, 200);
