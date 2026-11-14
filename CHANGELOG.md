@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.9.2] - 2026-11-14
+
+### Changed
+
+- No more forced connection tests: activating a config (typing a model, or "Use my API") no longer runs a test call — a test would burn the user's own API tokens for nothing (owner decision). The manual "Test connection" button stays for anyone who wants it; a stale key is caught by the first real chat, which falls back to IVAI models with a one-line notice.
+
 ## [3.9.1] - 2026-11-14
 
 ### Fixed
