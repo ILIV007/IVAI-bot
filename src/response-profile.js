@@ -1,7 +1,7 @@
 import { MODES, USER_FACING_MODES, modeOutputLimit } from "./config.js";
 
 const RESPONSE_INSTRUCTIONS = Object.freeze({
-  [MODES.AUTO]: "Give a complete, appropriately sized answer. Be concise when the request is simple, but never stop mid-sentence, mid-list, mid-code block, or before the requested conclusion. Use compact structure when more detail is needed.",
+  [MODES.AUTO]: "Keep it SHORT by default: one short paragraph (a few sentences) that directly answers the question. Expand only when the user explicitly asks for detail or the question genuinely cannot be answered briefly. Never pad with background the user did not ask for. Never stop mid-sentence, mid-list, mid-code block, or before the requested conclusion. Use compact structure when more detail is needed.",
   [MODES.FAST]: "Give a concise, accurate, self-contained answer. Prefer one short paragraph or up to three brief bullets. Never stop mid-sentence, mid-list, mid-code block, or before the requested conclusion; summarize instead of leaving an answer unfinished.",
   [MODES.DEEP]: "Give a structured, carefully reasoned answer, but avoid hidden chain-of-thought. State concise reasoning and conclusions.",
   [MODES.CODE]: "Provide correct, secure, production-minded code with a short explanation and fenced code blocks when appropriate.",

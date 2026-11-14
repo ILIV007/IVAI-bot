@@ -1,6 +1,6 @@
 export const APP = Object.freeze({
   name: "IVAI",
-  version: "3.14.0",  botUsername: "IVAI_Llm_bot",
+  version: "3.14.1",  botUsername: "IVAI_Llm_bot",
   terminalAppUrl: "https://ivai-bot.ivai-bot.workers.dev/app",
   // Bot-owned file IDs from the IVAILlmBot pack; refresh deliberately when that pack changes.
   welcomeStickerFileIds: Object.freeze([
@@ -29,7 +29,9 @@ export const APP = Object.freeze({
     // Fast remains concise, but its budget must still finish a complete answer.
     fast: 900,
     // Auto is a distinct user-facing mode with enough room for a complete answer.
-    auto: 1000,
+    // v3.14.1: 1000 let the model write essays — a short-by-default Auto
+    // needs a tighter backstop (the instruction is the main lever).
+    auto: 700,
     deep: 1600,
     code: 1800,
     prompt: 1000,

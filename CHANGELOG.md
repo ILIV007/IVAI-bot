@@ -2,6 +2,15 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.14.1] - 2026-11-14
+
+### Fixed
+
+- **PV footer sits on the left again (owner decision):** the v3.11.3 RLM pin that right-aligned the footer inside Persian answers is reverted — the footer is a Latin signature, so it is now pinned LTR (LRM + LRI isolate) in every answer language. The isolate still keeps the `IVAI · model · mode` sequence intact, and the English BYOK fallback notice gets the same LTR pin.
+- **Auto answers were essays:** Auto now instructs short-by-default (one short paragraph; expand only when asked or genuinely needed) and its output budget drops from 1000 to 700 tokens as a backstop. Deep/Code keep their room. This also cuts perceived latency — generation time scales with answer length.
+- **Speed:** the typing indicator no longer blocks the thinking draft — it is fire-and-forget, so the `⚡ thinking` draft appears one Telegram round-trip sooner. Measured live 2026-11-14: worker health 0.36–0.80s, D1 query 1.03s, Workers AI tiny call 0.82s (all from this VM, network included); the dominant latency was model generation time on long answers, addressed by the Auto change above.
+- **Channel-post comments were essays:** a live ~230-word ANALYSIS comment (3 long paragraphs) sailed through the 5-line cap — 3 paragraphs are 3 "lines". The length is now enforced in code (`shortenChannelComment`): at most 3 sentences / 60 words, first segment always kept whole; the completeness guard still applies. The prompt rule is hardened the same way, and the comment token budget drops from 1600 to 800 (still room for reasoning leakage if `/no_think` slips).
+
 ## [3.14.0] - 2026-11-14
 
 ### Changed

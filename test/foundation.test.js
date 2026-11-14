@@ -9,12 +9,13 @@ import { processSecretaryReminderBatch } from "../src/secretary.js";
 import { processReengagementBatch } from "../src/reengagement.js";
 import { analyzePhoto, downloadTelegramFile, transcribeVoice } from "../src/media.js";
 import { APP, BYOK_PRESETS, defaultFreeModelFor, FREE_MODEL_POLICY, GROUP_POLICY, LANGUAGE_OPTIONS, MODES, modeOutputLimit } from "../src/config.js";
-import { assignChannelCommentMode, channelPostSampled, completeChannelComment, messagePlainText, richBlockToPlain, richTextToPlain } from "../src/router.js";
+import { assignChannelCommentMode, channelPostSampled, completeChannelComment, messagePlainText, richBlockToPlain, richTextToPlain, shortenChannelComment } from "../src/router.js";
 import { defaultFreeModels, refreshFreeModelCatalog } from "../src/catalog.js";
 import { addCustomByokModel, conversationKey, deleteUserApiConfig, ensureConversationSession, getActiveUserApiConfigId, getAdminOperationalStats, getConversationSession, getUserApiConfig, getUserApiConfigMeta, getUserSettings, listUserApiConfigs, markUserApiConfigInvalid, renameUserApiConfig, resetUserApiAuthFailures, saveConversationSession, saveUserApiConfig, setActiveUserApiConfig, setMemoryEnabled, setSelectedModel, setUserApiConfigEnabled, setUserLanguage, setUserMode, startNewConversationSession, updateUserApiConfigModel, upsertUser } from "../src/storage.js";
 import { decryptApiKey, encryptApiKey } from "../src/byok-crypto.js";
 import { getRequiredChannelMembership } from "../src/membership.js";
 import { renderRichAiText, renderStandardAiText } from "../src/rich-renderer.js";
+import { responseProfile } from "../src/response-profile.js";
 import { renderAppPage } from "../src/app-page.js";
 import { renderAdminPage } from "../src/admin-page.js";
 import { allowUsage, claimUpdate, cleanupRuntimeGuards, hasValidWebhookSecret, parseAdminIds, releaseUpdateClaim, reserveWorkersAiBudget } from "../src/security.js";
@@ -279,8 +280,25 @@ test("free model catalog refresh (v3.14.0): dead Gemini removed, new free models
   assert.equal(defaultFreeModelFor("google"), "gemini-3.8-flash");
 });
 
-test("declares the official v3.14.0 release version", () => {
-  assert.equal(APP.version, "3.14.0");});
+test("footer is always a left-aligned Latin signature, and Auto stays short by default (v3.14.1)", () => {
+  // Owner decision (v3.14.1): the v3.11.3 RTL pin is reverted — the footer
+  // sits on the left in every answer language. The LRM + LRI isolate keeps
+  // the Latin run in order while a Persian mode word renders as one unit.
+  for (const language of ["en", "fa", "ar"]) {
+    const meta = responseMeta({ model: "@cf/zai-org/glm-4.7-flash", mode: MODES.AUTO, language, rtl: language !== "en" });
+    assert.ok(meta.startsWith("<blockquote>\u200e\u2066🪐"), language);
+    assert.ok(meta.endsWith("\u2069</blockquote>"), language);
+  }
+  // Owner decision (v3.14.1): Auto answers were essays (~3 paragraphs when
+  // one would do). The instruction is the main lever; the 700-token cap is
+  // the backstop. Deep/Code keep their room for long reasoning.
+  assert.match(responseProfile(MODES.AUTO).instruction, /keep it short by default/i);
+  assert.equal(modeOutputLimit(MODES.AUTO), 700);
+  assert.ok(modeOutputLimit(MODES.AUTO) < modeOutputLimit(MODES.DEEP));
+});
+
+test("declares the official v3.14.1 release version", () => {
+  assert.equal(APP.version, "3.14.1");});
 
 test("richLineBreaks converts newlines to <br> for Rich sends (v3.11.1)", () => {
   assert.equal(richLineBreaks("<b>🎛 IVAI menu</b>\n\n<b>Your setup</b>\nResponse mode: <code>Auto</code>"), "<b>🎛 IVAI menu</b><br><br><b>Your setup</b><br>Response mode: <code>Auto</code>");
@@ -310,7 +328,7 @@ test("upserts a language choice even when no user row exists yet", async () => {
 
 test("keeps bounded free-tier output limits while allowing complete Auto and Fast replies", () => {
   assert.equal(modeOutputLimit(MODES.FAST), 900);
-  assert.equal(modeOutputLimit(MODES.AUTO), 1000);
+  assert.equal(modeOutputLimit(MODES.AUTO), 700);
   assert.ok(modeOutputLimit(MODES.FAST) < modeOutputLimit(MODES.DEEP));
   assert.ok(modeOutputLimit(MODES.CODE) <= 1800);
   assert.ok(modeOutputLimit(MODES.THREAD) <= 900);
@@ -344,7 +362,7 @@ test("keeps Auto distinct from Fast and gives both modes a complete one-call con
   assert.match(calls[0].input.messages[0].content, /never stop mid-sentence/i);
   assert.match(calls[1].input.messages[0].content, /self-contained answer/i);
   assert.match(calls[1].input.messages[0].content, /summarize instead of leaving an answer unfinished/i);
-  assert.match(responseMeta({ model: auto.model, mode: auto.mode, language: "en" }), / · Auto<\/blockquote>/);
+  assert.match(responseMeta({ model: auto.model, mode: auto.mode, language: "en" }), / · Auto\u2069<\/blockquote>/);
 });
 
 test("presents the requested Start controls and six-row Menu hierarchy", () => {
@@ -441,14 +459,14 @@ test("renders concise linked response metadata without per-message action button
   assert.doesNotMatch(meta, /@cf\/zai-org/);
   const persianMeta = responseMeta({ model: "@cf/zai-org/glm-4.7-flash", mode: "fast", language: "fa" });
   const arabicMeta = responseMeta({ model: "@cf/zai-org/glm-4.7-flash", mode: "fast", language: "ar" });
-  assert.match(persianMeta, /<blockquote>\u200f\u2066🪐 <a href="https:\/\/t\.me\/IVAI_Llm_bot">IVAI<\/a> · GLM 4\.7 Flash · سریع\u2069<\/blockquote>/);
-  assert.match(arabicMeta, /<blockquote>\u200f\u2066🪐 <a href="https:\/\/t\.me\/IVAI_Llm_bot">IVAI<\/a> · GLM 4\.7 Flash · Fast\u2069<\/blockquote>/);
-  // v3.11.3: the footer follows the ANSWER's direction, not the UI language —
-  // an English footer in a Persian answer is pinned RTL (RLM + LRI) so it
-  // stays right-aligned with its sequence intact; an explicit rtl:false wins.
+  assert.match(persianMeta, /<blockquote>\u200e\u2066🪐 <a href="https:\/\/t\.me\/IVAI_Llm_bot">IVAI<\/a> · GLM 4\.7 Flash · سریع\u2069<\/blockquote>/);
+  assert.match(arabicMeta, /<blockquote>\u200e\u2066🪐 <a href="https:\/\/t\.me\/IVAI_Llm_bot">IVAI<\/a> · GLM 4\.7 Flash · Fast\u2069<\/blockquote>/);
+  // v3.14.1: the footer is a Latin signature, always pinned LTR (LRM + LRI)
+  // and left-aligned in every answer language — the v3.11.3 RTL pin is
+  // reverted. An explicit rtl:false no longer strips the pin either.
   const englishRtlMeta = responseMeta({ model: "@cf/zai-org/glm-4.7-flash", mode: "fast", language: "en", rtl: true });
-  assert.match(englishRtlMeta, /<blockquote>\u200f\u2066🪐 <a href="https:\/\/t\.me\/IVAI_Llm_bot">IVAI<\/a> · GLM 4\.7 Flash · Fast\u2069<\/blockquote>/);
-  assert.equal(responseMeta({ model: "@cf/zai-org/glm-4.7-flash", mode: "fast", language: "fa", rtl: false }), "<blockquote>🪐 <a href=\"https://t.me/IVAI_Llm_bot\">IVAI</a> · GLM 4.7 Flash · سریع</blockquote>");
+  assert.match(englishRtlMeta, /<blockquote>\u200e\u2066🪐 <a href="https:\/\/t\.me\/IVAI_Llm_bot">IVAI<\/a> · GLM 4\.7 Flash · Fast\u2069<\/blockquote>/);
+  assert.equal(responseMeta({ model: "@cf/zai-org/glm-4.7-flash", mode: "fast", language: "fa", rtl: false }), "<blockquote>\u200e\u2066🪐 <a href=\"https://t.me/IVAI_Llm_bot\">IVAI</a> · GLM 4.7 Flash · سریع\u2069</blockquote>");
   assert.equal(stabilizeRtlText("<b>🌐 تنظیمات IVAI</b>\n<b>مدل:</b> GPT-OSS\nپیام فارسی"), "<b>\u200f🌐 تنظیمات IVAI</b>\n<b>\u200fمدل:</b> GPT-OSS\n\u200fپیام فارسی");
   assert.equal(stabilizeRtlText("<b>English</b>\nPlain text"), "<b>English</b>\nPlain text");
   assert.equal(stabilizeRtlText("\u200fمتن فارسی"), "\u200fمتن فارسی");
@@ -1367,7 +1385,7 @@ test("delivers a long AI response in complete follow-up messages instead of trun
     const delivered = calls.filter((call) => /sendMessage$/.test(call.url) && !/thinking/.test(call.body.text));
     assert.ok(delivered.length >= 2);
     assert.ok(delivered.every((call) => call.body.parse_mode === "HTML"));
-    assert.ok(delivered.at(-1).body.text.includes('<blockquote>🪐 <a href="https://t.me/IVAI_Llm_bot">IVAI</a>'));
+    assert.ok(delivered.at(-1).body.text.includes('<blockquote>\u200e\u2066🪐 <a href="https://t.me/IVAI_Llm_bot">IVAI</a>'));
     assert.ok(delivered.every((call) => call.body.text.length <= 4096));
   } finally {
     globalThis.fetch = originalFetch;
@@ -1446,9 +1464,9 @@ test("applies one Auto Response Profile consistently to OpenRouter, Groq, and Go
     assert.equal(calls[0].body.max_tokens, modeOutputLimit(MODES.AUTO));
     assert.equal(calls[1].body.max_tokens, modeOutputLimit(MODES.AUTO));
     assert.equal(calls[2].body.generationConfig.maxOutputTokens, modeOutputLimit(MODES.AUTO));
-    assert.match(calls[0].body.messages[0].content, /complete, appropriately sized answer/i);
-    assert.match(calls[1].body.messages[0].content, /complete, appropriately sized answer/i);
-    assert.match(calls[2].body.systemInstruction.parts[0].text, /complete, appropriately sized answer/i);
+    assert.match(calls[0].body.messages[0].content, /keep it short by default/i);
+    assert.match(calls[1].body.messages[0].content, /keep it short by default/i);
+    assert.match(calls[2].body.systemInstruction.parts[0].text, /keep it short by default/i);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -2370,7 +2388,7 @@ test("keeps an English footer for a Persian prompt when the UI preference is Eng
     assert.match(aiCalls[0].payload.messages[0].content, /Respond in Persian/);
     const final = calls.find((call) => /sendRichMessage$/.test(call.url));
     assert.match(final.body.rich_message.html, /GLM 4\.7 Flash · Fast\u2069<\/blockquote>/);
-    assert.match(final.body.rich_message.html, /<blockquote>\u200f\u2066🪐/);
+    assert.match(final.body.rich_message.html, /<blockquote>\u200e\u2066🪐/);
     assert.doesNotMatch(final.body.rich_message.html, /سریع/);
   } finally {
     globalThis.fetch = originalFetch;
@@ -3137,7 +3155,7 @@ test("comments on a Persian channel post in Persian, not English", async () => {
   }
 });
 
-test("trims a channel-post comment longer than 5 lines down to 5", async () => {
+test("trims a channel-post comment longer than 3 sentences down to 3 (v3.14.1)", async () => {
   const originalFetch = globalThis.fetch;
   const calls = [];
   globalThis.fetch = mockGroupFetch(calls);
@@ -3145,15 +3163,17 @@ test("trims a channel-post comment longer than 5 lines down to 5", async () => {
     const env = {
       ...groupTestEnv(calls, []),
       // Each line is a complete segment (terminal period) so the v3.7.1
-      // completeness guard passes the trimmed comment through.
+      // completeness guard passes the trimmed comment through. v3.14.1:
+      // the owner contract is 1–3 short sentences, so the sentence cap
+      // (not the older 5-line cap) binds here.
       AI: { async run() { return { response: "one.\ntwo.\nthree.\nfour.\nfive.\nsix.\nseven.\neight." }; } }
     };
     const update = { update_id: 3023, message: { message_id: 79, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "Our community just passed ten thousand members this week.\nThank you to everyone who shares, comments, and helps newcomers.\nWe are planning a small celebration stream for Friday night.\nThere will be giveaways, a Q&A, and a look at the roadmap.\nBring your questions — the whole team will be there live." } };
     const response = await postGroupUpdate(env, update);
     assert.equal(response.status, 200);
     const reply = calls.find((call) => /sendMessage$/.test(call.url));
-    assert.match(reply.body.text, /five/);
-    assert.doesNotMatch(reply.body.text, /six|seven|eight/);
+    assert.match(reply.body.text, /three/);
+    assert.doesNotMatch(reply.body.text, /four|five|six|seven|eight/);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -3183,6 +3203,30 @@ test("comment completeness guard keeps complete comments and cuts or skips broke
   assert.equal(completeChannelComment("this changes everything about how the"), "");
   assert.equal(completeChannelComment("واقعاً قراره این اتفاق بیفته؟"), "");
   assert.equal(completeChannelComment(""), "");
+});
+
+test("comment length cap cuts essays to a short take (v3.14.1)", () => {
+  // Live 2026-11-14: a ~230-word ANALYSIS comment (3 long paragraphs) on a
+  // mining-card post sailed through the 5-line cap — 3 paragraphs are 3
+  // "lines". The cap keeps at most 3 sentences / 60 words.
+  const essay = "نکته‌ی اصلی این است که کل این ماجرا ریشه در یک تصمیم اقتصادی داشت، نه فنی: انویدیا چون رم را ارزان می‌دید، به‌جای طراحی چیپ سبک‌تر همان GA100 را با eFuse ناقص می‌کرد و خروجی تصویر را هم می‌بست تا کارت به بازار دست‌دوم گیمینگ برنگردد.\n\nاما همان چیزی که این کارت را وسوسه‌انگیز می‌کند، سقفش را هم تعیین می‌کند: این‌ها سخت‌افزار دست‌دوم ماینینگ‌اند، با خنک‌کننده و VRM طراحی‌شده برای بار ثابت ماینینگ، بدون ضمانت و بدون هیچ اعتبارسنجی پایداری بعد از آنلاک — و برای اجرای مدل، یک خطای حافظه یعنی دود شدن یک اجرا، پس «آنلاک شد» با «قابل اتکاست» دو چیز متفاوت است.\n\nقیمت بالای ۴ هزار دلار هم عملاً می‌گوید سود این کشف الان جیب فروشنده‌ها رفته، نه خریدار؛ ارزش واقعی کار بیشتر در اثبات این نکته است که قفل‌های eFuse هم روی سخت‌افزار قابل بازگشت‌اند.";
+  assert.equal(
+    shortenChannelComment(essay),
+    "نکته‌ی اصلی این است که کل این ماجرا ریشه در یک تصمیم اقتصادی داشت، نه فنی: انویدیا چون رم را ارزان می‌دید، به‌جای طراحی چیپ سبک‌تر همان GA100 را با eFuse ناقص می‌کرد و خروجی تصویر را هم می‌بست تا کارت به بازار دست‌دوم گیمینگ برنگردد."
+  );
+  // Four short sentences keep only the first three (segment cap).
+  assert.equal(
+    shortenChannelComment("First short sentence here. Second short sentence here. Third short sentence here. Fourth short sentence here."),
+    "First short sentence here. Second short sentence here. Third short sentence here."
+  );
+  // A short comment passes through byte-identical.
+  assert.equal(shortenChannelComment("قیمتش نصف شده! واقعاً کی فکرشو می‌کرد؟"), "قیمتش نصف شده! واقعاً کی فکرشو می‌کرد؟");
+  // The first segment is always kept whole, even past 60 words.
+  const longSentence = "This one very long sentence keeps going with many commas, many clauses, and many extra words, far past the sixty word limit, because the first segment is always kept whole no matter how long it is, and that is the intended behavior for a single take that cannot be split into smaller pieces without losing its meaning or its punch.";
+  assert.equal(shortenChannelComment(`${longSentence} And this second sentence must be dropped.`), longSentence);
+  // A lone bare question still earns no comment.
+  assert.equal(shortenChannelComment("واقعاً قراره این اتفاق بیفته؟"), "");
+  assert.equal(shortenChannelComment(""), "");
 });
 
 test("skips a channel-post comment that generation truncated to a bare question", async () => {
@@ -3836,7 +3880,7 @@ test("channel-post comment prompt is a persona with worked examples and hard rul
     assert.match(prompt, /بیشتر یه نمایشه تا سیستمی برای استفاده‌ی روزمره/);
     assert.match(prompt, /PDFهات از دستگاهت بیرون نمی‌رن/);
     assert.match(prompt, /ذخیره‌سازی مرورگر برای یه آرشیو بزرگ مقاله‌ها زود سقف می‌خوره/);
-    assert.match(prompt, /typically 1–3 short lines/);
+    assert.match(prompt, /at most 3 short sentences/);
     assert.match(prompt, /Always land something real/);
     assert.match(prompt, /in FUN mode a take — a prediction, or one line of cause-and-effect/);
     assert.match(prompt, /in ANALYSIS mode a balanced point/);
@@ -3857,7 +3901,7 @@ test("channel-post comment prompt is a persona with worked examples and hard rul
     // reasoning model spends no budget thinking, and the comment call
     // carries its own 1600-token budget instead of the Fast profile's 900.
     assert.match(prompt, /^\/no_think\n/);
-    assert.equal(aiCalls[0].payload.max_tokens, 1600);
+    assert.equal(aiCalls[0].payload.max_tokens, 800);
   } finally {
     globalThis.fetch = originalFetch;
   }
