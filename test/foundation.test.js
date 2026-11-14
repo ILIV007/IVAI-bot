@@ -254,9 +254,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.11.2 release version", () => {
-  assert.equal(APP.version, "3.11.2");
-});
+test("declares the official v3.11.3 release version", () => {
+  assert.equal(APP.version, "3.11.3");});
 
 test("richLineBreaks converts newlines to <br> for Rich sends (v3.11.1)", () => {
   assert.equal(richLineBreaks("<b>🎛 IVAI menu</b>\n\n<b>Your setup</b>\nResponse mode: <code>Auto</code>"), "<b>🎛 IVAI menu</b><br><br><b>Your setup</b><br>Response mode: <code>Auto</code>");
@@ -417,8 +416,14 @@ test("renders concise linked response metadata without per-message action button
   assert.doesNotMatch(meta, /@cf\/zai-org/);
   const persianMeta = responseMeta({ model: "@cf/zai-org/glm-4.7-flash", mode: "fast", language: "fa" });
   const arabicMeta = responseMeta({ model: "@cf/zai-org/glm-4.7-flash", mode: "fast", language: "ar" });
-  assert.match(persianMeta, /<blockquote>\u2066🪐 <a href="https:\/\/t\.me\/IVAI_Llm_bot">IVAI<\/a> · GLM 4\.7 Flash · سریع\u2069<\/blockquote>/);
-  assert.match(arabicMeta, /<blockquote>\u2066🪐 <a href="https:\/\/t\.me\/IVAI_Llm_bot">IVAI<\/a> · GLM 4\.7 Flash · Fast\u2069<\/blockquote>/);
+  assert.match(persianMeta, /<blockquote>\u200f\u2066🪐 <a href="https:\/\/t\.me\/IVAI_Llm_bot">IVAI<\/a> · GLM 4\.7 Flash · سریع\u2069<\/blockquote>/);
+  assert.match(arabicMeta, /<blockquote>\u200f\u2066🪐 <a href="https:\/\/t\.me\/IVAI_Llm_bot">IVAI<\/a> · GLM 4\.7 Flash · Fast\u2069<\/blockquote>/);
+  // v3.11.3: the footer follows the ANSWER's direction, not the UI language —
+  // an English footer in a Persian answer is pinned RTL (RLM + LRI) so it
+  // stays right-aligned with its sequence intact; an explicit rtl:false wins.
+  const englishRtlMeta = responseMeta({ model: "@cf/zai-org/glm-4.7-flash", mode: "fast", language: "en", rtl: true });
+  assert.match(englishRtlMeta, /<blockquote>\u200f\u2066🪐 <a href="https:\/\/t\.me\/IVAI_Llm_bot">IVAI<\/a> · GLM 4\.7 Flash · Fast\u2069<\/blockquote>/);
+  assert.equal(responseMeta({ model: "@cf/zai-org/glm-4.7-flash", mode: "fast", language: "fa", rtl: false }), "<blockquote>🪐 <a href=\"https://t.me/IVAI_Llm_bot\">IVAI</a> · GLM 4.7 Flash · سریع</blockquote>");
   assert.equal(stabilizeRtlText("<b>🌐 تنظیمات IVAI</b>\n<b>مدل:</b> GPT-OSS\nپیام فارسی"), "<b>\u200f🌐 تنظیمات IVAI</b>\n<b>\u200fمدل:</b> GPT-OSS\n\u200fپیام فارسی");
   assert.equal(stabilizeRtlText("<b>English</b>\nPlain text"), "<b>English</b>\nPlain text");
   assert.equal(stabilizeRtlText("\u200fمتن فارسی"), "\u200fمتن فارسی");
@@ -2032,7 +2037,8 @@ test("keeps an English footer for a Persian prompt when the UI preference is Eng
     assert.equal(response.status, 200);
     assert.match(aiCalls[0].payload.messages[0].content, /Respond in Persian/);
     const final = calls.find((call) => /sendRichMessage$/.test(call.url));
-    assert.match(final.body.rich_message.html, /GLM 4\.7 Flash · Fast<\/blockquote>/);
+    assert.match(final.body.rich_message.html, /GLM 4\.7 Flash · Fast\u2069<\/blockquote>/);
+    assert.match(final.body.rich_message.html, /<blockquote>\u200f\u2066🪐/);
     assert.doesNotMatch(final.body.rich_message.html, /سریع/);
   } finally {
     globalThis.fetch = originalFetch;

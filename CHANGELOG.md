@@ -2,12 +2,16 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.11.3] - 2026-11-14
+
+### Fixed
+
+- **Footers follow the answer's direction:** the footer (and the BYOK fallback notice) followed the stored UI language, so an English footer inside a Persian answer rendered left-aligned with its IVAI/model/mode sequence possibly reversed. `responseMeta` now takes the answer's direction: an RTL answer pins the footer with RLM + LRI isolate (right-aligned, sequence intact), and the fallback notice gets the same RLM. Applies to text, media, guest, and inline answers; the plain fallback benefits too.
 ## [3.11.2] - 2026-11-14
 
 ### Added
 
 - **Persistent BYOK indicator (Phase 2):** while My API is active, a notification message stays in the private chat — «🔑 Using your API — {name} · {model}» with a ⏹ Stop BYOK button. Switching the active config or model deletes the old indicator and sends a fresh one (exactly one at a time); Stop deactivates BYOK, deletes the indicator, and confirms with one short line («Back to IVAI models.»). No pin, no self-heal, no in-place edit — if the user deletes the message by hand, nothing re-sends it. Disabling or removing the active config clears the indicator too.
-
 ## [3.11.1] - 2026-11-14
 
 ### Fixed

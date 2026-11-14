@@ -709,7 +709,7 @@ async function handleGuestMessage(message, env) {
   try {
     if (!usage.allowed) throw new Error("RATE_LIMIT");
     const result = await generateReply({ text: prompt, selectedMode: MODES.GUEST, language, context: [] }, env);
-    text = `${renderStandardAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: MODES.GUEST, language })}`;
+    text = `${renderStandardAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: MODES.GUEST, language, rtl: ["fa", "ar"].includes(language) })}`;
   } catch (error) {
     text = safeError(error) === "RATE_LIMIT" ? busyText(language, usage.resetInSeconds) : responseText(language, "temporary");
   }
@@ -1680,12 +1680,16 @@ async function processText(message, env) {
     await typing?.stop();
     await saveConversationSession(key, [...context, { role: "user", content: text }, { role: "assistant", content: result.text }], env, { session, language: responseLanguage });
       // Groups never carry the model/mode footer (v3.5.0); private chats do.
-      const footer = isGroup ? "" : `\n\n${responseMeta({ model: result.model, mode: result.mode, language: uiLanguage })}`;
-      const byokNotice = result.fellBackFromByok ? `\n\n${responseText(uiLanguage, "byokFallback")}` : "";
+      // The footer follows the ANSWER's direction, not the UI language: an
+      // English footer inside a Persian answer otherwise renders
+      // left-aligned with its sequence possibly reversed (v3.11.3).
+      const answerRtl = ["fa", "ar"].includes(responseLanguage);
+      const footer = isGroup ? "" : `\n\n${responseMeta({ model: result.model, mode: result.mode, language: uiLanguage, rtl: answerRtl })}`;
+      const byokNotice = result.fellBackFromByok ? `\n\n${answerRtl ? "\u200f" : ""}${responseText(uiLanguage, "byokFallback")}` : "";
       const finalText = `${renderStandardAiText(result.text)}${byokNotice}${footer}`;
       // Keep the existing metadata block as-is: nesting a blockquote inside a Rich HTML
       // footer is not needed and can reduce parser compatibility across Telegram clients.
-      const richFinalText = `${renderRichAiText(result.text, { allowDetails: richDetailsRequested, allowMath: [MODES.DEEP, MODES.CODE].includes(result.mode) })}${byokNotice}\n${responseMeta({ model: result.model, mode: result.mode, language: uiLanguage })}`;
+      const richFinalText = `${renderRichAiText(result.text, { allowDetails: richDetailsRequested, allowMath: [MODES.DEEP, MODES.CODE].includes(result.mode) })}${byokNotice}\n${responseMeta({ model: result.model, mode: result.mode, language: uiLanguage, rtl: answerRtl })}`;
       if (finalText.length <= APP.maxTelegramText) {
         if (richDraftActive) {
           try {
@@ -1803,12 +1807,12 @@ async function processMedia(message, env) {
     }
     if (result.provider === "byok" && byokConfig?.authFailures > 0) resetUserApiAuthFailures(userId, env, byokConfig.configId).catch(() => {});
     if (result.byokAuthFailed) markUserApiConfigInvalid(userId, env, {}, byokConfig?.configId).catch(() => {});
-    const byokNotice = result.fellBackFromByok ? `\n\n${responseText(language, "byokFallback")}` : "";
+    const byokNotice = result.fellBackFromByok ? `\n\n${["fa", "ar"].includes(language) ? "\u200f" : ""}${responseText(language, "byokFallback")}` : "";
     await typing?.stop();
     await sendMessage(env, {
       chatId,
       // Groups never carry the model/mode footer (v3.5.0); private chats do.
-      text: `${prefix}${renderStandardAiText(result.text)}${byokNotice}${isGroup ? "" : `\n\n${responseMeta({ model: result.model, language })}`}`,
+      text: `${prefix}${renderStandardAiText(result.text)}${byokNotice}${isGroup ? "" : `\n\n${responseMeta({ model: result.model, language, rtl: ["fa", "ar"].includes(language) })}`}`,
       replyTo: message.message_id,
       ...delivery
     });
@@ -1861,7 +1865,7 @@ async function handleInlineQuery(query, env) {
         id: token,
         title: "IVAI",
         description: result.text.slice(0, 100),
-        input_message_content: { message_text: `${renderStandardAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: result.mode, language })}`, parse_mode: "HTML", disable_web_page_preview: true }
+        input_message_content: { message_text: `${renderStandardAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: result.mode, language, rtl: ["fa", "ar"].includes(language) })}`, parse_mode: "HTML", disable_web_page_preview: true }
       }]
     });
   } catch (error) {

@@ -712,13 +712,17 @@ export function shortModelLabel(model = "") {
   return compact.length > 34 ? `${compact.slice(0, 31)}…` : compact;
 }
 
-export function responseMeta({ model, mode, language = "en" }) {
+export function responseMeta({ model, mode, language = "en", rtl = null }) {
   const detail = mode ? ` · ${escapeHtml(modeLabel(mode, language))}` : "";
-  // Rich messages use is_rtl for Persian and Arabic. Isolate the compact metadata
-  // run so Telegram's bidi renderer does not reverse the IVAI/model/mode sequence.
-  const isolate = language === "fa" || language === "ar";
-  const prefix = isolate ? "\u2066" : ""; // Left-to-right isolate
-  const suffix = isolate ? "\u2069" : ""; // Pop directional isolate
+  // The footer follows the ANSWER's direction, not the UI language: an
+  // English footer inside a Persian answer otherwise renders left-aligned
+  // with its IVAI/model/mode sequence possibly reversed. RLM (U+200F) makes
+  // the paragraph RTL (right-aligned) and the LRI/PDI isolate keeps the
+  // compact Latin run in its own order. Callers pass rtl from the answer
+  // language; without it the UI language decides, as before.
+  const isRtl = rtl ?? (language === "fa" || language === "ar");
+  const prefix = isRtl ? "\u200f\u2066" : ""; // Right-to-left mark + left-to-right isolate
+  const suffix = isRtl ? "\u2069" : ""; // Pop directional isolate
   return `<blockquote>${prefix}🪐 <a href="https://t.me/IVAI_Llm_bot">IVAI</a> · ${escapeHtml(shortModelLabel(model))}${detail}${suffix}</blockquote>`;
 }
 
