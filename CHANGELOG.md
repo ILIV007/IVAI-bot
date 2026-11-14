@@ -2,6 +2,13 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.9.3] - 2026-11-14
+
+### Fixed
+
+- The key-saved message no longer tells the user to test the connection to activate it — activation runs no test (v3.9.2), so the message now says to pick a model instead ("Pick a model and you're ready — no test needed."). This was the last live copy contradicting the owner's no-test decision.
+- The activation confirmation is one short message with a green tick ("✅ My API is active" + config line + fallback line) followed by a separate "Ready! 🚀" message below it. The manage screen is no longer concatenated into the confirmation — it repeated the config line and the ready line and turned the message into a wall of text. The manage keyboard stays attached, so Test / Change model / Rename / Remove remain one tap away.
+
 ## [3.9.2] - 2026-11-14
 
 ### Changed

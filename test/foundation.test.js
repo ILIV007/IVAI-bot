@@ -241,8 +241,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.9.2 release version", () => {
-  assert.equal(APP.version, "3.9.2");
+test("declares the official v3.9.3 release version", () => {
+  assert.equal(APP.version, "3.9.3");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -5016,9 +5016,15 @@ test("custom endpoint flow normalizes the URL, collects the model, and activates
     assert.equal(await getActiveUserApiConfigId(42, env), customId);
     assert.deepEqual((await getUserApiConfigMeta(42, env)).customModels, ["my-custom-model-1"]);
     assert.equal(calls.some((call) => String(call.url).includes("api.example.com")), false);
-    const sent = calls.filter((call) => /sendMessage$/.test(call.url)).at(-1);
-    assert.match(sent.body.text, /My API is active/);
-    assert.match(sent.body.text, /start chatting/);
+    // The confirmation is one short message with a green tick — the manage
+    // screen is no longer concatenated into it — followed by a separate
+    // "Ready!" message below it (owner feedback 2026-11-14).
+    const sends = calls.filter((call) => /sendMessage$/.test(call.url));
+    const confirmation = sends.find((call) => /My API is active/.test(call.body.text));
+    assert.match(confirmation.body.text, /My API is active/);
+    assert.doesNotMatch(confirmation.body.text, /start chatting/);
+    assert.doesNotMatch(confirmation.body.text, /My API 1/);
+    assert.equal(sends.at(-1).body.text, "Ready! 🚀");
   } finally {
     globalThis.fetch = originalFetch;
     db.close();
@@ -5039,14 +5045,16 @@ test("activating a config makes no test call: a failing endpoint still activates
     assert.equal(calls.some((call) => String(call.url).includes("api.groq.com")), false);
     const edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
     assert.match(edit.body.text, /My API is active/);
-    assert.match(edit.body.text, /start chatting/);
+    assert.doesNotMatch(edit.body.text, /start chatting/);
+    const ready = calls.filter((call) => /sendMessage$/.test(call.url)).at(-1);
+    assert.equal(ready.body.text, "Ready! 🚀");
   } finally {
     globalThis.fetch = originalFetch;
     db.close();
   }
 });
 
-test("model menu lists the preset catalog plus added models, marks the active one, and picking one activates with the ready line", async () => {
+test("model menu lists the preset catalog plus added models, marks the active one, and picking one activates with a green tick and a separate Ready message", async () => {
   const originalFetch = globalThis.fetch;
   const { db, env, calls, fetchMock } = byokWorkerEnv();
   globalThis.fetch = fetchMock;
@@ -5064,13 +5072,16 @@ test("model menu lists the preset catalog plus added models, marks the active on
     assert.ok(buttons.some((button) => button.text === "my-groq-extra-1" && button.callback_data === `byok:model:${configId}:3`));
     assert.ok(buttons.some((button) => button.callback_data === `byok:model:${configId}:other`));
 
-    // Picking the added model activates it and says it is ready to use.
+    // Picking the added model activates it: a short green-tick confirmation
+    // plus a separate "Ready!" message below it.
     await postGroupUpdate(env, privateCallbackUpdate(5622, `byok:model:${configId}:3`));
     assert.equal((await getUserApiConfigMeta(42, env)).model, "my-groq-extra-1");
     edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
     assert.match(edit.body.text, /My API is active/);
-    assert.match(edit.body.text, /start chatting/);
+    assert.doesNotMatch(edit.body.text, /start chatting/);
     assert.match(edit.body.text, /● <b>Groq<\/b> · <code>my-groq-extra-1<\/code>/);
+    const ready = calls.filter((call) => /sendMessage$/.test(call.url)).at(-1);
+    assert.equal(ready.body.text, "Ready! 🚀");
 
     // Reopening the menu marks the active model.
     await postGroupUpdate(env, privateCallbackUpdate(5623, `byok:models:${configId}`));

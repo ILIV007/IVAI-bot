@@ -731,8 +731,8 @@ function byokKeyFormatText(language, preset) {
 }
 
 function byokKeySavedText(language, preset) {
-  if (language === "fa") return `<b>✓ کلید ${escapeHtml(preset.label)} ذخیره شد</b>\n\n${byokTrustLine(language)}\n\nحالا اتصال را آزمایش کنید تا فعال شود.`;
-  return `<b>✓ ${escapeHtml(preset.label)} key saved</b>\n\n${byokTrustLine(language)}\n\nNow test the connection to activate it.`;
+  if (language === "fa") return `<b>✓ کلید ${escapeHtml(preset.label)} ذخیره شد</b>\n\n${byokTrustLine(language)}\n\nمدل را انتخاب کنید و آماده‌اید — نیازی به تست نیست.`;
+  return `<b>✓ ${escapeHtml(preset.label)} key saved</b>\n\n${byokTrustLine(language)}\n\nPick a model and you're ready — no test needed.`;
 }
 
 function byokAskModelText(language) {
@@ -745,8 +745,26 @@ function byokCancelledText(language) {
 }
 
 function byokActivatedText(language, preset, model) {
-  if (language === "fa") return `<b>✓ API من فعال شد</b>\n\n● <b>${escapeHtml(preset.label)}</b> · <code>${escapeHtml(model)}</code>\n\nاز این به بعد در چت خصوصی با API شما جواب می‌دهم. اگر جواب نداد، خودکار با مدل‌های IVAI ادامه می‌دهم.\n\nAPI و مدل آماده‌اند — شروع به چت کنید!`;
-  return `<b>✓ My API is active</b>\n\n● <b>${escapeHtml(preset.label)}</b> · <code>${escapeHtml(model)}</code>\n\nFrom now on, private chats answer through your API. If it doesn't respond, I automatically fall back to IVAI models.\n\nYour API and model are ready — start chatting!`;
+  if (language === "fa") return `<b>✅ API من فعال شد</b>\n\n● <b>${escapeHtml(preset.label)}</b> · <code>${escapeHtml(model)}</code>\n\nاز این به بعد در چت خصوصی با API شما جواب می‌دهم. اگر جواب نداد، خودکار با مدل‌های IVAI ادامه می‌دهم.`;
+  return `<b>✅ My API is active</b>\n\n● <b>${escapeHtml(preset.label)}</b> · <code>${escapeHtml(model)}</code>\n\nFrom now on, private chats answer through your API. If it doesn't respond, I automatically fall back to IVAI models.`;
+}
+
+function byokReadyText(language) {
+  return language === "fa" ? "آماده! 🚀" : "Ready! 🚀";
+}
+
+// Activation confirmation (owner feedback 2026-11-14): one short message
+// with a green tick, so the result is obvious in the first second, followed
+// by a separate "Ready!" message below it. The manage screen is NOT
+// concatenated here anymore — it repeated the config line and the ready line
+// and turned the confirmation into a wall of text. The manage keyboard stays
+// attached, so Test / Change model / Rename / Remove remain one tap away;
+// the full manage screen still opens from the main menu.
+async function sendByokActivated(env, { chatId, messageId, language, preset, model, keyboard }) {
+  const text = byokActivatedText(language, preset, model);
+  if (messageId) await editMessage(env, { chatId, messageId, text, keyboard });
+  else await sendMessage(env, { chatId, text, keyboard });
+  await sendMessage(env, { chatId, text: byokReadyText(language) });
 }
 
 function byokTestFailedText(language, error) {
@@ -1005,7 +1023,7 @@ async function handleByokPendingMessage(message, env) {
     await setUserApiConfigEnabled(userId, true, env, pending.configId);
     await setActiveUserApiConfig(userId, pending.configId, env);
     const view = await byokManageView(language, userId, env, pending.configId);
-    await sendMessage(env, { chatId, text: `${byokActivatedText(language, preset, text)}\n\n${view.text}`, keyboard: view.keyboard });
+    await sendByokActivated(env, { chatId, language, preset, model: text, keyboard: view.keyboard });
     return true;
   }
   return false;
@@ -1956,7 +1974,7 @@ async function processCallback(query, env) {
       await setUserApiConfigEnabled(userId, true, env, configId);
       await setActiveUserApiConfig(userId, configId, env);
       const view = await byokManageView(language, userId, env, configId);
-      await editMessage(env, { chatId, messageId, text: `${byokActivatedText(language, byokPreset(meta.preset), meta.model)}\n\n${view.text}`, keyboard: view.keyboard });
+      await sendByokActivated(env, { chatId, messageId, language, preset: byokPreset(meta.preset), model: meta.model, keyboard: view.keyboard });
       return;
     }
     const view = byokModelView(language, meta);
@@ -1995,7 +2013,7 @@ async function processCallback(query, env) {
     await setUserApiConfigEnabled(userId, true, env, configId);
     await setActiveUserApiConfig(userId, configId, env);
     const view = await byokManageView(language, userId, env, configId);
-    await editMessage(env, { chatId, messageId, text: `${byokActivatedText(language, preset, model)}\n\n${view.text}`, keyboard: view.keyboard });
+    await sendByokActivated(env, { chatId, messageId, language, preset, model, keyboard: view.keyboard });
     return;
   }
   if (data.startsWith("byok:enable:")) {
@@ -2014,7 +2032,7 @@ async function processCallback(query, env) {
     await setUserApiConfigEnabled(userId, true, env, configId);
     await setActiveUserApiConfig(userId, configId, env);
     const view = await byokManageView(language, userId, env, configId);
-    await editMessage(env, { chatId, messageId, text: `${byokActivatedText(language, byokPreset(meta.preset), meta.model)}\n\n${view.text}`, keyboard: view.keyboard });
+    await sendByokActivated(env, { chatId, messageId, language, preset: byokPreset(meta.preset), model: meta.model, keyboard: view.keyboard });
     return;
   }
   if (data === "byok:disable") {
