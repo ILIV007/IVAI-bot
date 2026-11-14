@@ -1,9 +1,9 @@
-# Current release status — IVAI Bot v3.4.0
+# Current release status — IVAI Bot v3.14.1
 
-**Last documentation review:** 22 August 2026  
+**Last documentation review:** 14 November 2026  
 **Source of truth:** the `main` branch, [`CHANGELOG.md`](../CHANGELOG.md), the CI result for the current commit, and the production Workers Build connected to `main`.
 
-This document is the concise operational companion to the project’s historical research, audit, debugging, and launch-readiness notes. Release v3.3.46 completes the Mode/Route separation through the provider-execution layer: **Response mode** and **Model route** are distinct state concepts in Telegram and Terminal. Mode controls only the response profile, answer style and footer; route is either `Auto` (IVAI selects an eligible free model/provider independently of Mode) or `Pinned` (a selected free model is preferred). Selecting a model cannot silently change Mode, while `/auto` resets both to defaults and `/model off` changes only the route. It retains failure-isolated Worker cron steps and provider-parity hardening. Historical documents remain useful evidence for why a control exists; they do not supersede the current code or this release summary.
+This document is the concise operational companion to the project’s historical research, audit, debugging, and launch-readiness notes. Release v3.14.1 pins the private-chat footer left (LTR Latin signature), makes Auto answers short by default (700-token backstop), caps channel-post comments at 3 sentences / 70 words in code with an 800-token budget, and stops the typing indicator from blocking the thinking draft. The v3.14.0 free-model refresh stands behind it: channel comments run on Qwen3.8 27B, group replies keep the GLM 4.7 Flash pin, and the Google automatic default is Gemini 3.8 Flash. Historical documents remain useful evidence for why a control exists; they do not supersede the current code or this release summary.
 
 ## Release posture
 
