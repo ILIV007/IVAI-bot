@@ -1,5 +1,5 @@
 import { claimReengagementUsers, markReengagementFailure, markReengagementSent } from "./storage.js";
-import { sendRichMessage, telegram } from "./telegram.js";
+import { richLineBreaks, sendRichMessage, telegram } from "./telegram.js";
 
 const COPY = Object.freeze({
   en: { text: "<b>🪐 Still here, whenever you need me</b>\n\nGot a question, an idea, or a task? Send it anytime — free AI, in your language, at your pace.", open: "Open IVAI", pause: "Pause reminders" },
@@ -36,7 +36,7 @@ export async function processReengagementBatch(env, { limit = 5, now } = {}) {
     };
     try {
       try {
-        await sendRichMessage(env, { chatId: user.userId, html: copy.text, keyboard, rtl: ["fa", "ar"].includes(user.language) });
+        await sendRichMessage(env, { chatId: user.userId, html: richLineBreaks(copy.text), keyboard, rtl: ["fa", "ar"].includes(user.language) });
       } catch {
         await telegram(env, "sendMessage", {
           chat_id: user.userId,

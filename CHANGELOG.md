@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.11.1] - 2026-11-14
+
+### Fixed
+
+- **Rich screens keep their line breaks:** Rich Messages parse HTML as real HTML, so a raw newline is collapsible whitespace — the v3.11.0 screens (menu, settings, My API, Help, reminders, admin) rendered as one flowing paragraph with no blank lines. Screen copy is now converted (`\n` → `<br>`) for the Rich send only; the plain fallback keeps the raw text, and AI answers are untouched (they already emit real blocks).
+
 ## [3.11.0] - 2026-11-14
 
 ### Changed

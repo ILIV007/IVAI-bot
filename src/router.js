@@ -44,7 +44,7 @@ import {
   upsertUser,
   writeAdminAudit
 } from "./storage.js";
-import { adminKeyboard, answerCallback, byokCancelKeyboard, byokListKeyboard, byokManageKeyboard, byokModelKeyboard, byokPresetKeyboard, byokRemoveConfirmKeyboard, byokTestFailedKeyboard, deleteMessage, editMessage, editRichMessage, ensureTerminalMenuButton, escapeHtml, languageKeyboard, languageMenuText, menuText, modelPickerKeyboard, modelPickerText, modelPickToken, modelRouteLabel, modelSelectionText, modeKeyboard, modeLabel, pickWelcomeSticker, requiredMembershipKeyboard, requiredMembershipText, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendSticker, sendTyping, settingsKeyboard, splitText, startKeyboard, startThinkingAnimation, startTypingRefresher, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
+import { adminKeyboard, answerCallback, byokCancelKeyboard, byokListKeyboard, byokManageKeyboard, byokModelKeyboard, byokPresetKeyboard, byokRemoveConfirmKeyboard, byokTestFailedKeyboard, deleteMessage, editMessage, editRichMessage, ensureTerminalMenuButton, escapeHtml, languageKeyboard, languageMenuText, menuText, modelPickerKeyboard, modelPickerText, modelPickToken, modelRouteLabel, modelSelectionText, modeKeyboard, modeLabel, pickWelcomeSticker, requiredMembershipKeyboard, requiredMembershipText, responseMeta, richLineBreaks, sendMessage, sendRichMessage, sendRichMessageDraft, sendSticker, sendTyping, settingsKeyboard, splitText, startKeyboard, startThinkingAnimation, startTypingRefresher, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
 import { renderRichAiText, renderStandardAiText } from "./rich-renderer.js";
 
 const COMMAND_MODE = Object.freeze({
@@ -93,7 +93,7 @@ async function sendMembershipRequired(message, language, membership, env) {
   try {
     await sendRichMessage(env, {
       chatId: message.chat.id,
-      html: text,
+      html: richLineBreaks(text),
       keyboard,
       replyTo: message.message_id,
       rtl: ["fa", "ar"].includes(language),
@@ -112,7 +112,7 @@ async function sendMembershipRequired(message, language, membership, env) {
 async function sendRichScreen(env, { chatId, html, keyboard, language = "en", plainText = null, replyTo, context = {}, rich = true }) {
   if (rich) {
     try {
-      await sendRichMessage(env, { chatId, html, keyboard, replyTo, rtl: ["fa", "ar"].includes(language), ...context });
+      await sendRichMessage(env, { chatId, html: richLineBreaks(html), keyboard, replyTo, rtl: ["fa", "ar"].includes(language), ...context });
       return;
     } catch { /* Fall through to the plain message. */ }
   }
@@ -142,7 +142,7 @@ async function editRichScreen(env, message, { html, keyboard, language = "en" })
   const messageId = message?.message_id;
   if (message?.chat?.type === "private") {
     try {
-      await editRichMessage(env, { chatId, messageId, html, keyboard, rtl: ["fa", "ar"].includes(language), businessConnectionId: message?.business_connection_id });
+      await editRichMessage(env, { chatId, messageId, html: richLineBreaks(html), keyboard, rtl: ["fa", "ar"].includes(language), businessConnectionId: message?.business_connection_id });
       return;
     } catch { /* Fall through to the plain edit. */ }
   }

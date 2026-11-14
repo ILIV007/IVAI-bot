@@ -17,7 +17,7 @@ import { getRequiredChannelMembership } from "../src/membership.js";
 import { renderRichAiText, renderStandardAiText } from "../src/rich-renderer.js";
 import { renderAppPage } from "../src/app-page.js";
 import { allowUsage, claimUpdate, cleanupRuntimeGuards, hasValidWebhookSecret, parseAdminIds, releaseUpdateClaim, reserveWorkersAiBudget } from "../src/security.js";
-import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelPickToken, modelSelectionText, pickWelcomeSticker, secureRandomIndex, requiredMembershipKeyboard, responseMeta, settingsKeyboard, shortModelLabel, splitText, stabilizeRtlText, startKeyboard, startThinkingAnimation, startTypingRefresher, telegram, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
+import { feedbackKeyboard, languageKeyboard, languageMenuText, menuText, modeKeyboard, modeLabel, modelPickerKeyboard, modelPickerText, modelPickToken, modelSelectionText, pickWelcomeSticker, secureRandomIndex, requiredMembershipKeyboard, responseMeta, richLineBreaks, settingsKeyboard, shortModelLabel, splitText, stabilizeRtlText, startKeyboard, startThinkingAnimation, startTypingRefresher, telegram, terminalKeyboard, thinkingText, welcomeText } from "../src/telegram.js";
 
 class KV {
   constructor() { this.values = new Map(); }
@@ -254,8 +254,14 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.11.0 release version", () => {
-  assert.equal(APP.version, "3.11.0");
+test("declares the official v3.11.1 release version", () => {
+  assert.equal(APP.version, "3.11.1");
+});
+
+test("richLineBreaks converts newlines to <br> for Rich sends (v3.11.1)", () => {
+  assert.equal(richLineBreaks("<b>🎛 IVAI menu</b>\n\n<b>Your setup</b>\nResponse mode: <code>Auto</code>"), "<b>🎛 IVAI menu</b><br><br><b>Your setup</b><br>Response mode: <code>Auto</code>");
+  assert.equal(richLineBreaks("<b>📊 IVAI Operations</b>\n<table><tbody></tbody></table>"), "<b>📊 IVAI Operations</b><br><table><tbody></tbody></table>");
+  assert.equal(richLineBreaks(""), "");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -651,6 +657,32 @@ test("sends Help as a Rich Message with a collapsible sessions section (v3.11.0)
     assert.match(reply.body.rich_message.html, /IVAI Help/);
     assert.match(reply.body.rich_message.html, /<details><summary>More about sessions<\/summary>/);
     assert.match(reply.body.rich_message.html, /\/models/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Rich screens keep their line breaks as <br> (v3.11.1)", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), body: JSON.parse(init.body) });
+    return new Response(JSON.stringify({ ok: true, result: { message_id: 79 } }), { status: 200 });
+  };
+  try {
+    const update = {
+      update_id: 24,
+      message: { message_id: 24, chat: { id: 42, type: "private" }, from: { id: 126679582, first_name: "Owner" }, text: "/help" }
+    };
+    const response = await worker.fetch(new Request("https://worker.test/", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "valid-secret" },
+      body: JSON.stringify(update)
+    }), baseEnv());
+    assert.equal(response.status, 200);
+    const reply = calls.find((call) => /sendRichMessage$/.test(call.url));
+    assert.match(reply.body.rich_message.html, /<br><br>/);
+    assert.equal(reply.body.rich_message.html.includes("\n"), false);
   } finally {
     globalThis.fetch = originalFetch;
   }

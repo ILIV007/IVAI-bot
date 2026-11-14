@@ -1,5 +1,5 @@
 import { claimDueSecretaryTasks, getUserSettings, markSecretaryReminderFailed, markSecretaryReminderSent } from "./storage.js";
-import { sendRichMessage, telegram } from "./telegram.js";
+import { richLineBreaks, sendRichMessage, telegram } from "./telegram.js";
 
 function reminderText(task, language) {
   const html = language === "fa"
@@ -28,7 +28,7 @@ export async function processSecretaryReminderBatch(env, { limit = 4, now } = {}
       const html = reminderText(task, language);
       let sent;
       try {
-        sent = await sendRichMessage(env, { chatId: task.chatId, html, rtl: language === "fa" });
+        sent = await sendRichMessage(env, { chatId: task.chatId, html: richLineBreaks(html), rtl: language === "fa" });
       } catch {
         sent = await telegram(env, "sendMessage", {
           chat_id: task.chatId,

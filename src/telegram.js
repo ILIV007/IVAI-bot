@@ -539,6 +539,17 @@ export async function sendRichMessage(env, { chatId, html, replyTo, keyboard, th
   });
 }
 
+// Rich Messages parse their HTML as real HTML: a raw newline is collapsible
+// whitespace, not a line break — unlike parse_mode=HTML, where \n breaks the
+// line. Screen copy is written with \n separators, so a Rich send of the
+// same string renders as one flowing paragraph (v3.11.0 bug: the menu lost
+// every blank line). Convert newlines to <br> for the Rich attempt only;
+// the plain fallback keeps the raw text, where \n still breaks lines.
+// AI answers never pass through here — renderRichAiText emits real blocks.
+export function richLineBreaks(html = "") {
+  return String(html).replaceAll("\n", "<br>");
+}
+
 export async function sendRichMessageDraft(env, { chatId, draftId, html, threadId, rtl = false }) {
   return telegram(env, "sendRichMessageDraft", {
     chat_id: chatId,
