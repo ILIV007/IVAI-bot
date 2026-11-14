@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.13.1] - 2026-11-14
+
+### Changed
+
+- **Stop BYOK ends with a Ready message:** tapping Stop now says «✅ IVAI is ready! 🚀» and invites the user to send a message — the old one-liner («Back to IVAI models.») only stated the switch. The indicator is still deleted on Stop, exactly as before.
+
 ## [3.13.0] - 2026-11-14
 
 ### Added

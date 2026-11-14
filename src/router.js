@@ -2209,11 +2209,12 @@ async function processCallback(query, env) {
     return;
   }
   if (data === "byok:stop") {
-    // Phase 2: Stop deactivates BYOK, deletes the indicator, and says so
-    // in one short line. No pin/self-heal/edit anywhere in this flow.
+    // Phase 2: Stop deactivates BYOK, deletes the indicator, and ends with
+    // a Ready message — IVAI is ready, chat with IVAI models now (v3.13.1).
+    // No pin/self-heal/edit anywhere in this flow.
     await setActiveUserApiConfig(userId, null, env);
     await clearByokIndicator(env, { userId, chatId });
-    const text = language === "fa" ? "برگشتیم به مدل‌های IVAI." : "Back to IVAI models.";
+    const text = language === "fa" ? "✅ IVAI آماده‌ست! 🚀\nپیام بفرستید — حالا با مدل‌های IVAI چت می‌کنید." : "✅ IVAI is ready! 🚀\nSend a message — you're chatting with IVAI models now.";
     await sendMessage(env, { chatId, text });
     return;
   }
