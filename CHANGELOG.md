@@ -2,6 +2,15 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.11.0] - 2026-11-14
+
+### Changed
+
+- **Messages refresh (Phase 3):** every bot message was rewritten with fresh English-first copy (Persian when the stored language is `fa`), per the owner's approved draft — welcome, menu, help, model picker, membership, settings, My API screens, task reminders, admin screens, and error/busy texts. One-line confirmations keep a single "✓ …" template and every empty state now names one next action.
+- **Rich Messages:** 13 screens are now Telegram Rich Messages with a plain-HTML fallback — membership confirmation, settings, My API list and manage (all three states), model menu, provider picker, task list, cron reminder, admin panel, admin stats (as a small table), and the free-policy page — plus a collapsible "More about sessions" section in Help. Callback-edited screens use `editMessageText` with `rich_message`; a Rich failure always falls back to plain, never to an error.
+- **Menu engine line:** the main menu shows which engine answers — the active My API config ("🔑 {name} · {model}") or "IVAI models".
+- **Quota transparency:** busy messages name the approximate reset window ("about 20 minutes", "about 1 hour") instead of a bare "busy" — the limiter now reports the wall-clock bucket reset; no quota numbers are ever shown.
+
 ## [3.9.3] - 2026-11-14
 
 ### Fixed

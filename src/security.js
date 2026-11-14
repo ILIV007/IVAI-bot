@@ -114,16 +114,20 @@ export async function releaseUpdateClaim(updateId, env) {
 }
 
 export async function allowUsage({ scope, id, limit, windowSeconds = 3600 }, env) {
-  if (!id) return { allowed: true, remaining: limit };
+  if (!id) return { allowed: true, remaining: limit, resetInSeconds: windowSeconds };
   const bucket = Math.floor(Date.now() / (windowSeconds * 1000));
+  // Buckets are wall-clock aligned, so the reset is computable here in one
+  // place: seconds until the current bucket ends (v3.11.0, S2 quota
+  // transparency — an approximate window only, never quota numbers).
+  const resetInSeconds = Math.max(1, Math.ceil(((bucket + 1) * windowSeconds * 1000 - Date.now()) / 1000));
   const next = await incrementRuntimeCounter({ scope: `rate:${scope}`, id, bucket, units: 1, limit, ttlSeconds: windowSeconds + 60 }, env);
-  if (next !== undefined) return next === null ? { allowed: false, remaining: 0 } : { allowed: true, remaining: Math.max(0, limit - next) };
-  if (!env.IVAI_KV) return { allowed: true, remaining: limit };
+  if (next !== undefined) return next === null ? { allowed: false, remaining: 0, resetInSeconds } : { allowed: true, remaining: Math.max(0, limit - next), resetInSeconds };
+  if (!env.IVAI_KV) return { allowed: true, remaining: limit, resetInSeconds };
   const key = `rate:${scope}:${id}:${bucket}`;
   const current = Number(await env.IVAI_KV.get(key) || 0);
-  if (current >= limit) return { allowed: false, remaining: 0 };
+  if (current >= limit) return { allowed: false, remaining: 0, resetInSeconds };
   await env.IVAI_KV.put(key, String(current + 1), { expirationTtl: windowSeconds + 60 });
-  return { allowed: true, remaining: limit - current - 1 };
+  return { allowed: true, remaining: limit - current - 1, resetInSeconds };
 }
 
 export async function reserveWorkersAiBudget(units, env) {

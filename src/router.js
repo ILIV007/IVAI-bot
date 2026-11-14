@@ -44,7 +44,7 @@ import {
   upsertUser,
   writeAdminAudit
 } from "./storage.js";
-import { adminKeyboard, answerCallback, byokCancelKeyboard, byokListKeyboard, byokManageKeyboard, byokModelKeyboard, byokPresetKeyboard, byokRemoveConfirmKeyboard, byokTestFailedKeyboard, deleteMessage, editMessage, ensureTerminalMenuButton, escapeHtml, languageKeyboard, languageMenuText, menuText, modelPickerKeyboard, modelPickerText, modelPickToken, modelRouteLabel, modelSelectionText, modeKeyboard, modeLabel, pickWelcomeSticker, requiredMembershipKeyboard, requiredMembershipText, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendSticker, sendTyping, settingsKeyboard, splitText, startKeyboard, startThinkingAnimation, startTypingRefresher, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
+import { adminKeyboard, answerCallback, byokCancelKeyboard, byokListKeyboard, byokManageKeyboard, byokModelKeyboard, byokPresetKeyboard, byokRemoveConfirmKeyboard, byokTestFailedKeyboard, deleteMessage, editMessage, editRichMessage, ensureTerminalMenuButton, escapeHtml, languageKeyboard, languageMenuText, menuText, modelPickerKeyboard, modelPickerText, modelPickToken, modelRouteLabel, modelSelectionText, modeKeyboard, modeLabel, pickWelcomeSticker, requiredMembershipKeyboard, requiredMembershipText, responseMeta, sendMessage, sendRichMessage, sendRichMessageDraft, sendSticker, sendTyping, settingsKeyboard, splitText, startKeyboard, startThinkingAnimation, startTypingRefresher, telegram, terminalKeyboard, thinkingText, welcomeText } from "./telegram.js";
 import { renderRichAiText, renderStandardAiText } from "./rich-renderer.js";
 
 const COMMAND_MODE = Object.freeze({
@@ -61,13 +61,13 @@ const COMMAND_MODE = Object.freeze({
 });
 
 function membershipConfirmedText(language) {
-  return language === "fa" ? "<b>✓ عضویت تأیید شد</b>\n\nاکنون می‌توانید از IVAI استفاده کنید." : language === "ar" ? "<b>✓ تم تأكيد العضوية</b>\n\nيمكنك الآن استخدام IVAI." : "<b>✓ Membership confirmed</b>\n\nYou can now use IVAI.";
+  return language === "fa" ? "<b>✓ عضویت تأیید شد!</b>\nحالا می‌توانید از IVAI استفاده کنید. برای شروع، هر سؤالی بفرستید." : language === "ar" ? "<b>✓ تم تأكيد العضوية!</b>\n\nيمكنك الآن استخدام IVAI. أرسل أي سؤال للبدء." : "<b>✓ You're in!</b>\nMembership confirmed — IVAI is ready when you are. Send any question to start.";
 }
 
 function membershipCheckAlertText(language, { checkFailed = false } = {}) {
-  if (language === "fa") return checkFailed ? "بررسی از Telegram تأیید نشد. بات باید administrator کانال @ILIVIR3 باشد." : "عضویت شما هنوز در کانال تأیید نشده است.";
-  if (language === "ar") return checkFailed ? "تعذر التحقق من Telegram. يجب أن يكون البوت مشرفًا في @ILIVIR3." : "لم يتم تأكيد عضويتك في القناة بعد.";
-  return checkFailed ? "Telegram could not verify membership. The bot must be an administrator of @ILIVIR3." : "Your channel membership is not active yet.";
+  if (language === "fa") return checkFailed ? "تلگرام فعلاً نتوانست بررسی کند — بات باید ادمین کانال @ILIVIR3 باشد." : "هنوز عضو کانال نشده‌اید.";
+  if (language === "ar") return checkFailed ? "تعذّر على Telegram التحقق الآن — يجب أن يكون البوت مشرفًا في @ILIVIR3." : "لم تنضم إلى القناة بعد.";
+  return checkFailed ? "Telegram couldn't check that just now — the bot needs to be an admin of @ILIVIR3." : "You haven't joined the channel yet.";
 }
 
 async function isRequiredChannelMember(userId, env) {
@@ -104,25 +104,85 @@ async function sendMembershipRequired(message, language, membership, env) {
   }
 }
 
+// Fresh Rich sends with a plain fallback (v3.11.0). Private chats try the
+// Rich Message first; groups and any Rich failure keep the plain path.
+// The copy is identical either way — only the rendering changes. plainText
+// overrides the fallback body when the Rich HTML is not valid plain HTML
+// (e.g. tables).
+async function sendRichScreen(env, { chatId, html, keyboard, language = "en", plainText = null, replyTo, context = {}, rich = true }) {
+  if (rich) {
+    try {
+      await sendRichMessage(env, { chatId, html, keyboard, replyTo, rtl: ["fa", "ar"].includes(language), ...context });
+      return;
+    } catch { /* Fall through to the plain message. */ }
+  }
+  await sendMessage(env, { chatId, text: plainText ?? html, keyboard, replyTo, ...context });
+}
+
 // Private entry-point messages (start/menu/help and similar) carry their
 // keyboard inside a Rich Message instead of as buttons under a plain message.
 // Groups and any Rich failure keep the plain sendMessage path.
 async function sendEntryMessage(env, message, { html, keyboard, language = "en" }) {
-  const context = messageSendContext(message);
-  if (message.chat?.type === "private") {
+  return sendRichScreen(env, {
+    chatId: message.chat.id,
+    html,
+    keyboard,
+    language,
+    replyTo: message.message_id,
+    context: messageSendContext(message),
+    rich: message.chat?.type === "private"
+  });
+}
+
+// Callback-edited screens go Rich the same way (v3.11.0): a Rich edit is an
+// editMessageText with rich_message instead of text. Private chats try Rich
+// first; groups and any Rich failure fall back to the plain edit.
+async function editRichScreen(env, message, { html, keyboard, language = "en" }) {
+  const chatId = message?.chat?.id;
+  const messageId = message?.message_id;
+  if (message?.chat?.type === "private") {
     try {
-      await sendRichMessage(env, {
-        chatId: message.chat.id,
-        html,
-        keyboard,
-        replyTo: message.message_id,
-        rtl: ["fa", "ar"].includes(language),
-        ...context
-      });
+      await editRichMessage(env, { chatId, messageId, html, keyboard, rtl: ["fa", "ar"].includes(language), businessConnectionId: message?.business_connection_id });
       return;
-    } catch { /* Fall through to the plain message. */ }
+    } catch { /* Fall through to the plain edit. */ }
   }
-  await sendMessage(env, { chatId: message.chat.id, text: html, keyboard, replyTo: message.message_id, ...context });
+  await editMessage(env, { chatId, messageId, text: html, keyboard, businessConnectionId: message?.business_connection_id });
+}
+
+// S1 (v3.11.0): the menu names the engine answering. The active BYOK config
+// (valid + enabled) wins; anything else reads as IVAI models. Fail-soft: a
+// storage failure never blocks the menu.
+async function menuEngineLabel(language, userId, env) {
+  const fallback = language === "fa" ? "مدل‌های IVAI" : language === "ar" ? "نماذج IVAI" : "IVAI models";
+  try {
+    const meta = await getUserApiConfigMeta(userId, env);
+    if (!meta || !meta.enabled || meta.status !== "valid" || !meta.model) return fallback;
+    return `🔑 ${meta.name} · ${meta.model}`;
+  } catch {
+    return fallback;
+  }
+}
+
+async function menuTextForUser(language, settings, userId, env) {
+  return menuText(language, { ...settings, engine: await menuEngineLabel(language, userId, env) });
+}
+
+// S2 (v3.11.0): when the limiter can say when the window resets, the busy
+// message says so instead of a bare "try again" — only an approximate window,
+// never the quota numbers.
+function busyText(language, resetInSeconds) {
+  const seconds = Number(resetInSeconds);
+  if (!Number.isFinite(seconds) || seconds <= 0) return responseText(language, "busy");
+  if (seconds < 3600) {
+    const minutes = Math.max(1, Math.ceil(seconds / 60));
+    return language === "fa"
+      ? `این مسیر رایگان فعلاً شلوغ است — حدود ${minutes} دقیقهٔ دیگر دوباره تلاش کنید.`
+      : `This free route is busy at the moment — please try again in ~${minutes} minutes.`;
+  }
+  const hours = Math.max(1, Math.ceil(seconds / 3600));
+  return language === "fa"
+    ? `این مسیر رایگان فعلاً شلوغ است — حدود ${hours} ساعت دیگر دوباره تلاش کنید.`
+    : `This free route is busy at the moment — please try again in ~${hours} hours.`;
 }
 
 async function answerInlineMembershipRequired(query, language, env) {
@@ -133,8 +193,8 @@ async function answerInlineMembershipRequired(query, language, env) {
     results: [{
       type: "article",
       id: "ivai-channel-required",
-      title: "Join @ILIVIR3 to use IVAI",
-      description: "Membership is required before AI requests are enabled.",
+      title: language === "fa" ? "برای استفاده از IVAI عضو @ILIVIR3 شوید" : "Join @ILIVIR3 to use IVAI",
+      description: language === "fa" ? "IVAI برای اعضای کانال رایگان است." : "IVAI is free for channel members.",
       input_message_content: { message_text: requiredMembershipText(language), parse_mode: "HTML" },
       reply_markup: requiredMembershipKeyboard(language)
     }]
@@ -640,7 +700,7 @@ async function handleGuestMessage(message, env) {
   if (!membership.allowed) {
     await telegram(env, "answerGuestQuery", {
       guest_query_id: guestQueryId,
-      result: { type: "article", id: "ivai-channel-required", title: "Join @ILIVIR3 to use IVAI", input_message_content: { message_text: requiredMembershipText(language), parse_mode: "HTML" }, reply_markup: requiredMembershipKeyboard(language) }
+      result: { type: "article", id: "ivai-channel-required", title: language === "fa" ? "برای استفاده از IVAI عضو @ILIVIR3 شوید" : "Join @ILIVIR3 to use IVAI", description: language === "fa" ? "IVAI برای اعضای کانال رایگان است." : "IVAI is free for channel members.", input_message_content: { message_text: requiredMembershipText(language), parse_mode: "HTML" }, reply_markup: requiredMembershipKeyboard(language) }
     });
     return;
   }
@@ -651,7 +711,7 @@ async function handleGuestMessage(message, env) {
     const result = await generateReply({ text: prompt, selectedMode: MODES.GUEST, language, context: [] }, env);
     text = `${renderStandardAiText(result.text)}\n\n${responseMeta({ model: result.model, mode: MODES.GUEST, language })}`;
   } catch (error) {
-    text = responseText(language, safeError(error) === "RATE_LIMIT" ? "busy" : "temporary");
+    text = safeError(error) === "RATE_LIMIT" ? busyText(language, usage.resetInSeconds) : responseText(language, "temporary");
   }
   await telegram(env, "answerGuestQuery", {
     guest_query_id: guestQueryId,
@@ -680,20 +740,20 @@ async function handleMessageReaction(reaction, env) {
 function responseText(language, key) {
   const fa = language === "fa";
   const values = {
-    noAccess: fa ? "<b>دسترسی ادمین ندارید.</b>" : "<b>Admin access is required.</b>",
-    invalidMode: fa ? "حالت انتخاب‌شده معتبر نیست." : "The requested mode is not valid.",
-    saved: fa ? "✓ تنظیمات ذخیره شد." : "✓ Setting saved.",
-    busy: fa ? "سهمیهٔ رایگان این مسیر فعلاً پر است؛ کمی بعد دوباره تلاش کنید." : "This free route is busy right now. Please try again shortly.",
-    temporary: fa ? "مشکلی موقت رخ داد. لطفاً دوباره تلاش کنید." : "A temporary problem occurred. Please try again.",
-    draftCreated: fa ? "✓ پیش‌نویس broadcast ساخته شد. ابتدا آن را بررسی کنید؛ انتشار خودکار نیست." : "✓ Broadcast draft created. Review it first; it has not been sent.",
-    confirmed: fa ? "✓ broadcast تأیید شد و آمادهٔ صف ارسال امن است." : "✓ Broadcast confirmed and ready for the safe delivery queue.",
-    cancelled: fa ? "✓ broadcast لغو شد." : "✓ Broadcast cancelled.",
-    feedbackSaved: fa ? "بازخورد شما ثبت شد." : "Your feedback was saved.",
-    unsupportedMedia: fa ? "این نوع پیام هنوز پشتیبانی نمی‌شود. فعلاً متن، عکس یا voice ارسال کنید." : "This message type is not supported yet. Please send text, a photo, or a voice message.",
-    retry: fa ? "برای بازتولید پاسخ، پیام اصلی را دوباره بفرستید." : "Please resend the original prompt to generate a new response.",
-    refreshFailed: fa ? "به‌روزرسانی مدل‌ها موقتاً ممکن نشد." : "The model catalog could not be refreshed right now.",
-    byokFallback: fa ? "⚠️ API شما جواب نداد، پس با مدل‌های IVAI جواب دادم." : "⚠️ Your API didn't respond, so I answered with IVAI models.",
-    byokFailure: fa ? "⚠️ API شما هم جواب نداد." : "⚠️ Your API didn't respond either."
+    noAccess: fa ? "<b>فقط ادمین.</b> این کار به حساب ادمین نیاز دارد." : "<b>Admin only.</b> This action needs an admin account.",
+    invalidMode: fa ? "چنین حالتی نیست. یکی را از منو انتخاب کنید." : "That mode isn't available. Pick one from the menu.",
+    saved: fa ? "✓ ذخیره شد." : "✓ Saved.",
+    busy: fa ? "این مسیر رایگان فعلاً شلوغ است — کمی بعد دوباره تلاش کنید." : "This free route is busy at the moment — please try again in a bit.",
+    temporary: fa ? "از سمت ما مشکلی پیش آمد. لطفاً دوباره تلاش کنید." : "Something went wrong on our side. Please try again.",
+    draftCreated: fa ? "✓ پیش‌نویس broadcast ساخته شد. هنوز چیزی ارسال نشده — اول بررسی کنید." : "✓ Broadcast draft created. Nothing is sent yet — review it first.",
+    confirmed: fa ? "✓ broadcast تأیید شد. در صف ارسال امن قرار گرفت." : "✓ Broadcast confirmed. It's queued for safe delivery.",
+    cancelled: fa ? "✓ broadcast لغو شد. چیزی ارسال نشد." : "✓ Broadcast cancelled. Nothing was sent.",
+    feedbackSaved: fa ? "✓ ممنون — بازخورد شما ثبت شد." : "✓ Thanks — your feedback is saved.",
+    unsupportedMedia: fa ? "این نوع پیام را هنوز نمی‌توانم پردازش کنم. لطفاً متن، عکس یا voice بفرستید." : "I can't handle that kind of message yet. Please send text, a photo, or a voice message.",
+    retry: fa ? "پیام اصلی را دوباره بفرستید تا پاسخ تازه‌ای بسازم." : "Send the original prompt again and I'll generate a fresh reply.",
+    refreshFailed: fa ? "فهرست مدل‌ها فعلاً به‌روز نشد — فهرست فعلی شما هنوز درست است." : "The model list couldn't be refreshed right now — your current list is still good.",
+    byokFallback: fa ? "⚠️ API شما جواب نداد، پس با مدل‌های IVAI جواب دادم." : "⚠️ Your API didn't answer, so I replied with IVAI models instead.",
+    byokFailure: fa ? "⚠️ API شما هم جواب نداد." : "⚠️ Your API didn't answer either."
   };
   return values[key] || values.temporary;
 }
@@ -716,18 +776,18 @@ function byokPresetLabel(presetId) {
 }
 
 function byokPresetText(language, preset) {
-  if (language === "fa") return `<b>🔑 ${escapeHtml(preset.label)}</b>\n\nکلید API خود را بفرستید. پیام شما پس از ذخیره حذف می‌شود.\n\n${byokTrustLine(language)}`;
-  return `<b>🔑 ${escapeHtml(preset.label)}</b>\n\nSend your API key. Your message will be deleted right after saving.\n\n${byokTrustLine(language)}`;
+  if (language === "fa") return `<b>🔑 ${escapeHtml(preset.label)}</b>\n\nکلید API خود را بفرستید. پیام شما را بلافاصله پس از ذخیره حذف می‌کنم تا در چت نماند.\n\n${byokTrustLine(language)}`;
+  return `<b>🔑 ${escapeHtml(preset.label)}</b>\n\nSend your API key. I'll delete your message right after saving it, so it never stays in the chat.\n\n${byokTrustLine(language)}`;
 }
 
 function byokEndpointText(language) {
-  if (language === "fa") return `<b>🔧 نقطهٔ پایانی سفارشی</b>\n\nآدرس پایهٔ API سازگار با OpenAI را بفرستید؛ مثلاً:\n<code>https://api.example.com/v1</code>\n\nباید با <code>https://</code> شروع شود.`;
-  return `<b>🔧 Custom endpoint</b>\n\nSend the base URL of your OpenAI-compatible API, for example:\n<code>https://api.example.com/v1</code>\n\nIt must start with <code>https://</code>.`;
+  if (language === "fa") return `<b>🔧 نقطهٔ پایانی سفارشی</b>\n\nآدرس پایهٔ API سازگار با OpenAI را بفرستید — مثلاً:\n<code>https://api.example.com/v1</code>\n\nباید با <code>https://</code> شروع شود.`;
+  return `<b>🔧 Custom endpoint</b>\n\nSend the base URL of your OpenAI-compatible API — for example:\n<code>https://api.example.com/v1</code>\n\nIt must start with <code>https://</code>.`;
 }
 
 function byokKeyFormatText(language, preset) {
-  if (language === "fa") return `قالب کلید درست نیست. کلید <b>${escapeHtml(preset.label)}</b> را دوباره بفرستید یا برای لغو، /cancel را بزنید.`;
-  return `That key format doesn't look right. Please send your <b>${escapeHtml(preset.label)}</b> key again, or tap /cancel to stop.`;
+  if (language === "fa") return `این کلید شبیه کلید ${escapeHtml(preset.label)} نیست. لطفاً دوباره بفرستید — یا برای توقف <code>/cancel</code> را بزنید.`;
+  return `That key doesn't look like a ${escapeHtml(preset.label)} key. Please send it again — or <code>/cancel</code> to stop.`;
 }
 
 function byokKeySavedText(language, preset) {
@@ -736,12 +796,12 @@ function byokKeySavedText(language, preset) {
 }
 
 function byokAskModelText(language) {
-  if (language === "fa") return `<b>✏️ مدل</b>\n\nشناسهٔ مدل را بفرستید؛ مثلاً:\n<code>openai/gpt-oss-120b</code>`;
-  return `<b>✏️ Model</b>\n\nSend the model ID to use, for example:\n<code>openai/gpt-oss-120b</code>`;
+  if (language === "fa") return `<b>✏️ مدل</b>\n\nشناسهٔ مدل را بفرستید — مثلاً:\n<code>openai/gpt-oss-120b</code>`;
+  return `<b>✏️ Model</b>\n\nSend the model ID to use — for example:\n<code>openai/gpt-oss-120b</code>`;
 }
 
 function byokCancelledText(language) {
-  return language === "fa" ? "✓ راه‌اندازی API من لغو شد. چیزی ذخیره نشد." : "✓ My API setup cancelled. Nothing was saved.";
+  return language === "fa" ? "✓ لغو شد — چیزی ذخیره نشد." : "✓ Cancelled — nothing was saved.";
 }
 
 function byokActivatedText(language, preset, model) {
@@ -770,7 +830,7 @@ async function sendByokActivated(env, { chatId, messageId, language, preset, mod
 function byokTestFailedText(language, error) {
   const detail = String(error || "").replace(/^Custom API failed: /, "");
   if (language === "fa") return `<b>✕ اتصال برقرار نشد</b>\n\nپاسخ سرویس: <code>${escapeHtml(detail)}</code>\n\nکلید یا نقطهٔ پایانی را بررسی کنید و دوباره آزمایش کنید.`;
-  return `<b>✕ Connection failed</b>\n\nProvider replied: <code>${escapeHtml(detail)}</code>\n\nCheck your key or endpoint and try the test again.`;
+  return `<b>✕ Connection failed</b>\n\nThe provider said: <code>${escapeHtml(detail)}</code>\n\nCheck your key or endpoint and try the test again.`;
 }
 
 function byokRemoveText(language, meta) {
@@ -783,7 +843,10 @@ function byokRemoveText(language, meta) {
 // so there is exactly one place that shows which engine is active.
 async function settingsView(language, settings, env, userId) {
   const fa = language === "fa";
-  const text = `<b>${fa ? "تنظیمات IVAI" : "IVAI settings"}</b>\n\n${fa ? "حالت پاسخ" : "Response mode"}: <code>${escapeHtml(modeLabel(settings.mode, language))}</code>\n${fa ? "حافظه" : "Memory"}: <code>${settings.memoryEnabled ? "on" : "off"}</code>\n\n<b>${fa ? "مدل‌های IVAI" : "IVAI models"}</b>\n${escapeHtml(modelRouteLabel(settings.selectedModel, language))}`;
+  const memory = settings.memoryEnabled ? (fa ? "روشن" : "on") : (fa ? "خاموش" : "off");
+  const text = fa
+    ? `<b>⚙️ تنظیمات IVAI</b>\nحالت پاسخ: <code>${escapeHtml(modeLabel(settings.mode, language))}</code>\nحافظه: <code>${memory}</code>\n\n<b>مدل‌های IVAI</b>\n${escapeHtml(modelRouteLabel(settings.selectedModel, language))}\n\nAPIهای خودتان در منوی اصلی، زیر <b>🔑 API من</b> هستند.`
+    : `<b>⚙️ IVAI settings</b>\nResponse mode: <code>${escapeHtml(modeLabel(settings.mode, language))}</code>\nMemory: <code>${memory}</code>\n\n<b>IVAI models</b>\n${escapeHtml(modelRouteLabel(settings.selectedModel, language))}\n\nYour own APIs live under <b>🔑 My API</b> in the main menu.`;
   return { text, keyboard: settingsKeyboard(language, settings.memoryEnabled) };
 }
 
@@ -795,8 +858,8 @@ async function byokListView(language, userId, env) {
   const activeConfigId = await getActiveUserApiConfigId(userId, env).catch(() => null);
   if (!configs.length) {
     const text = fa
-      ? `<b>🔑 API من</b>\n\nبا کلید API خودتان از IVAI استفاده کنید: متن، عکس و voice از طریق API شما پردازش می‌شوند. در گروه‌ها همچنان از مدل‌های IVAI استفاده می‌شود.\n\n${byokTrustLine(language)}\n\nپروایدر را انتخاب کنید:`
-      : `<b>🔑 My API</b>\n\nUse IVAI with your own API key: text, photos, and voice go through your API. Groups keep using IVAI models.\n\n${byokTrustLine(language)}\n\nChoose your provider:`;
+      ? `<b>🔑 API من</b>\n\nبا کلید API خودتان از IVAI استفاده کنید — متن، عکس و voice از طریق API شما پردازش می‌شوند. در گروه‌ها همچنان از مدل‌های IVAI استفاده می‌شود.\n\n${byokTrustLine(language)}\n\nپروایدر را پایین انتخاب کنید.`
+      : `<b>🔑 My API</b>\n\nUse IVAI with your own API key — text, photos, and voice go through your API. Groups keep using IVAI models.\n\n${byokTrustLine(language)}\n\nChoose your provider below.`;
     return { text, keyboard: byokPresetKeyboard(language, byokPresetIds()) };
   }
   const lines = configs.map((config) => {
@@ -805,8 +868,8 @@ async function byokListView(language, userId, env) {
     return `${marker} <b>${escapeHtml(config.name)}</b> — ${escapeHtml(byokPresetLabel(config.preset))} · <code>${escapeHtml(config.model || "")}</code>${invalid}`;
   }).join("\n");
   const text = fa
-    ? `<b>🔑 API من</b>\n\n${lines}\n\n${byokTrustLine(language)}`
-    : `<b>🔑 My API</b>\n\n${lines}\n\n${byokTrustLine(language)}`;
+    ? `<b>🔑 API من</b>\n\n${lines}\n\n${byokTrustLine(language)}\n\nروی یک کانفیگ بزنید تا مدیریتش کنید، یا پایین یکی تازه اضافه کنید.`
+    : `<b>🔑 My API</b>\n\n${lines}\n\n${byokTrustLine(language)}\n\nTap a config to manage it, or add a new one below.`;
   return { text, keyboard: byokListKeyboard(language, configs, activeConfigId) };
 }
 
@@ -818,8 +881,8 @@ async function byokManageView(language, userId, env, configId) {
   const header = `<b>🔑 ${escapeHtml(meta.name)}</b>\n\n`;
   if (meta.status === "invalid") {
     const text = fa
-      ? `${header}⚠️ کلید <b>${escapeHtml(byokPresetLabel(meta.preset))}</b> دیگر کار نمی‌کند (سه بار خطای احراز هویت). کلید تازه وارد کنید.\n\n${byokTrustLine(language)}`
-      : `${header}⚠️ Your <b>${escapeHtml(byokPresetLabel(meta.preset))}</b> key stopped working (three auth failures). Please enter a new key.\n\n${byokTrustLine(language)}`;
+      ? `${header}⚠️ کلید <b>${escapeHtml(byokPresetLabel(meta.preset))}</b> شما دیگر کار نمی‌کند (سه بار خطای ورود). برای استفادهٔ دوباره از این API کلید تازه وارد کنید.\n\n${byokTrustLine(language)}`
+      : `${header}⚠️ Your <b>${escapeHtml(byokPresetLabel(meta.preset))}</b> key stopped working (three sign-in failures). Enter a new key to use this API again.\n\n${byokTrustLine(language)}`;
     return { text, keyboard: byokManageKeyboard(language, "invalid", meta.configId) };
   }
   if (meta.enabled && meta.configId === activeConfigId) {
@@ -834,8 +897,8 @@ async function byokManageView(language, userId, env, configId) {
   // step is still missing.
   const state = meta.enabled ? "inactive" : "saved";
   const text = fa
-    ? `${header}○ <b>${escapeHtml(byokPresetLabel(meta.preset))}</b> · <code>${escapeHtml(meta.model)}</code> (غیرفعال)\n\nبرای فعال کردن این API روی «▶ استفاده از API من» بزنید.\n\n${byokTrustLine(language)}`
-    : `${header}○ <b>${escapeHtml(byokPresetLabel(meta.preset))}</b> · <code>${escapeHtml(meta.model)}</code> (inactive)\n\nTap “▶ Use my API” to activate this config.\n\n${byokTrustLine(language)}`;
+    ? `${header}○ <b>${escapeHtml(byokPresetLabel(meta.preset))}</b> · <code>${escapeHtml(meta.model)}</code> (غیرفعال)\n\nاین API ذخیره شده ولی فعال نیست. برای فعال کردنش روی «▶ استفاده از API من» بزنید.\n\n${byokTrustLine(language)}`
+    : `${header}○ <b>${escapeHtml(byokPresetLabel(meta.preset))}</b> · <code>${escapeHtml(meta.model)}</code> (inactive)\n\nThis API is saved but not active. Tap “▶ Use my API” to switch to it.\n\n${byokTrustLine(language)}`;
   return { text, keyboard: byokManageKeyboard(language, state, meta.configId) };
 }
 
@@ -843,8 +906,8 @@ function byokModelView(language, meta) {
   const preset = byokPreset(meta?.preset);
   const models = preset?.chatModels || [];
   const text = language === "fa"
-    ? `<b>🎛 مدل ${escapeHtml(preset?.label || "")}</b>\n\nکدام مدل پاسخ بدهد؟ می‌توانید مدل تازه هم اضافه کنید.`
-    : `<b>🎛 ${escapeHtml(preset?.label || "")} model</b>\n\nWhich model should answer? You can add a new one too.`;
+    ? `<b>🎛 مدل ${escapeHtml(preset?.label || "")}</b>\n\nکدام مدل پاسخ بدهد؟ مدل‌های اضافه‌شدهٔ شما هم در فهرست هستند — یا پایین یکی تازه اضافه کنید.`
+    : `<b>🎛 ${escapeHtml(preset?.label || "")} model</b>\n\nWhich model should answer? Your added models are listed too — or add a new one below.`;
   return { text, keyboard: byokModelKeyboard(language, models, meta?.configId || null, meta?.customModels || [], meta?.model || null) };
 }
 
@@ -946,7 +1009,7 @@ async function handleByokPendingMessage(message, env) {
     await clearByokPending(userId, env);
     const view = await byokManageView(language, userId, env, pending.configId);
     const lead = language === "fa" ? `✓ نام به «${escapeHtml(text.trim())}» تغییر کرد.` : `✓ Renamed to “${escapeHtml(text.trim())}”.`;
-    await sendMessage(env, { chatId, text: `${lead}\n\n${view.text}`, keyboard: view.keyboard });
+    await sendEntryMessage(env, message, { html: `${lead}\n\n${view.text}`, keyboard: view.keyboard, language });
     return true;
   }
   if (pending.step === "endpoint") {
@@ -1031,15 +1094,15 @@ async function handleByokPendingMessage(message, env) {
 
 function helpText(language) {
   if (language === "fa") {
-    return `<b>📖 راهنمای IVAI</b>\n\nیک پیام بفرستید؛ <code>Auto</code> مسیر رایگان مناسب را انتخاب می‌کند.\n\n<b>حالت‌ها</b>\n<code>Auto</code> انتخاب خودکار · <code>Fast</code> پاسخ سریع · <code>Deep</code> پاسخ دقیق\n\n<b>ابزارها</b>\n<code>/new</code> گفتگوی جدید · <code>/models</code> مدل رایگان · <code>/memory on|off</code> حافظه\n<code>/terminal</code> محیط گفتگو · <code>/details پرسش</code> پاسخِ بازشونده · <code>/task عنوان</code> یادآور · <code>/guard</code> بررسی ایمنی\n\n<blockquote>هر Session حافظهٔ کوتاه و مستقل دارد؛ همهٔ مسیرها رایگان هستند.</blockquote>`;
+    return `<b>📖 راهنمای IVAI</b>\nهر پیامی بفرستید — <b>Auto</b> مسیر رایگان مناسب را انتخاب می‌کند.\n\n<b>حالت‌ها</b>\n<code>Auto</code> خودکار · <code>Fast</code> سریع · <code>Deep</code> دقیق · <code>Code</code> برنامه‌نویسی\n\n<b>ابزارها</b>\n<code>/new</code> گفتگوی تازه · <code>/models</code> مدل‌های رایگان · <code>/memory on|off</code> حافظه\n<code>/terminal</code> محیط گفتگو · <code>/task عنوان</code> یادآور · <code>/guard</code> بررسی ایمنی\n\n<details><summary>دربارهٔ Sessionها بیشتر</summary>هر Session حافظهٔ کوتاه و جداگانه‌ای دارد. همه‌چیز اینجا رایگان است.</details>`;
   }
-  return `<b>📖 IVAI Help</b>\n\nSend a message; <code>Auto</code> selects a suitable free route.\n\n<b>Modes</b>\n<code>Auto</code> automatic · <code>Fast</code> concise · <code>Deep</code> detailed\n\n<b>Tools</b>\n<code>/new</code> new chat · <code>/models</code> free model · <code>/memory on|off</code> memory\n<code>/terminal</code> chat workspace · <code>/details prompt</code> expandable answer · <code>/task title</code> reminder · <code>/guard</code> safety check\n\n<blockquote>Each Session has short, independent memory; every route is free-only.</blockquote>`;
+  return `<b>📖 IVAI Help</b>\nSend any message — <b>Auto</b> picks a suitable free route.\n\n<b>Modes</b>\n<code>Auto</code> automatic · <code>Fast</code> quick · <code>Deep</code> thorough · <code>Code</code> programming\n\n<b>Tools</b>\n<code>/new</code> fresh chat · <code>/models</code> free models · <code>/memory on|off</code> memory\n<code>/terminal</code> chat workspace · <code>/task title</code> reminder · <code>/guard</code> safety check\n\n<details><summary>More about sessions</summary>Each session keeps a short, separate memory. Everything here is free.</details>`;
 }
 
 function newConversationText(language) {
-  if (language === "fa") return "<b>🪐 گفتگوی تازه آماده است!</b>\n\n<blockquote>context قبلی و تنظیمات Agent بازنشانی شدند: حالت Auto، مدل خودکار و حافظه خاموش است. زبان رابط تو بدون تغییر مانده است. از کجا شروع کنیم؟</blockquote>";
-  if (language === "ar") return "<b>🪐 محادثة جديدة جاهزة!</b>\n\n<blockquote>تمت إعادة تعيين سياق المحادثة وإعدادات الوكيل: الوضع تلقائي، واختيار النموذج تلقائي، والذاكرة متوقفة. تبقى لغة الواجهة كما هي. من أين نبدأ؟</blockquote>";
-  return "<b>🪐 Fresh chat, ready to go!</b>\n\n<blockquote>Your previous context and Agent settings were reset: Auto mode, automatic model routing, and Memory off. Your interface language is unchanged. What would you like to explore?</blockquote>";
+  if (language === "fa") return "<b>🪐 گفتگوی تازه آماده است!</b>\ncontext قبلی پاک شد. حالت Auto است، مسیر مدل خودکار است و حافظه خاموش است. اول چه کاری انجام بدهیم؟";
+  if (language === "ar") return "<b>🪐 محادثة جديدة جاهزة!</b>\nتم مسح السياق السابق. الوضع Auto، ومسار النموذج تلقائي، والذاكرة متوقفة. بماذا نبدأ أولاً؟";
+  return "<b>🪐 Fresh chat, ready to go!</b>\nPrevious context is cleared. Mode is Auto, the model route is automatic, and memory is off. What shall we do first?";
 }
 
 function getThreadId(message) {
@@ -1113,18 +1176,18 @@ function parseTaskInput(input) {
 }
 
 function secretaryTaskText(tasks, language) {
-  const title = language === "fa" ? "<b>🗂 Taskهای IVAI</b>" : "<b>🗂 IVAI tasks</b>";
-  if (!tasks.length) return `${title}\n\n${language === "fa" ? "task باز ندارید." : "You have no open tasks."}`;
+  const title = language === "fa" ? "<b>🗂 taskهای شما</b>" : "<b>🗂 Your tasks</b>";
+  if (!tasks.length) return `${title}\n\n${language === "fa" ? "task بازی ندارید. برای اضافه کردن، <code>/task عنوان</code> را بفرستید." : "You have no open tasks. Send <code>/task title</code> to add one."}`;
   return `${title}\n\n${tasks.map((task, index) => {
-    const due = task.dueAt ? `\n<i>${escapeHtml(task.dueAt.replace(".000Z", "Z"))}</i>` : "";
+    const due = task.dueAt ? `\n${language === "fa" ? "مهلت" : "Due"}: <code>${escapeHtml(task.dueAt.replace(".000Z", "Z"))}</code>` : "";
     return `${index + 1}. ${escapeHtml(task.title)}${due}\n<code>${task.id.slice(0, 8)}</code>`;
   }).join("\n\n")}`;
 }
 
 function reengagementText(language, enabled) {
-  if (language === "fa") return enabled ? "<b>🔔 یادآوری‌های IVAI روشن است</b>\n\nاگر ۱۵ روز غیرفعال باشید، حداکثر یک پیام دوستانه دریافت می‌کنید." : "<b>🔕 یادآوری‌های IVAI متوقف است</b>\n\nهر زمان خواستید با <code>/notify on</code> دوباره فعالش کنید.";
-  if (language === "ar") return enabled ? "<b>🔔 تذكيرات IVAI مفعّلة</b>\n\nقد تتلقى رسالة ودية واحدة فقط بعد 15 يومًا من عدم النشاط." : "<b>🔕 تم إيقاف تذكيرات IVAI</b>\n\nيمكنك تفعيلها لاحقًا عبر <code>/notify on</code>.";
-  return enabled ? "<b>🔔 IVAI reminders are on</b>\n\nAfter 15 inactive days, you may receive at most one friendly check-in." : "<b>🔕 IVAI reminders are paused</b>\n\nYou can turn them back on anytime with <code>/notify on</code>.";
+  if (language === "fa") return enabled ? "<b>🔔 یادآوری‌های IVAI روشن است</b>\nاگر ۱۵ روز نیایید، حداکثر یک پیام دوستانه می‌گیرید — نه بیشتر." : "<b>🔕 یادآوری‌های IVAI متوقف است</b>\nفعلاً پیامی نمی‌آید. هر وقت خواستید با <code>/notify on</code> دوباره روشنش کنید.";
+  if (language === "ar") return enabled ? "<b>🔔 تذكيرات IVAI مفعّلة</b>\nإذا غبت 15 يومًا، ستصلك رسالة ودية واحدة على الأكثر — ليس أكثر." : "<b>🔕 تم إيقاف تذكيرات IVAI</b>\nلا توجد رسائل تحقق الآن. أعد تفعيلها في أي وقت عبر <code>/notify on</code>.";
+  return enabled ? "<b>🔔 IVAI reminders are on</b>\nIf you're away for 15 days, you'll get at most one friendly hello — never more." : "<b>🔕 IVAI reminders are paused</b>\nNo check-ins for now. Turn them back on anytime with <code>/notify on</code>.";
 }
 
 function reengagementKeyboard(language, enabled) {
@@ -1192,7 +1255,7 @@ async function handleCommand(message, env, language) {
     return true;
   }
   if (command === "/menu") {
-    await sendEntryMessage(env, message, { html: menuText(language, settings), keyboard: mainKeyboard(language, message), language });
+    await sendEntryMessage(env, message, { html: await menuTextForUser(language, settings, userId, env), keyboard: mainKeyboard(language, message), language });
     return true;
   }
   if (command === "/help") {
@@ -1201,10 +1264,10 @@ async function handleCommand(message, env, language) {
   }
   if (command === "/terminal") {
     if (message.chat?.type !== "private") {
-      await sendMessage(env, { chatId, text: language === "fa" ? "IVAI Terminal فقط در چت خصوصی با بات باز می‌شود." : "IVAI Terminal can only be opened in a private chat with the bot.", replyTo: message.message_id });
+      await sendMessage(env, { chatId, text: language === "fa" ? "IVAI Terminal فقط در چت خصوصی با من باز می‌شود — در چت‌هایتان من را باز کنید و آنجا <code>/terminal</code> را بفرستید." : "IVAI Terminal opens only in a private chat with me — tap me in your chats and send <code>/terminal</code> there.", replyTo: message.message_id });
       return true;
     }
-    const text = language === "fa" ? "<b>IVAI Terminal</b> آماده است. پیام‌ها در همان رابط سبک ردوبدل می‌شوند و از همان مسیرهای رایگان IVAI استفاده می‌کنند." : "<b>IVAI Terminal</b> is ready. Messages stay inside the lightweight terminal and use the same IVAI free-only routes.";
+    const text = language === "fa" ? "<b>⌘ IVAI Terminal</b>\nمحیط گفتگوی سبک شما آماده است — همان مسیرهای رایگان IVAI و همان گفتگو، همین‌جا." : "<b>⌘ IVAI Terminal</b>\nYour lightweight chat workspace is ready — same free IVAI routes, same conversation, right here.";
     await sendEntryMessage(env, message, { html: text, keyboard: terminalKeyboard(language), language });
     return true;
   }
@@ -1212,9 +1275,14 @@ async function handleCommand(message, env, language) {
     const mode = COMMAND_MODE[command];
     await setUserMode(userId, mode, env);
     const autoRoute = mode === MODES.AUTO
-      ? (language === "fa" ? "\n<b>مسیر مدل:</b> <code>خودکار</code>" : language === "ar" ? "\n<b>مسار النموذج:</b> <code>تلقائي</code>" : "\n<b>Model route:</b> <code>Auto</code>")
+      ? (language === "fa" ? "، مسیر مدل: خودکار" : language === "ar" ? "، مسار النموذج: تلقائي" : ", model route: Auto")
       : "";
-    await sendMessage(env, { chatId, text: `${responseText(language, "saved")} <b>${escapeHtml(modeLabel(mode, language))}</b>${autoRoute}`, replyTo: message.message_id });
+    const text = language === "fa"
+      ? `✓ حالت روی <b>${escapeHtml(modeLabel(mode, language))}</b> تنظیم شد${autoRoute}.`
+      : language === "ar"
+        ? `✓ تم ضبط الوضع على <b>${escapeHtml(modeLabel(mode, language))}</b>${autoRoute}.`
+        : `✓ Mode set to <b>${escapeHtml(modeLabel(mode, language))}</b>${autoRoute}.`;
+    await sendMessage(env, { chatId, text, replyTo: message.message_id });
     return true;
   }
   if (command === "/lang") {
@@ -1236,17 +1304,17 @@ async function handleCommand(message, env, language) {
     await setSelectedModel(userId, null, env);
     const mode = escapeHtml(modeLabel(settings.mode, language));
     const text = language === "fa"
-      ? `✓ مسیر مدل خودکار شد. <b>حالت پاسخ:</b> <code>${mode}</code> (بدون تغییر)`
+      ? `✓ مسیر مدل خودکار شد. حالت پاسخ همان <b>${mode}</b> می‌ماند.`
       : language === "ar"
-        ? `✓ أصبح مسار النموذج تلقائيًا. <b>وضع الرد:</b> <code>${mode}</code> (دون تغيير)`
-        : `✓ Model route is now Auto. <b>Response mode:</b> <code>${mode}</code> (unchanged)`;
+        ? `✓ أصبح مسار النموذج تلقائيًا الآن. يبقى وضع الرد <b>${mode}</b>.`
+        : `✓ Model route is Auto now. Response mode stays <b>${mode}</b>.`;
     await sendMessage(env, { chatId, text, replyTo: message.message_id });
     return true;
   }
   if (command === "/pick") {
     const model = await selectCatalogModel(args[0], env);
     if (!model) {
-      await sendMessage(env, { chatId, text: language === "fa" ? "شمارهٔ مدل معتبر نیست. ابتدا /models را ببینید." : "That model number is not valid. Run /models first.", replyTo: message.message_id });
+      await sendMessage(env, { chatId, text: language === "fa" ? "چنین شمارهٔ مدلی نیست. <code>/models</code> را باز کنید و یکی را از فهرست انتخاب کنید." : "That model number doesn't match anything. Open <code>/models</code> and pick one from the list.", replyTo: message.message_id });
       return true;
     }
     await setSelectedModel(userId, model.id, env);
@@ -1257,9 +1325,9 @@ async function handleCommand(message, env, language) {
     try {
       const refreshed = await refreshFreeModelCatalog(env);
       const text = refreshed.refreshed
-        ? (language === "fa" ? `✓ ${refreshed.models.length} مدل رایگان به‌روزرسانی شد.` : `✓ Refreshed ${refreshed.models.length} free models.`)
-        : refreshed.reason;
-      await sendMessage(env, { chatId, text: escapeHtml(text), replyTo: message.message_id });
+        ? (language === "fa" ? `✓ <b>${refreshed.models.length}</b> مدل رایگان به‌روزرسانی شد.` : `✓ Refreshed <b>${refreshed.models.length}</b> free models.`)
+        : escapeHtml(refreshed.reason);
+      await sendMessage(env, { chatId, text, replyTo: message.message_id });
     } catch (error) {
       console.error(JSON.stringify({ event: "model_catalog_refresh_failure", error: String(error?.message || "unknown") }));
       await sendMessage(env, { chatId, text: responseText(language, "refreshFailed"), replyTo: message.message_id });
@@ -1269,14 +1337,14 @@ async function handleCommand(message, env, language) {
   if (command === "/task") {
     const parsed = parseTaskInput(argumentText);
     if (parsed.error) {
-      const usage = language === "fa" ? "استفاده: <code>/task عنوان</code> یا <code>/task in 30m | عنوان</code> یا <code>/task 2026-08-21T09:00:00+03:30 | عنوان</code>" : "Usage: <code>/task title</code>, <code>/task in 30m | title</code>, or <code>/task 2026-08-21T09:00:00+03:30 | title</code>";
+      const usage = language === "fa" ? "برای یادآوری بفرستید:\n<code>/task عنوان</code> — یا با زمان — <code>/task in 30m | عنوان</code>" : "To add a reminder, send:\n<code>/task title</code> — or with a time — <code>/task in 30m | title</code>";
       await sendMessage(env, { chatId, text: usage, replyTo: message.message_id });
       return true;
     }
     try {
       const task = await createSecretaryTask({ userId, chatId, title: parsed.title, dueAt: parsed.dueAt }, env);
-      const due = task.dueAt ? `\n\n${language === "fa" ? "یادآوری" : "Reminder"}: <code>${escapeHtml(task.dueAt.replace(".000Z", "Z"))}</code>` : "";
-      await sendMessage(env, { chatId, text: `${language === "fa" ? "✓ task ساخته شد" : "✓ Task created"}: <b>${escapeHtml(task.title)}</b>${due}`, replyTo: message.message_id });
+      const due = task.dueAt ? `\n${language === "fa" ? "زمان یادآوری" : "Remind me"}: <code>${escapeHtml(task.dueAt.replace(".000Z", "Z"))}</code>` : "";
+      await sendMessage(env, { chatId, text: `${language === "fa" ? "✓ یادآوری تنظیم شد" : "✓ Reminder set"}: <b>${escapeHtml(task.title)}</b>${due}`, replyTo: message.message_id });
     } catch {
       await sendMessage(env, { chatId, text: responseText(language, "temporary"), replyTo: message.message_id });
     }
@@ -1284,7 +1352,7 @@ async function handleCommand(message, env, language) {
   }
   if (command === "/tasks") {
     const tasks = await listSecretaryTasks(userId, env);
-    await sendMessage(env, { chatId, text: secretaryTaskText(tasks, language), keyboard: secretaryTaskKeyboard(tasks, language), replyTo: message.message_id });
+    await sendEntryMessage(env, message, { html: secretaryTaskText(tasks, language), keyboard: secretaryTaskKeyboard(tasks, language), language });
     return true;
   }
   if (command === "/done" || command === "/cancel") {
@@ -1292,7 +1360,13 @@ async function handleCommand(message, env, language) {
     const tasks = await listSecretaryTasks(userId, env, { limit: 50 });
     const matches = tasks.filter((task) => task.id.toLowerCase().startsWith(token));
     const ok = token.length >= 4 && matches.length === 1 && await updateSecretaryTaskStatus({ id: matches[0].id, userId, status: command === "/done" ? "done" : "cancelled" }, env);
-    await sendMessage(env, { chatId, text: ok ? (command === "/done" ? (language === "fa" ? "✓ task انجام شد." : "✓ Task marked done.") : (language === "fa" ? "✓ task لغو شد." : "✓ Task cancelled.")) : (language === "fa" ? "شناسهٔ task معتبر نیست. /tasks را باز کنید." : "That task ID is not valid. Open /tasks."), replyTo: message.message_id });
+    const target = ok ? matches[0] : null;
+    const text = target
+      ? (command === "/done"
+        ? (language === "fa" ? `✓ انجام شد — <b>${escapeHtml(target.title)}</b> بسته شد.` : `✓ Done — <b>${escapeHtml(target.title)}</b> is closed.`)
+        : (language === "fa" ? `✓ لغو شد — <b>${escapeHtml(target.title)}</b> دیگر یادآوری نمی‌کند.` : `✓ Cancelled — <b>${escapeHtml(target.title)}</b> won't remind you.`))
+      : (language === "fa" ? "این task دیگر باز نیست. فهرست را در <code>/tasks</code> ببینید." : "That task isn't open anymore. Open <code>/tasks</code> to see your list.");
+    await sendMessage(env, { chatId, text, replyTo: message.message_id });
     return true;
   }
   if (command === "/memory") {
@@ -1305,14 +1379,14 @@ async function handleCommand(message, env, language) {
       // bounded active Session so a normal multi-turn chat remains coherent.
       if (!enabled) await clearUserMemory(message, env);
       const text = enabled
-        ? (language === "fa" ? "✓ تنظیم حافظه فعال شد؛ context کوتاه‌مدت گفت‌وگوی فعال هم حفظ می‌شود." : "✓ Memory preference enabled; active chat context remains available.")
-        : (language === "fa" ? "✓ تنظیم حافظه خاموش شد و context فعلی چت و IVAI Terminal پاک شد. پیام‌های جدید فقط در Session فعال کوتاه‌مدت به‌هم متصل می‌مانند." : "✓ Memory preference is off and current chat/Terminal context was reset. New messages remain connected only within the short-lived active Session.");
+        ? (language === "fa" ? "✓ حافظه <b>روشن</b> شد — context این گفتگو در Session نگه داشته می‌شود." : "✓ Memory is <b>on</b> — this chat's context is kept for the session.")
+        : (language === "fa" ? "✓ حافظه <b>خاموش</b> شد — context چت و ترمینال پاک شد. پیام‌های جدید فقط در Session کوتاه به‌هم متصل می‌مانند." : "✓ Memory is <b>off</b> — chat and Terminal context were cleared. New messages stay connected only within the short session.");
       await sendMessage(env, { chatId, text, replyTo: message.message_id });
       return true;
     }
     if (action === "clear") {
       await clearUserMemory(message, env);
-      await sendMessage(env, { chatId, text: language === "fa" ? "✓ حافظهٔ این گفت‌وگو و IVAI Terminal پاک شد." : "✓ This conversation and IVAI Terminal memory were cleared.", replyTo: message.message_id });
+      await sendMessage(env, { chatId, text: language === "fa" ? "✓ حافظهٔ این گفتگو و IVAI Terminal پاک شد." : "✓ Memory cleared for this chat and IVAI Terminal.", replyTo: message.message_id });
       return true;
     }
     const session = await getConversationSession(key, env);
@@ -1327,13 +1401,13 @@ async function handleCommand(message, env, language) {
     return true;
   }
   if (command === "/active") {
-    await sendMessage(env, { chatId, text: language === "fa" ? "IVAI برای حفظ سهمیهٔ رایگان، health check پرهزینهٔ همهٔ مدل‌ها را اجرا نمی‌کند. مسیرهای فعال با درخواست واقعی و fallback ترتیبی بررسی می‌شوند." : "To protect the free quota, IVAI does not ping every model. Active routes are verified on real requests with sequential fallback.", replyTo: message.message_id });
+    await sendMessage(env, { chatId, text: language === "fa" ? "IVAI همهٔ مدل‌ها را ping نمی‌کند — سهمیهٔ رایگان هدر می‌رود. مسیرها با درخواست واقعی و fallback ترتیبی بررسی می‌شوند." : "IVAI doesn't ping every model — that would burn the free quota. Routes are checked on real requests, with the free fallback in order.", replyTo: message.message_id });
     return true;
   }
   if (command === "/reset") {
     await resetUserAgentPreferences(userId, env);
     await clearUserMemory(message, env);
-    await sendMessage(env, { chatId, text: language === "fa" ? "✓ تنظیمات IVAI و حافظهٔ Terminal بازنشانی شد." : "✓ IVAI settings and Terminal memory were reset.", replyTo: message.message_id });
+    await sendMessage(env, { chatId, text: language === "fa" ? "✓ تنظیمات IVAI و حافظهٔ ترمینال به حالت پیش‌فرض برگشت." : "✓ IVAI settings and Terminal memory are reset to defaults.", replyTo: message.message_id });
     return true;
   }
   if (command === "/admin") {
@@ -1342,7 +1416,7 @@ async function handleCommand(message, env, language) {
       await sendMessage(env, { chatId, text: responseText(language, "noAccess"), replyTo: message.message_id });
       return true;
     }
-    await sendMessage(env, { chatId, text: "<b>IVAI Admin</b>\nSelect an action.", keyboard: adminKeyboard(), replyTo: message.message_id });
+    await sendEntryMessage(env, message, { html: language === "fa" ? "<b>🛠 مدیریت IVAI</b>\nیک کار را پایین انتخاب کنید." : "<b>🛠 IVAI Admin</b>\nPick an action below.", keyboard: adminKeyboard(), language });
     return true;
   }
   if (command === "/broadcast") {
@@ -1352,20 +1426,25 @@ async function handleCommand(message, env, language) {
       return true;
     }
     if (!argumentText) {
-      await sendMessage(env, { chatId, text: "Usage: <code>/broadcast your message</code>", replyTo: message.message_id });
+      await sendMessage(env, { chatId, text: language === "fa" ? "برای شروع broadcast بفرستید:\n<code>/broadcast پیام شما</code>" : "To start a broadcast, send:\n<code>/broadcast your message</code>", replyTo: message.message_id });
       return true;
     }
     const campaignId = await createBroadcastDraft({ authorId: userId, content: argumentText }, env);
     await writeAdminAudit({ actorId: userId, action: "broadcast_draft_created", targetType: "broadcast", targetId: campaignId }, env);
+    // M26 is the full draft message (its first line differs from the short
+    // responseText "draftCreated" key, which stays the canonical short string).
+    const draftText = language === "fa"
+      ? `<b>✓ پیش‌نویس broadcast آماده است</b>\nهنوز چیزی ارسال نشده — اول بررسی کنید.\n\n<b>پیش‌نمایش</b>\n${escapeHtml(argumentText)}`
+      : `<b>✓ Broadcast draft ready</b>\nNothing is sent yet — review it first.\n\n<b>Preview</b>\n${escapeHtml(argumentText)}`;
     await sendMessage(env, {
       chatId,
-      text: `${responseText(language, "draftCreated")}\n\n<b>Preview</b>\n${escapeHtml(argumentText)}`,
+      text: draftText,
       keyboard: { inline_keyboard: [[{ text: "✓ Confirm", callback_data: `broadcast:confirm:${campaignId}` }, { text: "✕ Cancel", callback_data: `broadcast:cancel:${campaignId}` }]] }
     });
     return true;
   }
   if (command.startsWith("/")) {
-    await sendMessage(env, { chatId, text: language === "fa" ? "فرمان ناشناخته است. /help را بزنید." : "Unknown command. Use /help.", replyTo: message.message_id });
+    await sendMessage(env, { chatId, text: language === "fa" ? "این فرمان را نمی‌شناسم. برای دیدن کارهایی که می‌توانم بکنم <code>/help</code> را بزنید." : "I don't know that command. Try <code>/help</code> to see what I can do.", replyTo: message.message_id });
     return true;
   }
   return false;
@@ -1464,7 +1543,7 @@ async function processText(message, env) {
     : text;
   const usage = anonGroupAdmin ? { allowed: true } : await allowUsage({ scope: "text", id: userId, limit: APP.userHourlyTextLimit }, env);
   if (!usage.allowed) {
-    await sendMessage(env, { chatId, text: responseText(uiLanguage, "busy"), replyTo: message.message_id, ...delivery });
+    await sendMessage(env, { chatId, text: busyText(uiLanguage, usage.resetInSeconds), replyTo: message.message_id, ...delivery });
     return;
   }
 
@@ -1568,7 +1647,7 @@ async function processText(message, env) {
       await editMessage(env, {
         chatId,
         messageId: progress.message_id,
-        text: uiLanguage === "fa" ? "<i>پاسخ طولانی است و در پیام‌های زیر ارسال شد.</i>" : "<i>The full response is sent below.</i>",
+        text: uiLanguage === "fa" ? "<i>پاسخ طولانی است — در پیام‌های زیر بخش‌بخش می‌فرستمش.</i>" : "<i>Your answer is long — I'm sending it in parts below.</i>",
         businessConnectionId: delivery.businessConnectionId
       });
     }
@@ -1641,7 +1720,7 @@ async function processMedia(message, env) {
   await upsertUser({ user: message.from, chat: message.chat, language: storedLanguage }, env);
   const usage = anonGroupAdmin ? { allowed: true } : await allowUsage({ scope: "media", id: userId, limit: APP.userDailyMediaLimit, windowSeconds: 24 * 60 * 60 }, env);
   if (!usage.allowed) {
-    await sendMessage(env, { chatId, text: responseText(language, "busy"), replyTo: message.message_id, ...delivery });
+    await sendMessage(env, { chatId, text: busyText(language, usage.resetInSeconds), replyTo: message.message_id, ...delivery });
     return;
   }
   if (isGroup) await sendTyping(env, chatId, delivery).catch(() => {});
@@ -1701,7 +1780,7 @@ async function handleInlineQuery(query, env) {
       inline_query_id: query.id,
       cache_time: 10,
       is_personal: true,
-      results: [{ type: "article", id: "ivai-help", title: "Ask IVAI", description: "Type a question after @IVAI_Llm_bot", input_message_content: { message_text: "<b>IVAI Inline</b>\nType a question after @IVAI_Llm_bot.", parse_mode: "HTML" } }]
+      results: [{ type: "article", id: "ivai-help", title: language === "fa" ? "از IVAI بپرسید" : "Ask IVAI", description: language === "fa" ? "سؤال را بعد از @IVAI_Llm_bot بنویسید تا همین‌جا جواب بدهم." : "Type a question after @IVAI_Llm_bot, and I'll answer right here.", input_message_content: { message_text: language === "fa" ? "<b>از IVAI بپرسید</b> — سؤال را بعد از @IVAI_Llm_bot بنویسید تا همین‌جا جواب بدهم." : "<b>Ask IVAI</b> — Type a question after @IVAI_Llm_bot, and I'll answer right here.", parse_mode: "HTML" } }]
     });
     return;
   }
@@ -1709,7 +1788,7 @@ async function handleInlineQuery(query, env) {
   if (!usage.allowed) {
     await telegram(env, "answerInlineQuery", {
       inline_query_id: query.id, cache_time: 3, is_personal: true,
-      results: [{ type: "article", id: "ivai-busy", title: "IVAI is temporarily busy", description: "Please try again shortly.", input_message_content: { message_text: "IVAI is temporarily busy. Please try again shortly." } }]
+      results: [{ type: "article", id: "ivai-busy", title: language === "fa" ? "IVAI فعلاً شلوغ است" : "IVAI is busy for a moment", description: language === "fa" ? "کمی بعد دوباره تلاش کنید." : "Please try again shortly.", input_message_content: { message_text: language === "fa" ? "<b>IVAI فعلاً شلوغ است</b> — کمی بعد دوباره تلاش کنید." : "<b>IVAI is busy for a moment</b> — please try again shortly." } }]
     });
     return;
   }
@@ -1733,7 +1812,7 @@ async function handleInlineQuery(query, env) {
     console.error(JSON.stringify({ event: "inline_failure", code: safeError(error), userId: String(userId) }));
     await telegram(env, "answerInlineQuery", {
       inline_query_id: query.id, cache_time: 3, is_personal: true,
-      results: [{ type: "article", id: "ivai-error", title: "IVAI is temporarily unavailable", description: "Please try again shortly.", input_message_content: { message_text: "IVAI is temporarily unavailable. Please try again shortly." } }]
+      results: [{ type: "article", id: "ivai-error", title: language === "fa" ? "IVAI فعلاً در دسترس نیست" : "IVAI is unavailable right now", description: language === "fa" ? "کمی بعد دوباره تلاش کنید." : "Please try again shortly.", input_message_content: { message_text: language === "fa" ? "<b>IVAI فعلاً در دسترس نیست</b> — کمی بعد دوباره تلاش کنید." : "<b>IVAI is unavailable right now</b> — please try again shortly." } }]
     });
   }
 }
@@ -1749,21 +1828,39 @@ async function handleChosenInlineResult(result, env) {
   }
 }
 
-function adminStatsText(stats) {
+function adminStatsText(stats, language = "en") {
   const value = (item) => item ?? "n/a";
-  return `<b>IVAI Operations</b>\n\n<b>Audience</b>\nTotal users: <code>${value(stats.totalUsers)}</code>\nActive users (7d): <code>${value(stats.activeUsers7d)}</code>\nActive users (30d): <code>${value(stats.activeUsers30d)}</code>\nActive chats (30d): <code>${value(stats.activeChats30d)}</code>\n\n<b>Operations</b>\nFeedback (7d): <code>${value(stats.feedback7d)}</code>\nBroadcasts awaiting delivery: <code>${value(stats.pendingBroadcasts)}</code>\nWorkers AI daily budget remaining: <code>${value(stats.workersAiBudgetRemaining)}</code>`;
+  if (language === "fa") return `<b>📊 عملیات IVAI</b>\n\n<b>افراد</b>\nهمهٔ کاربران: <code>${value(stats.totalUsers)}</code>\nفعال (۷ روز): <code>${value(stats.activeUsers7d)}</code>\nفعال (۳۰ روز): <code>${value(stats.activeUsers30d)}</code>\nچت‌های فعال (۳۰ روز): <code>${value(stats.activeChats30d)}</code>\n\n<b>در حال اجرا</b>\nبازخورد (۷ روز): <code>${value(stats.feedback7d)}</code>\nبرادکست‌های در انتظار: <code>${value(stats.pendingBroadcasts)}</code>\nبودجهٔ امروز Workers AI: <code>${value(stats.workersAiBudgetRemaining)}</code>`;
+  return `<b>📊 IVAI Operations</b>\n\n<b>People</b>\nTotal users: <code>${value(stats.totalUsers)}</code>\nActive (7 days): <code>${value(stats.activeUsers7d)}</code>\nActive (30 days): <code>${value(stats.activeUsers30d)}</code>\nActive chats (30 days): <code>${value(stats.activeChats30d)}</code>\n\n<b>Running</b>\nFeedback (7 days): <code>${value(stats.feedback7d)}</code>\nBroadcasts waiting: <code>${value(stats.pendingBroadcasts)}</code>\nWorkers AI budget left today: <code>${value(stats.workersAiBudgetRemaining)}</code>`;
+}
+
+// The Rich rendering of the admin stats: the same numbers as adminStatsText
+// as one small table with section headers. The plain line format stays the
+// fallback — a <table> is not valid plain-HTML parse_mode.
+function adminStatsRichText(stats, language = "en") {
+  const value = (item) => `<code>${item ?? "n/a"}</code>`;
+  const rows = language === "fa" ? [
+    ["افراد", [["همهٔ کاربران", stats.totalUsers], ["فعال (۷ روز)", stats.activeUsers7d], ["فعال (۳۰ روز)", stats.activeUsers30d], ["چت‌های فعال (۳۰ روز)", stats.activeChats30d]]],
+    ["در حال اجرا", [["بازخورد (۷ روز)", stats.feedback7d], ["برادکست‌های در انتظار", stats.pendingBroadcasts], ["بودجهٔ امروز Workers AI", stats.workersAiBudgetRemaining]]]
+  ] : [
+    ["People", [["Total users", stats.totalUsers], ["Active (7 days)", stats.activeUsers7d], ["Active (30 days)", stats.activeUsers30d], ["Active chats (30 days)", stats.activeChats30d]]],
+    ["Running", [["Feedback (7 days)", stats.feedback7d], ["Broadcasts waiting", stats.pendingBroadcasts], ["Workers AI budget left today", stats.workersAiBudgetRemaining]]]
+  ];
+  const header = language === "fa" ? "📊 عملیات IVAI" : "📊 IVAI Operations";
+  const body = rows.map(([section, items]) => `<tr><th colspan="2">${section}</th></tr>${items.map(([label, item]) => `<tr><td>${label}</td><td>${value(item)}</td></tr>`).join("")}`).join("");
+  return `<b>${header}</b>\n<table><tbody>${body}</tbody></table>`;
 }
 
 function modeChangedText(mode, language) {
   const label = escapeHtml(modeLabel(mode, language));
   const autoRoute = mode === MODES.AUTO;
   if (language === "fa") {
-    return `<b>✓ حالت پاسخ‌گویی تغییر کرد</b>\n\n<b>حالت فعال:</b> <code>${label}</code>${autoRoute ? "\n<b>مسیر مدل:</b> <code>خودکار</code>" : ""}`;
+    return `✓ حالت پاسخ حالا <b>${label}</b> است${autoRoute ? " — مسیر مدل: خودکار" : ""}.`;
   }
   if (language === "ar") {
-    return `<b>✓ تم تغيير نمط الاستجابة</b>\n\n<b>النمط النشط:</b> <code>${label}</code>${autoRoute ? "\n<b>مسار النموذج:</b> <code>تلقائي</code>" : ""}`;
+    return `✓ وضع الرد الآن <b>${label}</b>${autoRoute ? " — مسار النموذج: تلقائي" : ""}.`;
   }
-  return `<b>✓ Response mode changed</b>\n\n<b>Active mode:</b> <code>${label}</code>${autoRoute ? "\n<b>Model route:</b> <code>Auto</code>" : ""}`;
+  return `✓ Response mode is now <b>${label}</b>${autoRoute ? " — model route: Auto" : ""}.`;
 }
 
 async function processCallback(query, env) {
@@ -1785,14 +1882,14 @@ async function processCallback(query, env) {
     await upsertUser({ user: query.from, chat: query.message.chat, language }, env);
     if (query.message.chat?.type === "private") await ensureTerminalMenuButton(env);
     await answerCallback(env, query.id).catch(() => {});
-    await editMessage(env, { chatId, messageId, text: membershipConfirmedText(language), keyboard: welcomeKeyboard(language, query.message) });
+    await editRichScreen(env, query.message, { html: membershipConfirmedText(language), keyboard: welcomeKeyboard(language, query.message), language });
     return;
   }
 
   await answerCallback(env, query.id).catch(() => {});
   const membership = await isRequiredChannelMember(userId, env);
   if (!membership.allowed) {
-    await editMessage(env, { chatId, messageId, text: requiredMembershipText(language, { checkFailed: membership.reason === "CHECK_FAILED" }), keyboard: requiredMembershipKeyboard(language) });
+    await editRichScreen(env, query.message, { html: requiredMembershipText(language, { checkFailed: membership.reason === "CHECK_FAILED" }), keyboard: requiredMembershipKeyboard(language), language });
     return;
   }
   await upsertUser({ user: query.from, chat: query.message.chat, language }, env);
@@ -1801,38 +1898,44 @@ async function processCallback(query, env) {
   if (data === "notify:on" || data === "notify:off") {
     const enabled = data === "notify:on";
     await setReengagementPreference(userId, enabled, env);
-    await editMessage(env, { chatId, messageId, text: reengagementText(language, enabled), keyboard: reengagementKeyboard(language, enabled) });
+    await editRichScreen(env, query.message, { html: reengagementText(language, enabled), keyboard: reengagementKeyboard(language, enabled), language });
     return;
   }
   if (data.startsWith("task:")) {
     const [, action, taskId] = data.split(":");
     if (!["done", "cancel"].includes(action) || !taskId) return;
-    const changed = await updateSecretaryTaskStatus({ id: taskId, userId, status: action === "done" ? "done" : "cancelled" }, env);
+    const open = await listSecretaryTasks(userId, env);
+    const target = open.find((task) => task.id === taskId || task.id.toLowerCase().startsWith(taskId.toLowerCase()));
+    const changed = target ? await updateSecretaryTaskStatus({ id: target.id, userId, status: action === "done" ? "done" : "cancelled" }, env) : false;
     const tasks = await listSecretaryTasks(userId, env);
-    const prefix = changed ? (action === "done" ? (language === "fa" ? "✓ task انجام شد." : "✓ Task marked done.") : (language === "fa" ? "✓ task لغو شد." : "✓ Task cancelled.")) : (language === "fa" ? "این task دیگر باز نیست." : "This task is no longer open.");
-    await editMessage(env, { chatId, messageId, text: `${prefix}\n\n${secretaryTaskText(tasks, language)}`, keyboard: secretaryTaskKeyboard(tasks, language) });
+    const prefix = changed && target
+      ? (action === "done"
+        ? (language === "fa" ? `✓ انجام شد — <b>${escapeHtml(target.title)}</b> بسته شد.` : `✓ Done — <b>${escapeHtml(target.title)}</b> is closed.`)
+        : (language === "fa" ? `✓ لغو شد — <b>${escapeHtml(target.title)}</b> دیگر یادآوری نمی‌کند.` : `✓ Cancelled — <b>${escapeHtml(target.title)}</b> won't remind you.`))
+      : (language === "fa" ? "این task دیگر باز نیست." : "This task is no longer open.");
+    await editRichScreen(env, query.message, { html: `${prefix}\n\n${secretaryTaskText(tasks, language)}`, keyboard: secretaryTaskKeyboard(tasks, language), language });
     return;
   }
   if (data === "menu:main" || data === "modes:back") {
     const settings = await getUserSettings(userId, env);
-    await editMessage(env, { chatId, messageId, text: menuText(language, settings), keyboard: mainKeyboard(language, query.message) });
+    await editRichScreen(env, query.message, { html: await menuTextForUser(language, settings, userId, env), keyboard: mainKeyboard(language, query.message), language });
     return;
   }
   if (data === "menu:help") {
-    await editMessage(env, { chatId, messageId, text: helpText(language), keyboard: mainKeyboard(language, query.message) });
+    await editRichScreen(env, query.message, { html: helpText(language), keyboard: mainKeyboard(language, query.message), language });
     return;
   }
   if (data === "menu:models") {
     const settings = await getUserSettings(userId, env);
     const view = await modelPickerView(language, settings.selectedModel, env);
-    await editMessage(env, { chatId, messageId, text: view.text, keyboard: view.keyboard });
+    await editRichScreen(env, query.message, { html: view.text, keyboard: view.keyboard, language });
     return;
   }
   if (data.startsWith("model:view:")) {
     const scope = pickerScope(data.slice("model:view:".length));
     const settings = await getUserSettings(userId, env);
     const view = await modelPickerView(language, settings.selectedModel, env, 0, scope);
-    await editMessage(env, { chatId, messageId, text: view.text, keyboard: view.keyboard });
+    await editRichScreen(env, query.message, { html: view.text, keyboard: view.keyboard, language });
     return;
   }
   if (data.startsWith("model:page:")) {
@@ -1842,7 +1945,7 @@ async function processCallback(query, env) {
     const page = requestedPage === undefined ? legacyPage : Number(requestedPage);
     const settings = await getUserSettings(userId, env);
     const view = await modelPickerView(language, settings.selectedModel, env, Number.isFinite(page) ? page : 0, scope);
-    await editMessage(env, { chatId, messageId, text: view.text, keyboard: view.keyboard });
+    await editRichScreen(env, query.message, { html: view.text, keyboard: view.keyboard, language });
     return;
   }
   if (data.startsWith("model:pick:")) {
@@ -1858,25 +1961,25 @@ async function processCallback(query, env) {
       const settings = await getUserSettings(userId, env);
       const view = await modelPickerView(language, settings.selectedModel, env, 0, scope);
       const notice = language === "fa"
-        ? "فهرست مدل‌ها تغییر کرده است. لطفاً مدل را دوباره انتخاب کنید."
+        ? "فهرست مدل‌ها از وقتی بازش کردید عوض شده است. لطفاً دوباره مدل را انتخاب کنید."
         : language === "ar"
-          ? "تغيّرت قائمة النماذج. يرجى اختيار النموذج مرة أخرى."
-          : "The model list changed. Please choose the model again.";
-      await editMessage(env, { chatId, messageId, text: `${notice}\n\n${view.text}`, keyboard: view.keyboard });
+          ? "تغيّرت قائمة النماذج منذ فتحها. يرجى اختيار النموذج مرة أخرى."
+          : "The model list changed since you opened it. Please pick a model again.";
+      await editRichScreen(env, query.message, { html: `${notice}\n\n${view.text}`, keyboard: view.keyboard, language });
       return;
     }
     const settings = await getUserSettings(userId, env);
     await setSelectedModel(userId, model.id, env);
     const view = await modelPickerView(language, model.id, env, Number.isFinite(Number(requestedPage)) ? Number(requestedPage) : 0, scope);
-    await editMessage(env, { chatId, messageId, text: modelSelectionText(model, language, settings.mode), keyboard: view.keyboard });
+    await editRichScreen(env, query.message, { html: modelSelectionText(model, language, settings.mode), keyboard: view.keyboard, language });
     return;
   }
   if (data === "model:auto" || data.startsWith("model:auto:")) {
     const scope = pickerScope(data.split(":")[2] || "all");
     await setSelectedModel(userId, null, env);
     const view = await modelPickerView(language, null, env, 0, scope);
-    const confirmation = language === "fa" ? "✓ مسیر خودکار فعال شد." : language === "ar" ? "✓ تم تفعيل المسار التلقائي." : "✓ Auto route is active.";
-    await editMessage(env, { chatId, messageId, text: `${confirmation}\n\n${view.text}`, keyboard: view.keyboard });
+    const confirmation = language === "fa" ? "✓ مسیر خودکار روشن است — IVAI خودش یک مدل رایگان برای شما انتخاب می‌کند." : language === "ar" ? "✓ المسار التلقائي مفعّل — يختار IVAI نموذجًا مجانيًا لك." : "✓ Auto route is on — IVAI picks a free model for you.";
+    await editRichScreen(env, query.message, { html: `${confirmation}\n\n${view.text}`, keyboard: view.keyboard, language });
     return;
   }
   if (data === "model:refresh" || data.startsWith("model:refresh:")) {
@@ -1884,7 +1987,7 @@ async function processCallback(query, env) {
     try { await refreshFreeModelCatalog(env); } catch { /* The picker keeps the last safe catalog. */ }
     const settings = await getUserSettings(userId, env);
     const view = await modelPickerView(language, settings.selectedModel, env, 0, scope);
-    await editMessage(env, { chatId, messageId, text: view.text, keyboard: view.keyboard });
+    await editRichScreen(env, query.message, { html: view.text, keyboard: view.keyboard, language });
     return;
   }
   if (data === "model:noop") return;
@@ -1892,36 +1995,36 @@ async function processCallback(query, env) {
   // Private chats only: the main menu is shared, so a group tap on the My API
   // button must not open the user's configs.
   if (data.startsWith("byok:") && query.message?.chat?.type !== "private") {
-    await sendMessage(env, { chatId, text: language === "fa" ? "🔑 «API من» فقط در چت خصوصی با من در دسترس است." : "🔑 My API is only available in a private chat with me." });
+    await sendMessage(env, { chatId, text: language === "fa" ? "🔑 «API من» فقط در چت خصوصی با من است — من را آنجا باز کنید و در منو روی <b>My API</b> بزنید." : "🔑 My API lives in a private chat with me — open me there and tap <b>My API</b> in the menu." });
     return;
   }
   if (data === "byok:open" || data === "byok:list") {
     const view = await byokListView(language, userId, env);
-    await editMessage(env, { chatId, messageId, text: view.text, keyboard: view.keyboard });
+    await editRichScreen(env, query.message, { html: view.text, keyboard: view.keyboard, language });
     return;
   }
   if (data.startsWith("byok:config:")) {
     const configId = data.slice("byok:config:".length);
     const view = await byokManageView(language, userId, env, configId);
-    await editMessage(env, { chatId, messageId, text: view.text, keyboard: view.keyboard });
+    await editRichScreen(env, query.message, { html: view.text, keyboard: view.keyboard, language });
     return;
   }
   if (data === "byok:presets") {
     const text = language === "fa"
-      ? `<b>🔑 API من</b>\n\nپروایدر را انتخاب کنید:\n\n${byokTrustLine(language)}`
-      : `<b>🔑 My API</b>\n\nChoose your provider:\n\n${byokTrustLine(language)}`;
-    await editMessage(env, { chatId, messageId, text, keyboard: byokPresetKeyboard(language, byokPresetIds()) });
+      ? `<b>🔑 API من</b>\nپروایدر را پایین انتخاب کنید.\n\n${byokTrustLine(language)}`
+      : `<b>🔑 My API</b>\nChoose your provider below.\n\n${byokTrustLine(language)}`;
+    await editRichScreen(env, query.message, { html: text, keyboard: byokPresetKeyboard(language, byokPresetIds()), language });
     return;
   }
   if (data === "byok:back") {
     const settings = await getUserSettings(userId, env);
-    await editMessage(env, { chatId, messageId, text: menuText(language, settings), keyboard: mainKeyboard(language, query.message) });
+    await editRichScreen(env, query.message, { html: await menuTextForUser(language, settings, userId, env), keyboard: mainKeyboard(language, query.message), language });
     return;
   }
   if (data === "byok:cancel") {
     await clearByokPending(userId, env);
     const view = await byokListView(language, userId, env);
-    await editMessage(env, { chatId, messageId, text: `${byokCancelledText(language)}\n\n${view.text}`, keyboard: view.keyboard });
+    await editRichScreen(env, query.message, { html: `${byokCancelledText(language)}\n\n${view.text}`, keyboard: view.keyboard, language });
     return;
   }
   if (data.startsWith("byok:preset:")) {
@@ -1942,7 +2045,7 @@ async function processCallback(query, env) {
     const meta = await getUserApiConfigMeta(userId, env, configId);
     if (!meta) {
       const view = await byokListView(language, userId, env);
-      await editMessage(env, { chatId, messageId, text: view.text, keyboard: view.keyboard });
+      await editRichScreen(env, query.message, { html: view.text, keyboard: view.keyboard, language });
       return;
     }
     await setByokPending(userId, { step: "key", preset: meta.preset, rekeyConfigId: configId }, env);
@@ -1954,7 +2057,7 @@ async function processCallback(query, env) {
     const config = await getUserApiConfig(userId, env, { includeDisabled: true, configId }).catch(() => null);
     if (!config) {
       const view = await byokListView(language, userId, env);
-      await editMessage(env, { chatId, messageId, text: view.text, keyboard: view.keyboard });
+      await editRichScreen(env, query.message, { html: view.text, keyboard: view.keyboard, language });
       return;
     }
     if (!config.model) {
@@ -1978,15 +2081,17 @@ async function processCallback(query, env) {
       return;
     }
     const view = byokModelView(language, meta);
-    const lead = language === "fa" ? "<b>✓ اتصال برقرار شد</b>\n\n" : "<b>✓ Connection works</b>\n\n";
-    await editMessage(env, { chatId, messageId, text: `${lead}${view.text}`, keyboard: view.keyboard });
+    const lead = language === "fa"
+      ? `<b>✓ اتصال برقرار است</b>\nکلید ${escapeHtml(byokPresetLabel(meta.preset))} شما جواب می‌دهد. حالا مدل را پایین انتخاب کنید — بعد آمادهٔ چت هستید.`
+      : `<b>✓ Connection works</b>\nYour ${escapeHtml(byokPresetLabel(meta.preset))} key answers. Now pick a model below — then you're ready to chat.`;
+    await editRichScreen(env, query.message, { html: `${lead}\n\n${view.text}`, keyboard: view.keyboard, language });
     return;
   }
   if (data.startsWith("byok:models:")) {
     const configId = data.slice("byok:models:".length);
     const meta = await getUserApiConfigMeta(userId, env, configId);
     const view = byokModelView(language, meta);
-    await editMessage(env, { chatId, messageId, text: view.text, keyboard: view.keyboard });
+    await editRichScreen(env, query.message, { html: view.text, keyboard: view.keyboard, language });
     return;
   }
   if (data.startsWith("byok:model:")) {
@@ -2006,7 +2111,7 @@ async function processCallback(query, env) {
     const model = allModels[Number(token)];
     if (!meta || !model) {
       const view = byokModelView(language, meta);
-      await editMessage(env, { chatId, messageId, text: view.text, keyboard: view.keyboard });
+      await editRichScreen(env, query.message, { html: view.text, keyboard: view.keyboard, language });
       return;
     }
     await updateUserApiConfigModel(userId, { model, visionModel: preset.visionModel, transcriptionModel: preset.transcriptionModel }, env, configId);
@@ -2021,7 +2126,7 @@ async function processCallback(query, env) {
     const meta = await getUserApiConfigMeta(userId, env, configId);
     if (!meta || meta.status !== "valid") {
       const view = await byokListView(language, userId, env);
-      await editMessage(env, { chatId, messageId, text: view.text, keyboard: view.keyboard });
+      await editRichScreen(env, query.message, { html: view.text, keyboard: view.keyboard, language });
       return;
     }
     // Activation does NOT test the connection: a test call would burn the
@@ -2038,8 +2143,8 @@ async function processCallback(query, env) {
   if (data === "byok:disable") {
     await setActiveUserApiConfig(userId, null, env);
     const view = await byokListView(language, userId, env);
-    const lead = language === "fa" ? "✓ چت خصوصی دوباره با مدل‌های IVAI جواب می‌دهد." : "✓ Private chats answer with IVAI models again.";
-    await editMessage(env, { chatId, messageId, text: `${lead}\n\n${view.text}`, keyboard: view.keyboard });
+    const lead = language === "fa" ? "✓ برگشتیم به مدل‌های IVAI — چت خصوصی دوباره با مدل‌های IVAI جواب می‌دهد." : "✓ Back to IVAI models — private chats answer with IVAI models again.";
+    await editRichScreen(env, query.message, { html: `${lead}\n\n${view.text}`, keyboard: view.keyboard, language });
     return;
   }
   if (data.startsWith("byok:remove:yes:")) {
@@ -2047,8 +2152,8 @@ async function processCallback(query, env) {
     await deleteUserApiConfig(userId, env, configId);
     await clearByokPending(userId, env);
     const view = await byokListView(language, userId, env);
-    const lead = language === "fa" ? "✓ API من حذف شد." : "✓ My API removed.";
-    await editMessage(env, { chatId, messageId, text: `${lead}\n\n${view.text}`, keyboard: view.keyboard });
+    const lead = language === "fa" ? "✓ API من حذف شد. چت خصوصی دوباره با مدل‌های IVAI جواب می‌دهد." : "✓ My API removed. Private chats answer with IVAI models again.";
+    await editRichScreen(env, query.message, { html: `${lead}\n\n${view.text}`, keyboard: view.keyboard, language });
     return;
   }
   if (data.startsWith("byok:remove:")) {
@@ -2056,7 +2161,7 @@ async function processCallback(query, env) {
     const meta = await getUserApiConfigMeta(userId, env, configId);
     if (!meta) {
       const view = await byokListView(language, userId, env);
-      await editMessage(env, { chatId, messageId, text: view.text, keyboard: view.keyboard });
+      await editRichScreen(env, query.message, { html: view.text, keyboard: view.keyboard, language });
       return;
     }
     await editMessage(env, { chatId, messageId, text: byokRemoveText(language, meta), keyboard: byokRemoveConfirmKeyboard(language, configId) });
@@ -2067,7 +2172,7 @@ async function processCallback(query, env) {
     const meta = await getUserApiConfigMeta(userId, env, configId);
     if (!meta) {
       const view = await byokListView(language, userId, env);
-      await editMessage(env, { chatId, messageId, text: view.text, keyboard: view.keyboard });
+      await editRichScreen(env, query.message, { html: view.text, keyboard: view.keyboard, language });
       return;
     }
     await setByokPending(userId, { step: "name", configId }, env);
@@ -2077,7 +2182,7 @@ async function processCallback(query, env) {
   if (data === "menu:settings" || data === "settings:open") {
     const settings = await getUserSettings(userId, env);
     const view = await settingsView(language, settings, env, userId);
-    await editMessage(env, { chatId, messageId, text: view.text, keyboard: view.keyboard });
+    await editRichScreen(env, query.message, { html: view.text, keyboard: view.keyboard, language });
     return;
   }
   if (data === "settings:memory" || data === "settings:memory:on" || data === "settings:memory:off") {
@@ -2089,7 +2194,7 @@ async function processCallback(query, env) {
     // The full settings view re-renders (not just the Memory line) so a
     // redelivered toggle cannot leave a half-updated screen behind.
     const view = await settingsView(language, { ...settings, memoryEnabled: target }, env, userId);
-    await editMessage(env, { chatId, messageId, text: view.text, keyboard: view.keyboard });
+    await editRichScreen(env, query.message, { html: view.text, keyboard: view.keyboard, language });
     return;
   }
   if (data === "settings:reset") {
@@ -2102,12 +2207,12 @@ async function processCallback(query, env) {
     return;
   }
   if (data === "menu:language") {
-    await editMessage(env, { chatId, messageId, text: languageMenuText(language), keyboard: languageKeyboard(language) });
+    await editRichScreen(env, query.message, { html: languageMenuText(language), keyboard: languageKeyboard(language), language });
     return;
   }
 
   if (data === "modes:more") {
-    await editMessage(env, { chatId, messageId, text: helpText(language), keyboard: mainKeyboard(language, query.message) });
+    await editRichScreen(env, query.message, { html: helpText(language), keyboard: mainKeyboard(language, query.message), language });
     return;
   }
   if (data.startsWith("mode:")) {
@@ -2130,17 +2235,12 @@ async function processCallback(query, env) {
         ...messageSendContext(query.message)
       });
     }
-    await editMessage(env, {
-      chatId,
-      messageId,
-      text: menuText(language, settings),
-      keyboard: mainKeyboard(language, query.message)
-    });
+    await editRichScreen(env, query.message, { html: await menuTextForUser(language, settings, userId, env), keyboard: mainKeyboard(language, query.message), language });
     return;
   }
   if (data.startsWith("lang:page:")) {
     const page = Number(data.slice("lang:page:".length));
-    await editMessage(env, { chatId, messageId, text: languageMenuText(language), keyboard: languageKeyboard(language, Number.isFinite(page) ? page : 0) });
+    await editRichScreen(env, query.message, { html: languageMenuText(language), keyboard: languageKeyboard(language, Number.isFinite(page) ? page : 0), language });
     return;
   }
   if (data.startsWith("lang:set:") || data === "lang:en" || data === "lang:fa") {
@@ -2148,7 +2248,7 @@ async function processCallback(query, env) {
     if (!SUPPORTED_LANGUAGE_CODES.has(selected)) return;
     await setUserLanguage(userId, selected, env);
     const settings = await getUserSettings(userId, env);
-    await editMessage(env, { chatId, messageId, text: menuText(selected, { ...settings, language: selected }), keyboard: mainKeyboard(selected, query.message) });
+    await editRichScreen(env, query.message, { html: await menuTextForUser(selected, { ...settings, language: selected }, userId, env), keyboard: mainKeyboard(selected, query.message), language: selected });
     return;
   }
   if (data.startsWith("feedback:")) {
@@ -2185,7 +2285,7 @@ async function processCallback(query, env) {
   }
   if (data === "admin:broadcast") {
     const role = await getRole(userId, env);
-    await sendMessage(env, { chatId, text: canBroadcast(role) ? "Send <code>/broadcast your message</code> to create a reviewable draft." : responseText(language, "noAccess") });
+    await sendMessage(env, { chatId, text: canBroadcast(role) ? (language === "fa" ? "برای شروع broadcast بفرستید:\n<code>/broadcast پیام شما</code>" : "To start a broadcast, send:\n<code>/broadcast your message</code>") : responseText(language, "noAccess") });
     return;
   }
   if (data === "admin:stats") {
@@ -2194,7 +2294,13 @@ async function processCallback(query, env) {
       await sendMessage(env, { chatId, text: responseText(language, "noAccess") });
       return;
     }
-    await sendMessage(env, { chatId, text: adminStatsText(await getAdminOperationalStats(env)) });
+    const stats = await getAdminOperationalStats(env);
+    await sendRichScreen(env, {
+      chatId,
+      html: adminStatsRichText(stats, language),
+      plainText: adminStatsText(stats, language),
+      rich: query.message.chat?.type === "private"
+    });
     return;
   }
   if (data === "admin:guard") {
@@ -2203,7 +2309,7 @@ async function processCallback(query, env) {
       await sendMessage(env, { chatId, text: responseText(language, "noAccess") });
       return;
     }
-    await sendMessage(env, { chatId, text: "<b>Guard status</b>\n\nGuard is available as an opt-in safety classifier through <code>/guard</code>. It uses Llama Guard in exactly one model call and returns a verdict without generating a second content response. Automatic classification remains off in ordinary chats." });
+    await sendMessage(env, { chatId, text: language === "fa" ? "<b>🛡 Guard</b>\nGuard یک بررسی ایمنی اختیاری است که با <code>/guard</code> اجرا می‌شود. یک تماس Llama Guard می‌گیرد و فقط یک حکم برمی‌گرداند — همین. بررسی خودکار در چت‌های معمولی خاموش می‌ماند." : "<b>🛡 Guard</b>\nGuard is an opt-in safety check you run with <code>/guard</code>. It uses one Llama Guard call and returns a verdict — nothing more. Automatic checks stay off in normal chats." });
     return;
   }
   if (data === "admin:policy") {
@@ -2212,7 +2318,11 @@ async function processCallback(query, env) {
       await sendMessage(env, { chatId, text: responseText(language, "noAccess") });
       return;
     }
-    await sendMessage(env, { chatId, text: "<b>IVAI Free Policy</b>\n\n• Free routes only: Workers AI, OpenRouter <code>:free</code>, Groq free tier, and Google AI Studio free tier.\n• One model call per request; providers use ordered fallback, never parallel races.\n• Workers AI has a daily budget guard.\n• Broadcasts require a separate draft and confirmation before the delivery queue can run." });
+    await sendRichScreen(env, {
+      chatId,
+      html: language === "fa" ? "<b>سیاست رایگان IVAI</b>\n\nفقط مدل‌های رایگان — Workers AI، OpenRouter <code>:free</code>، Groq، Google AI Studio.\nهر درخواست = یک تماس مدل. پروایدرها به‌ترتیب جایگزین می‌شوند — هرگز موازی.\nWorkers AI سقف بودجهٔ روزانه دارد.\nBroadcast قبل از ارسال نیازمند پیش‌نویس + تأیید است." : "<b>IVAI Free Policy</b>\n\nFree models only — Workers AI, OpenRouter <code>:free</code>, Groq, Google AI Studio.\nOne request = one model call. Providers fall back in order — never in parallel.\nWorkers AI has a daily budget guard.\nBroadcasts need a draft + confirmation before anything is sent.",
+      rich: query.message.chat?.type === "private"
+    });
   }
 }
 
