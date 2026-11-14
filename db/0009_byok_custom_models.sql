@@ -1,0 +1,12 @@
+-- BYOK ("My API", v3.9.1): per-config added models. A config keeps the
+-- model names the user typed for it ("Add a model"), so the model menu can
+-- offer them again next time instead of only the preset catalog (a custom
+-- endpoint has no catalog at all). Stored as a JSON array of strings, at
+-- most 20 entries, oldest dropped first.
+-- NOTE: apply this file DIRECTLY with the D1 query API ({"batch": [...]}).
+-- There is no d1_migrations table on the live database (verified
+-- 2026-11-14), so no runner row exists to record; migration 0006 must
+-- never be executed (owner decision 2026-11-03) and is recorded as skipped
+-- in the deployment checklist instead. Apply exactly once: ADD COLUMN
+-- errors if the column already exists.
+ALTER TABLE user_api_configs ADD COLUMN custom_models TEXT NOT NULL DEFAULT '[]';

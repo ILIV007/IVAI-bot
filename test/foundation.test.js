@@ -11,7 +11,7 @@ import { analyzePhoto, downloadTelegramFile, transcribeVoice } from "../src/medi
 import { APP, BYOK_PRESETS, defaultFreeModelFor, FREE_MODEL_POLICY, GROUP_POLICY, LANGUAGE_OPTIONS, MODES, modeOutputLimit } from "../src/config.js";
 import { assignChannelCommentMode, channelPostSampled, completeChannelComment, messagePlainText, richBlockToPlain, richTextToPlain } from "../src/router.js";
 import { defaultFreeModels, refreshFreeModelCatalog } from "../src/catalog.js";
-import { conversationKey, deleteUserApiConfig, ensureConversationSession, getActiveUserApiConfigId, getAdminOperationalStats, getConversationSession, getUserApiConfig, getUserApiConfigMeta, getUserSettings, listUserApiConfigs, markUserApiConfigInvalid, renameUserApiConfig, resetUserApiAuthFailures, saveConversationSession, saveUserApiConfig, setActiveUserApiConfig, setMemoryEnabled, setSelectedModel, setUserApiConfigEnabled, setUserLanguage, setUserMode, startNewConversationSession, updateUserApiConfigModel, upsertUser } from "../src/storage.js";
+import { addCustomByokModel, conversationKey, deleteUserApiConfig, ensureConversationSession, getActiveUserApiConfigId, getAdminOperationalStats, getConversationSession, getUserApiConfig, getUserApiConfigMeta, getUserSettings, listUserApiConfigs, markUserApiConfigInvalid, renameUserApiConfig, resetUserApiAuthFailures, saveConversationSession, saveUserApiConfig, setActiveUserApiConfig, setMemoryEnabled, setSelectedModel, setUserApiConfigEnabled, setUserLanguage, setUserMode, startNewConversationSession, updateUserApiConfigModel, upsertUser } from "../src/storage.js";
 import { decryptApiKey, encryptApiKey } from "../src/byok-crypto.js";
 import { getRequiredChannelMembership } from "../src/membership.js";
 import { renderRichAiText, renderStandardAiText } from "../src/rich-renderer.js";
@@ -241,8 +241,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.9.0 release version", () => {
-  assert.equal(APP.version, "3.9.0");
+test("declares the official v3.9.1 release version", () => {
+  assert.equal(APP.version, "3.9.1");
 });
 
 test("upserts a language choice even when no user row exists yet", async () => {
@@ -313,9 +313,11 @@ test("presents the requested Start controls and six-row Menu hierarchy", () => {
   assert.equal(menu[2][0].web_app.url, APP.terminalAppUrl);
   assert.equal(menu[2][0].style, "success");
   assert.equal(menu[3][0].callback_data, "menu:models");
-  assert.equal(menu[3][0].style, "danger");
+  assert.equal(menu[3][0].style, undefined);
   // v3.9.0: My API has its own menu row between Pick model and Help.
+  // v3.9.1: My API is the red button now (owner decision); Pick model is plain.
   assert.equal(menu[4][0].callback_data, "byok:open");
+  assert.equal(menu[4][0].style, "danger");
   assert.deepEqual(menu[5].map((button) => button.callback_data), ["menu:help", "menu:settings", "menu:language"]);
 
   const start = startKeyboard("en", { includeTerminal: true }).inline_keyboard;
@@ -4330,7 +4332,7 @@ function byokTestKey(seed = 1) {
 
 function byokSqliteEnv({ encryptionKey = byokTestKey(1) } = {}) {
   const db = new DatabaseSync(":memory:");
-  for (const file of ["0001_initial_schema.sql", "0002_runtime_guards.sql", "0007_user_api_configs.sql", "0008_byok_multi_config.sql"]) {
+  for (const file of ["0001_initial_schema.sql", "0002_runtime_guards.sql", "0007_user_api_configs.sql", "0008_byok_multi_config.sql", "0009_byok_custom_models.sql"]) {
     db.exec(readFileSync(new URL(`../db/${file}`, import.meta.url), "utf8"));
   }
   // user_api_configs references users: the production flow upserts the user
@@ -4388,6 +4390,22 @@ test("migration 0008 migrates the single v3.8.0 config to multi-config without r
     const other = db.prepare("SELECT * FROM user_api_configs WHERE telegram_user_id='43'").get();
     assert.equal(other.config_id, "default");
     assert.equal(other.enabled, 0);
+  } finally {
+    db.close();
+  }
+});
+
+test("migration 0009 adds the custom_models column for per-config added models", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(readFileSync(new URL("../db/0001_initial_schema.sql", import.meta.url), "utf8"));
+    db.exec(readFileSync(new URL("../db/0007_user_api_configs.sql", import.meta.url), "utf8"));
+    db.exec(readFileSync(new URL("../db/0008_byok_multi_config.sql", import.meta.url), "utf8"));
+    db.exec(readFileSync(new URL("../db/0009_byok_custom_models.sql", import.meta.url), "utf8"));
+    const columns = db.prepare("SELECT name, dflt_value FROM pragma_table_info('user_api_configs')").all();
+    const customModels = columns.find((column) => column.name === "custom_models");
+    assert.ok(customModels, "missing column custom_models");
+    assert.equal(customModels.dflt_value, "'[]'");
   } finally {
     db.close();
   }
@@ -4989,17 +5007,88 @@ test("custom endpoint flow normalizes the URL, collects the model, and activates
     [customMeta] = await listUserApiConfigs(42, env);
     assert.equal(customMeta.model, "my-custom-model-1");
     assert.equal(await env.IVAI_KV.get("byok:pending:42"), null);
-    assert.ok(calls.filter((call) => /sendMessage$/.test(call.url)).at(-1).body.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === `byok:test:${customId}`));
-
-    // A working test activates the custom config directly (no model list).
-    await postGroupUpdate(env, privateCallbackUpdate(5605, `byok:test:${customId}`));
+    // Typing the model is the last step now (owner decision 2026-11-14,
+    // superseding the v3.9.0 tap-Test-then-activate flow): the test runs
+    // right away and a working test activates the config directly, with the
+    // typed model remembered on the config for the model menu.
     assert.equal((await getUserApiConfigMeta(42, env)).enabled, true);
-    const edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
-    assert.match(edit.body.text, /My API is active/);
+    assert.equal(await getActiveUserApiConfigId(42, env), customId);
+    assert.deepEqual((await getUserApiConfigMeta(42, env)).customModels, ["my-custom-model-1"]);
+    const sent = calls.filter((call) => /sendMessage$/.test(call.url)).at(-1);
+    assert.match(sent.body.text, /My API is active/);
+    assert.match(sent.body.text, /start chatting/);
   } finally {
     globalThis.fetch = originalFetch;
     db.close();
   }
+});
+
+test("custom endpoint model entry with a failing test shows the failure view and stays inactive", async () => {
+  const originalFetch = globalThis.fetch;
+  const { db, env, calls, fetchMock } = byokWorkerEnv();
+  globalThis.fetch = async (url, init) => String(url).includes("api.example.com")
+    ? new Response(JSON.stringify({ error: { message: "Incorrect API key" } }), { status: 401 })
+    : fetchMock(url, init);
+  try {
+    await postGroupUpdate(env, privateCallbackUpdate(5611, "byok:preset:custom"));
+    await postGroupUpdate(env, privateTextUpdate(5612, 10, "https://api.example.com/v1"));
+    await postGroupUpdate(env, privateTextUpdate(5613, 11, "sk-custom-key-123456"));
+    const [customMeta] = await listUserApiConfigs(42, env);
+    await postGroupUpdate(env, privateTextUpdate(5614, 12, "my-custom-model-1"));
+    // The model is saved and remembered, but the config stays inactive.
+    const failedMeta = await getUserApiConfigMeta(42, env, customMeta.configId);
+    assert.equal(failedMeta.enabled, false);
+    assert.equal(await getActiveUserApiConfigId(42, env), null);
+    assert.deepEqual(failedMeta.customModels, ["my-custom-model-1"]);
+    const sent = calls.filter((call) => /sendMessage$/.test(call.url)).at(-1);
+    assert.match(sent.body.text, /Connection failed/);
+    assert.ok(sent.body.reply_markup.inline_keyboard.flat().some((button) => button.callback_data === `byok:test:${customMeta.configId}`));
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.close();
+  }
+});
+
+test("model menu lists the preset catalog plus added models, marks the active one, and picking one activates with the ready line", async () => {
+  const originalFetch = globalThis.fetch;
+  const { db, env, calls, fetchMock } = byokWorkerEnv();
+  globalThis.fetch = fetchMock;
+  try {
+    const configId = await saveUserApiConfig({ userId: 42, preset: "groq", baseUrl: "https://api.groq.com/openai/v1", apiKey: "gsk_test-key-abc", model: "openai/gpt-oss-20b" }, env);
+    await addCustomByokModel(42, "my-groq-extra-1", env, configId);
+    await setUserApiConfigEnabled(42, true, env, configId);
+    await setActiveUserApiConfig(42, configId, env);
+
+    // The menu shows the catalog, the added model, and the Add button.
+    await postGroupUpdate(env, privateCallbackUpdate(5621, `byok:models:${configId}`));
+    let edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
+    assert.match(edit.body.text, /Which model should answer\?/);
+    const buttons = edit.body.reply_markup.inline_keyboard.flat();
+    assert.ok(buttons.some((button) => button.text === "my-groq-extra-1" && button.callback_data === `byok:model:${configId}:3`));
+    assert.ok(buttons.some((button) => button.callback_data === `byok:model:${configId}:other`));
+
+    // Picking the added model activates it and says it is ready to use.
+    await postGroupUpdate(env, privateCallbackUpdate(5622, `byok:model:${configId}:3`));
+    assert.equal((await getUserApiConfigMeta(42, env)).model, "my-groq-extra-1");
+    edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
+    assert.match(edit.body.text, /My API is active/);
+    assert.match(edit.body.text, /start chatting/);
+    assert.match(edit.body.text, /● <b>Groq<\/b> · <code>my-groq-extra-1<\/code>/);
+
+    // Reopening the menu marks the active model.
+    await postGroupUpdate(env, privateCallbackUpdate(5623, `byok:models:${configId}`));
+    edit = calls.filter((call) => /editMessageText$/.test(call.url)).at(-1);
+    assert.ok(edit.body.reply_markup.inline_keyboard.flat().some((button) => button.text === "● my-groq-extra-1"));
+  } finally {
+    globalThis.fetch = originalFetch;
+    db.close();
+  }
+});
+
+test("main menu: My API is red and Pick model is plain", () => {
+  const buttons = modeKeyboard("en").inline_keyboard.flat();
+  assert.equal(buttons.find((button) => button.callback_data === "byok:open").style, "danger");
+  assert.equal(buttons.find((button) => button.callback_data === "menu:models").style, undefined);
 });
 
 test("removing My API deletes the config and private chats answer with IVAI models again", async () => {

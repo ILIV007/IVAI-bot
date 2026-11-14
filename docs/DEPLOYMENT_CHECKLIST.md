@@ -27,6 +27,7 @@ Run every migration exactly once and in the listed order. Never edit an applied 
 | 6 | `db/0006_reset_language_to_english.sql` | One-time reset of all stored user languages to English (v3.4.0); afterwards language changes only via explicit `/lang`. **NEVER RUN — see note below.** |
 | 7 | `db/0007_user_api_configs.sql` | BYOK ("My API", v3.8.0): one encrypted custom-provider config per user; the key column stores AES-256-GCM ciphertext only. |
 | 8 | `db/0008_byok_multi_config.sql` | BYOK multi-config (v3.9.0): composite primary key (`telegram_user_id`, `config_id`) + display `name`; the active config is `user_preferences.active_api_config_id` (NULL = IVAI models). Existing single configs migrate as `config_id` `default` / name \"My API 1\" with keys untouched. **Apply once, as one D1 query API batch, in statement order — the table swap and ADD COLUMN are not safe to re-run.** |
+| 9 | `db/0009_byok_custom_models.sql` | BYOK per-config added models (v3.9.1): `custom_models` JSON array (max 20) of model names the user typed for a config, so the model menu can offer them again. **Apply once via the D1 query API — ADD COLUMN errors if the column already exists.** |
 
 > **Migration 0006 must never run (owner decision 2026-11-03).** The live
 > database has no `d1_migrations` table (verified 2026-11-14), so there is no
