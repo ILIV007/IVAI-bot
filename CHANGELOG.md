@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.13.2] - 2026-11-14
+
+### Changed
+
+- **Terminal goes Neon Console:** the near-black palette leans navy (`#0a0f1e`, owner request), a faint dot-grid texture sits behind the workspace, the composer glows jade on focus with a blinking block cursor after the `❯` prompt (hidden while typing), suggestion chips read as command chips, statusline chips carry a jade underline, and the Send button keeps its label on mobile instead of collapsing to an icon.
+
 ## [3.13.1] - 2026-11-14
 
 ### Changed

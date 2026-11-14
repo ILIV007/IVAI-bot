@@ -255,8 +255,8 @@ test("splits long Telegram output without dropping content", () => {
   assert.ok(parts.every((part) => part.length <= 1000));
 });
 
-test("declares the official v3.13.1 release version", () => {
-  assert.equal(APP.version, "3.13.1");});
+test("declares the official v3.13.2 release version", () => {
+  assert.equal(APP.version, "3.13.2");});
 
 test("richLineBreaks converts newlines to <br> for Rich sends (v3.11.1)", () => {
   assert.equal(richLineBreaks("<b>🎛 IVAI menu</b>\n\n<b>Your setup</b>\nResponse mode: <code>Auto</code>"), "<b>🎛 IVAI menu</b><br><br><b>Your setup</b><br>Response mode: <code>Auto</code>");
@@ -827,9 +827,9 @@ test("serves a lightweight IVAI Terminal shell with strict same-origin security 
   const html = await response.text();
   assert.equal(response.status, 200);
   assert.match(html, /IVAI \/\/ TERMINAL/);
-  // Warp-like redesign (v3.13.0, owner direction): flat near-black palette,
-  // one jade accent — the old navy palette is superseded.
-  assert.match(html, /--bg:#0b0e11/);
+  // Neon Console (v3.13.2, owner direction): the near-black leans navy,
+  // dot-grid texture, glowing composer — the flat Warp palette is superseded.
+  assert.match(html, /--bg:#0a0f1e/);
   assert.match(html, /--jade:#2dd4a7/);
   assert.match(html, /function renderRich\(target,value\)/);
   assert.match(html, /languageChip/);
@@ -895,13 +895,21 @@ test("renders Terminal Engine independently from Response Mode (v3.12.0)", () =>
   assert.doesNotMatch(page, /MODEL · AUTO/);
 });
 
-test("Terminal renders as a modern terminal: statusline, prompt blocks, mono-first (v3.13.0)", () => {
+test("Terminal renders as a modern terminal: statusline, prompt blocks, mono-first (v3.13.2)", () => {
   const page = renderAppPage("test-nonce");
   assert.match(page, /class="statusline"/);
   assert.match(page, /<span class="prompt" aria-hidden="true">❯<\/span>/);
   assert.match(page, /--mono:ui-monospace/);
   assert.match(page, /kind==='user'\?'❯'/);
   assert.match(page, /button\.textContent='❯ '\+value/);
+  // Neon Console (v3.13.2, owner direction): navy base, dot-grid texture,
+  // blinking block cursor after the prompt, glowing composer on focus, and
+  // the Send button keeps its label on mobile.
+  assert.match(page, /--bg:#0a0f1e/);
+  assert.match(page, /class="promptCursor"/);
+  assert.match(page, /radial-gradient/);
+  assert.match(page, /inset 0 -2px 0 var\(--jade\)/);
+  assert.doesNotMatch(page, /\.send span\{display:none\}/);
   assert.doesNotMatch(page, /linear-gradient/);
   assert.doesNotMatch(page, /class="context"/);
 });
