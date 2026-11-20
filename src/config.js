@@ -1,6 +1,6 @@
 export const APP = Object.freeze({
   name: "IVAI",
-  version: "3.14.1",  botUsername: "IVAI_Llm_bot",
+  version: "3.15.0",  botUsername: "IVAI_Llm_bot",
   terminalAppUrl: "https://ivai-bot.ivai-bot.workers.dev/app",
   // Bot-owned file IDs from the IVAILlmBot pack; refresh deliberately when that pack changes.
   welcomeStickerFileIds: Object.freeze([
@@ -139,17 +139,12 @@ export const FREE_MODEL_POLICY = Object.freeze({
   workersAi: Object.freeze({
     text: Object.freeze([
       "@cf/zai-org/glm-4.7-flash",
-      "@cf/nvidia/nemotron-3-120b-a12b",
       "@cf/qwen/qwen3.8-27b",
       "@cf/google/gemma-4-26b-a4b-it",
       "@cf/openai/gpt-oss-20b",
       "@cf/openai/gpt-oss-120b",
       "@cf/ibm-granite/granite-4.0-h-micro",
-      "@cf/meta/llama-3.2-1b-instruct",
-      "@cf/meta/llama-3.2-3b-instruct",
-      "@cf/meta/llama-3.1-8b-instruct-fp8",
-      "@cf/meta/llama-4-scout-17b-16e-instruct",
-      "@cf/qwen/qwen3-30b-a3b-fp8"
+      "@cf/meta/llama-4-scout-17b-16e-instruct"
     ]),
     // Llama 4 Scout produces a final OpenAI-compatible vision reply on the Workers AI binding.
     // Gemma 4 remains a free-tier fallback, but its reasoning-first output can exhaust a short reply budget.

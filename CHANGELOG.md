@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.15.0] - 2026-11-20
+
+### Removed
+
+- **Retired Workers AI models leave the free-model catalog:** Cloudflare retires Nemotron 3 120B (`@cf/nvidia/nemotron-3-120b-a12b`), Llama 3.2 1B (`@cf/meta/llama-3.2-1b-instruct`), Llama 3.2 3B (`@cf/meta/llama-3.2-3b-instruct`), Llama 3.1 8B FP8 (`@cf/meta/llama-3.1-8b-instruct-fp8`), and Qwen3 30B (`@cf/qwen/qwen3-30b-a3b-fp8`) on 2026-11-20, so all five are removed from `FREE_MODEL_POLICY.workersAi.text`. The remaining Workers AI text models are GLM 4.7 Flash, Qwen3.8 27B, Gemma 4 26B, GPT-OSS 20B/120B, Granite 4.0 H Micro, and Llama 4 Scout 17B; channel-post comments and group replies keep their Qwen3.8 27B and GLM 4.7 Flash pins.
+
 ## [3.14.1] - 2026-11-14
 
 ### Fixed

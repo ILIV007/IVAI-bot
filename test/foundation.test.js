@@ -264,6 +264,8 @@ test("free model catalog refresh (v3.14.0): dead Gemini removed, new free models
   // it to 3.5-flash-lite from 2026-12-01); Nemotron 3 120B and Qwen3.8 27B
   // join Workers AI; Gemini 4 Hydrogen (the only Gemini 4 with a Free Tier)
   // and Gemini 3.1 Flash-Lite join Google. Group replies keep the GLM pin.
+  // Nemotron 3 120B left the catalog again in v3.15.0 (Cloudflare retired
+  // it on 2026-11-20) — see the v3.15.0 test below.
   assert.ok(!FREE_MODEL_POLICY.google.includes("gemini-2.5-flash"));
   assert.deepEqual(FREE_MODEL_POLICY.google, [
     "gemini-4-hydrogen",
@@ -273,11 +275,28 @@ test("free model catalog refresh (v3.14.0): dead Gemini removed, new free models
     "gemini-3.1-flash-lite",
     "gemini-2.5-flash-lite"
   ]);
-  assert.ok(FREE_MODEL_POLICY.workersAi.text.includes("@cf/nvidia/nemotron-3-120b-a12b"));
   assert.ok(FREE_MODEL_POLICY.workersAi.text.includes("@cf/qwen/qwen3.8-27b"));
   assert.ok(FREE_MODEL_POLICY.workersAi.vision.includes("@cf/qwen/qwen3.8-27b"));
   assert.ok(BYOK_PRESETS.gemini.chatModels.includes("gemini-4-hydrogen"));
   assert.equal(defaultFreeModelFor("google"), "gemini-3.8-flash");
+});
+
+test("free model catalog (v3.15.0): retired Workers AI models are gone", () => {
+  // Owner decision (v3.15.0): Cloudflare retires these five Workers AI
+  // models on 2026-11-20, so they must not be offered anywhere — not in
+  // the policy, not in the picker catalog. Qwen3.8 27B and Gemma 4 26B stay.
+  for (const retired of [
+    "@cf/nvidia/nemotron-3-120b-a12b",
+    "@cf/meta/llama-3.2-1b-instruct",
+    "@cf/meta/llama-3.2-3b-instruct",
+    "@cf/meta/llama-3.1-8b-instruct-fp8",
+    "@cf/qwen/qwen3-30b-a3b-fp8"
+  ]) {
+    assert.ok(!FREE_MODEL_POLICY.workersAi.text.includes(retired), retired);
+    assert.ok(!defaultFreeModels().some((model) => model.id === retired), retired);
+  }
+  assert.ok(FREE_MODEL_POLICY.workersAi.text.includes("@cf/qwen/qwen3.8-27b"));
+  assert.ok(FREE_MODEL_POLICY.workersAi.text.includes("@cf/google/gemma-4-26b-a4b-it"));
 });
 
 test("footer is always a left-aligned Latin signature, and Auto stays short by default (v3.14.1)", () => {
@@ -297,8 +316,8 @@ test("footer is always a left-aligned Latin signature, and Auto stays short by d
   assert.ok(modeOutputLimit(MODES.AUTO) < modeOutputLimit(MODES.DEEP));
 });
 
-test("declares the official v3.14.1 release version", () => {
-  assert.equal(APP.version, "3.14.1");});
+test("declares the official v3.15.0 release version", () => {
+  assert.equal(APP.version, "3.15.0");});
 
 test("richLineBreaks converts newlines to <br> for Rich sends (v3.11.1)", () => {
   assert.equal(richLineBreaks("<b>🎛 IVAI menu</b>\n\n<b>Your setup</b>\nResponse mode: <code>Auto</code>"), "<b>🎛 IVAI menu</b><br><br><b>Your setup</b><br>Response mode: <code>Auto</code>");
@@ -1423,7 +1442,7 @@ test("accepts only verified zero-price OpenRouter models in a refreshed catalog"
 test("uses the official OpenRouter Free Router and expanded verified static routes", () => {
   const models = defaultFreeModels();
   assert.ok(models.some((model) => model.id === "openrouter/free"));
-  assert.ok(models.some((model) => model.id === "@cf/meta/llama-3.2-1b-instruct"));
+  assert.ok(models.some((model) => model.id === "@cf/qwen/qwen3.8-27b"));
   assert.ok(models.some((model) => model.id === "@cf/openai/gpt-oss-120b"));
   assert.ok(models.some((model) => model.id === "gemini-3.8-flash"));
 });
