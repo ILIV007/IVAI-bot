@@ -299,6 +299,15 @@ test("free model catalog (v3.15.0): retired Workers AI models are gone", () => {
   assert.ok(FREE_MODEL_POLICY.workersAi.text.includes("@cf/google/gemma-4-26b-a4b-it"));
 });
 
+test("free model catalog (v3.16.0): Mistral Small 3.1 joins Workers AI", () => {
+  // Owner decision (v3.16.0): Mistral Small 3.1 24B is verified free on the
+  // official Workers AI catalog (2026-11-20) — non-reasoning, official
+  // Persian support, 128K context — so it joins the free-model catalog as
+  // a text model. Group replies keep the GLM pin; comments keep Qwen.
+  assert.ok(FREE_MODEL_POLICY.workersAi.text.includes("@cf/mistralai/mistral-small-3.1-24b-instruct"));
+  assert.ok(defaultFreeModels().some((model) => model.id === "@cf/mistralai/mistral-small-3.1-24b-instruct"));
+});
+
 test("footer is always a left-aligned Latin signature, and Auto stays short by default (v3.14.1)", () => {
   // Owner decision (v3.14.1): the v3.11.3 RTL pin is reverted — the footer
   // sits on the left in every answer language. The LRM + LRI isolate keeps
@@ -316,8 +325,8 @@ test("footer is always a left-aligned Latin signature, and Auto stays short by d
   assert.ok(modeOutputLimit(MODES.AUTO) < modeOutputLimit(MODES.DEEP));
 });
 
-test("declares the official v3.15.0 release version", () => {
-  assert.equal(APP.version, "3.15.0");});
+test("declares the official v3.16.0 release version", () => {
+  assert.equal(APP.version, "3.16.0");});
 
 test("richLineBreaks converts newlines to <br> for Rich sends (v3.11.1)", () => {
   assert.equal(richLineBreaks("<b>🎛 IVAI menu</b>\n\n<b>Your setup</b>\nResponse mode: <code>Auto</code>"), "<b>🎛 IVAI menu</b><br><br><b>Your setup</b><br>Response mode: <code>Auto</code>");
