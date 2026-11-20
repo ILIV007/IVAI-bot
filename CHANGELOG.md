@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.16.0] - 2026-11-20
+
+### Added
+
+- **Mistral Small 3.1 24B joins the free-model catalog:** `@cf/mistralai/mistral-small-3.1-24b-instruct` is verified free on the official Workers AI catalog (no retirement date) — a non-reasoning 24B model with official Persian support, a 128K context, and vision + function calling. It is offered in the model picker as a text model; channel-post comments keep their Qwen3.8 27B pin and group replies keep the GLM 4.7 Flash pin.
+
 ## [3.15.0] - 2026-11-20
 
 ### Removed

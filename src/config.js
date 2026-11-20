@@ -1,6 +1,6 @@
 export const APP = Object.freeze({
   name: "IVAI",
-  version: "3.15.0",  botUsername: "IVAI_Llm_bot",
+  version: "3.16.0",  botUsername: "IVAI_Llm_bot",
   terminalAppUrl: "https://ivai-bot.ivai-bot.workers.dev/app",
   // Bot-owned file IDs from the IVAILlmBot pack; refresh deliberately when that pack changes.
   welcomeStickerFileIds: Object.freeze([
@@ -141,6 +141,7 @@ export const FREE_MODEL_POLICY = Object.freeze({
       "@cf/zai-org/glm-4.7-flash",
       "@cf/qwen/qwen3.8-27b",
       "@cf/google/gemma-4-26b-a4b-it",
+      "@cf/mistralai/mistral-small-3.1-24b-instruct",
       "@cf/openai/gpt-oss-20b",
       "@cf/openai/gpt-oss-120b",
       "@cf/ibm-granite/granite-4.0-h-micro",
