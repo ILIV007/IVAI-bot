@@ -2,6 +2,12 @@
 
 All notable changes to IVAI Bot are documented in this file. The project follows [Semantic Versioning](https://semver.org/).
 
+## [3.16.1] - 2026-11-21
+
+### Fixed
+
+- **Channel-post comments stop forcing jokes on dry posts:** a live diagnosis in ilivir3_hub (2026-11-21) found both weak comments were FUN-mode Qwen3.8 forcing a comparison onto a post with no clear funny beat — SplatLab ("بدون رختکن") and the Rust `target` folder ("کافه‌ی پیکاپ") — while ANALYSIS went 3/3 good. The FUN share drops from 60% to 40% (`GROUP_POLICY.channelCommentFunShare`), so ANALYSIS — the mode that stayed good — carries more posts, and a fourth FUN example (the Rust `target` post) teaches the voice to land a take on a low-angle post without any comparison at all.
+
 ## [3.16.0] - 2026-11-20
 
 ### Added

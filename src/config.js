@@ -1,6 +1,6 @@
 export const APP = Object.freeze({
   name: "IVAI",
-  version: "3.16.0",  botUsername: "IVAI_Llm_bot",
+  version: "3.16.1",  botUsername: "IVAI_Llm_bot",
   terminalAppUrl: "https://ivai-bot.ivai-bot.workers.dev/app",
   // Bot-owned file IDs from the IVAILlmBot pack; refresh deliberately when that pack changes.
   welcomeStickerFileIds: Object.freeze([
@@ -56,7 +56,7 @@ export const GROUP_POLICY = Object.freeze({
   // not picked by the model — its self-selection skewed heavily to ANALYSIS.
   // Draws are weighted to this FUN share, and a per-chat streak cap (drawn
   // per run from the range below) forces a switch so neither mode floods.
-  channelCommentFunShare: 0.6,
+  channelCommentFunShare: 0.4,
   channelCommentStreakCapMin: 2,
   channelCommentStreakCapMax: 3,
   otherCooldownSeconds: 120,
