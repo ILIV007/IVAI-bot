@@ -325,8 +325,8 @@ test("footer is always a left-aligned Latin signature, and Auto stays short by d
   assert.ok(modeOutputLimit(MODES.AUTO) < modeOutputLimit(MODES.DEEP));
 });
 
-test("declares the official v3.16.0 release version", () => {
-  assert.equal(APP.version, "3.16.0");});
+test("declares the official v3.16.1 release version", () => {
+  assert.equal(APP.version, "3.16.1");});
 
 test("richLineBreaks converts newlines to <br> for Rich sends (v3.11.1)", () => {
   assert.equal(richLineBreaks("<b>🎛 IVAI menu</b>\n\n<b>Your setup</b>\nResponse mode: <code>Auto</code>"), "<b>🎛 IVAI menu</b><br><br><b>Your setup</b><br>Response mode: <code>Auto</code>");
@@ -3297,7 +3297,7 @@ test("trims a truncated channel-post comment to its last complete segment before
   }
 });
 
-test("assigns channel-post comment modes in code: 60/40 draw, streak cap of 2–3 forces switches", () => {
+test("assigns channel-post comment modes in code: 40/60 draw, streak cap of 2–3 forces switches", () => {
   // v3.7.6: model self-selection skewed heavily to ANALYSIS, so the mode
   // is assigned deterministically in code. Drive a long synthetic
   // sequence through the real assignment + state transitions.
@@ -3322,11 +3322,11 @@ test("assigns channel-post comment modes in code: 60/40 draw, streak cap of 2–
     assert.ok(currentRun <= 3, `run of ${next.mode} reached ${currentRun}`);
     state = next;
   }
-  // The streak mechanics temper the raw 60/40 draw — runs of the majority
+  // The streak mechanics temper the raw 40/60 draw — runs of the majority
   // mode are cut at the cap more often — so the realized share over this
-  // fixed sequence lands near 55%, inside this honest band around 60%.
+  // fixed sequence lands near 45%, inside this honest band around 40%.
   const share = fun / total;
-  assert.ok(share >= 0.5 && share <= 0.62, `FUN share ${share} outside the expected band`);
+  assert.ok(share >= 0.38 && share <= 0.52, `FUN share ${share} outside the expected band`);
 });
 
 test("mode assignment restarts the run on a switch and extends it on a repeat draw", () => {
@@ -3875,7 +3875,7 @@ test("channel-post comment prompt is a persona with worked examples and hard rul
   globalThis.fetch = mockGroupFetch(calls);
   try {
     const env = groupTestEnv(calls, aiCalls, { enforced: "true" });
-    const update = { update_id: 3040, message: { message_id: 77, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "France just passed a new per-gigabyte internet tax.\nHeavy downloads like games and 4K streams will cost the most.\nCritics are calling it a tax on modern life itself.\nSupporters say the biggest platforms should pay for bandwidth.\nThe first bills under the new law arrive next month." } };
+    const update = { update_id: 3040, message: { message_id: 9, chat: { id: -100115, type: "supergroup" }, from: { id: 777000, first_name: "Telegram" }, sender_chat: { id: APP.requiredChannelId, type: "channel", title: "ILIVIR3" }, text: "France just passed a new per-gigabyte internet tax.\nHeavy downloads like games and 4K streams will cost the most.\nCritics are calling it a tax on modern life itself.\nSupporters say the biggest platforms should pay for bandwidth.\nThe first bills under the new law arrive next month." } };
     const response = await postGroupUpdate(env, update);
     assert.equal(response.status, 200);
     assert.equal(aiCalls.length, 1);
@@ -3886,11 +3886,12 @@ test("channel-post comment prompt is a persona with worked examples and hard rul
     // short persona, worked examples that teach the voice, and a short
     // hard-rules block — the model still runs on Qwen3 30B.
     // v3.7.2: the prompt now teaches TWO modes chosen per post — FUN
-    // (the three v3.7.0 examples, unchanged) and ANALYSIS (two new
-    // examples: the smart friend naming what is good AND what else
-    // matters — balanced, not a roast, not a verdict).
+    // (the three v3.7.0 examples plus a fourth low-angle one from
+    // v3.16.1) and ANALYSIS (two new examples: the smart friend naming
+    // what is good AND what else matters — balanced, not a roast, not a
+    // verdict).
     // v3.7.6: the model no longer picks the mode — the code assigns it
-    // (60/40 draw + streak cap) and the prompt states the assignment.
+    // (40/60 draw + streak cap) and the prompt states the assignment.
     // This post draws FUN under the deterministic assignment; the
     // ANALYSIS assignment line (and its smart-friend definition) is
     // asserted in the v3.7.6 mode-balance integration test below.
@@ -3900,10 +3901,11 @@ test("channel-post comment prompt is a persona with worked examples and hard rul
     assert.match(prompt, /Never mix the two modes in one comment/);
     assert.match(prompt, /FUN examples:/);
     assert.match(prompt, /ANALYSIS examples:/);
-    assert.equal((prompt.match(/→ Comment:/g) || []).length, 5);
+    assert.equal((prompt.match(/→ Comment:/g) || []).length, 6);
     assert.match(prompt, /انباره‌شون داره پر می‌شه/);
     assert.match(prompt, /همون کارت ۱۶ هزار دلاری انویدیا/);
     assert.match(prompt, /butt in every five seconds/);
+    assert.match(prompt, /یه cargo clean بزن و ببین چقدر سبک می‌شه/);
     assert.match(prompt, /وزن سرویس‌های مایکروسافته تا خود ویندوز/);
     assert.match(prompt, /بیشتر یه نمایشه تا سیستمی برای استفاده‌ی روزمره/);
     assert.match(prompt, /PDFهات از دستگاهت بیرون نمی‌رن/);
@@ -4824,7 +4826,7 @@ test("pins the locked group policy numbers so a config typo fails CI", () => {
   assert.equal(GROUP_POLICY.primaryMediaHourlyLimit, 10);
   assert.equal(GROUP_POLICY.otherMediaHourlyLimit, 3);
   assert.equal(GROUP_POLICY.channelPostReplyRate, 0.75);
-  assert.equal(GROUP_POLICY.channelCommentFunShare, 0.6);
+  assert.equal(GROUP_POLICY.channelCommentFunShare, 0.4);
   assert.equal(GROUP_POLICY.channelCommentStreakCapMin, 2);
   assert.equal(GROUP_POLICY.channelCommentStreakCapMax, 3);
 });

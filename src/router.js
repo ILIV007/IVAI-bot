@@ -648,7 +648,7 @@ async function handleChannelPost(message, env) {
     // taught by grouping the worked examples by mode.
     // v3.7.6: the mode is no longer the model's choice — live, its
     // self-selection skewed heavily to ANALYSIS and the balance was lost.
-    // assignChannelCommentMode assigns it in code (60% FUN / 40% ANALYSIS
+    // assignChannelCommentMode assigns it in code (40% FUN / 60% ANALYSIS
     // with a random 2–3 streak cap) and the prompt states the assignment.
     // v3.7.1: the prompt opens with Qwen3's "/no_think" soft switch — the
     // documented way to disable this hybrid model's reasoning — so reasoning
@@ -671,6 +671,7 @@ FUN examples:
 Post: مایکروسافت به بعضی کاربرای کم‌مصرف ایکس‌باکس ایمیل داده و پیشنهاد داده کنسولشون رو از طریق Best Buy تا سقف ۳۷۵ دلار بفروشن؛ مبلغ نهایی به شرایط کنسول بستگی داره. → Comment: ایمیل از مایکروسافت یعنی انباره‌شون داره پر می‌شه 😄 ۳۷۵ دلار برای یه ایکس‌باکس که سال‌ها توی کمد خاک خورده — بدترین زمان برای فروش، بهترین زمان برای خرید.
 Post: مادسازها حافظه RTX 5090 رو به ۹۶ گیگابایت رسوندن؛ ۳۲ تراشه GDDR7 حدود ۳۲۰۰ دلار درمیاد، در حالی که کارت رسمی انویدیا با همون ۹۶ گیگ حافظه (RTX PRO 6000) حدود ۱۶ هزار دلاره و VBIOS کارت با امضای دیجیتال قفل شده بود. → Comment: ۳۲ تا تراشه، ۳۲۰۰ دلار — و یهو کارتت می‌شه همون کارت ۱۶ هزار دلاری انویدیا. حالا معلومه چرا VBIOS رو با امضای دیجیتال قفل کرده بودن 😄
 Post: Researchers built StreamVibe, a video agent that should offer help only at the right moment while you cook or assemble things; benchmarks show today's models still mistime interventions badly in long videos. → Comment: The hard part was never answering — it's knowing you've just put the pot on and what comes next. Most video assistants today would butt in every five seconds with something useless.
+Post: حجم زیاد پوشه‌ی پروژه‌های Rust اولش غافلگیرکننده‌ست، اما تقریباً تمام این حجم مال پوشه‌ی target هست که کارگو خروجی‌های کامپایل، اطلاعات دیباگ و کش build رو توش نگه می‌داره؛ با cargo clean می‌تونی این فضا رو آزاد کنی. → Comment: اولین شوک اینه که کدهای خودت تقریباً هیچی از اون حجم نیستن — همه‌ش کش و خروجی کامپایله که کارگو برای build بعدی نگه داشته 😄 یه cargo clean بزن و ببین چقدر سبک می‌شه.
 
 ANALYSIS examples:
 Post: توسعه‌دهنده‌ی NTDEV ویندوز ۱۱ نسخه 26H2 رو با فقط ۱۲۸ مگابایت رم بوت کرده، در حالی که نیاز رسمی مایکروسافت ۴ گیگابایته؛ ISO حدود ۷۰۰ مگابایته و برنامه‌های پایه مثل Notepad و Paint کار می‌کنن، ولی Windows Update حذف شده و Task Manager با نسخه‌ی قدیمی جایگزین شده. → Comment: نکته‌ی اصلی خود ۱۲۸ مگ نیست؛ اینه که برای رسیدن بهش چی حذف شده: آپدیت نیست، Task Manager قدیمیه، کلی سرویس خوابیده. یعنی اون «حداقل ۴ گیگ» بیشتر وزن سرویس‌های مایکروسافته تا خود ویندوز — ولی Pico11 هم فعلاً بیشتر یه نمایشه تا سیستمی برای استفاده‌ی روزمره.
